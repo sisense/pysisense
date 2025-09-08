@@ -1,0 +1,3 @@
+domain: ""      # Can be an IP address like "192.168.1.1" or a domain like "example.com"
+is_ssl: false   # Whether to use SSL or not 
+token: ""       #  Sisense Admin API token

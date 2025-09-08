@@ -1,0 +1,31 @@
+# Python build artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+
+# Virtual environments
+.env
+pysisense_venv/
+venv-pypi/
+
+# macOS system files
+.DS_Store
+
+# IDE/editor settings
+.vscode/
+
+# PyPI/dist build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs and temporary files
+logs/*.log
+
+# Data files
+*.csv
+
+# flake8 configuration
+.flake8
