@@ -8,10 +8,12 @@ prune examples
 prune docs
 prune scripts
 prune .github
+prune logs
+prune .env
+prun .vscode/
 
 # Ignore build/cache noise
-global-exclude __pycache__/*
+recursive-exclude __pycache__ *
 global-exclude *.py[cod]
-global-exclude *.pyo
 global-exclude .DS_Store
 global-exclude *.so *.dylib
