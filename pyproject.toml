@@ -21,7 +21,7 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Topic :: Software Development :: Libraries",
-  "License :: OSI Approved :: Apache Software License",
+  "License :: Other/Proprietary License",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
@@ -37,7 +37,7 @@ Issues = "https://github.com/sisense/pysisense/issues"
 Source = "https://github.com/sisense/pysisense"
 
 [tool.setuptools]
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 # package code is in ./pysisense

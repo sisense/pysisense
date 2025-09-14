@@ -131,12 +131,7 @@ You can also explore:
 
 ## 📄 License
 
-Licensed under the **Apache License, Version 2.0**.
+This project is licensed under the Sisense End User License Agreement (EULA).
+See the [LICENSE](./LICENSE) file for the full text.
 
-You may obtain a copy of the License in the [`LICENSE`](./LICENSE) file or at http://www.apache.org/licenses/LICENSE-2.0
-
-This project also includes a [`NOTICE`](./NOTICE) file with attribution information.
-
-> © 2025 Sisense Ltd. “Sisense” and related marks are trademarks of Sisense Ltd. and are not licensed under the Apache License.
-
-
+© 2025 Sisense Ltd. “Sisense” and related marks are trademarks of Sisense Ltd.

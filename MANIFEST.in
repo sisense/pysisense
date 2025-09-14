@@ -1,5 +1,4 @@
 include LICENSE
-include NOTICE
 include README.md
 
 # Exclude dev/test content from the sdist
