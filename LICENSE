@@ -1,201 +1,46 @@
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
+PYSISENSE SDK
+END USER LICENSE AGREEMENT
 
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+This End User License Agreement (“EULA”) forms a binding agreement between you individually or the entity on whose behalf you are accepting this agreement (“You”) and describes the terms and conditions governing the use of any application programming interface, software development kit, code snippet, sample code, user interface component, visualization, CLI tools, or sample data, and the corresponding documentation for each, any updates and upgrades thereto, and any modifications, enhancements, or improvements, of any of the foregoing (each, a “Tool” and collectively, the “Tools”), made available by Sisense Ltd. or its affiliates (“Sisense”).
 
-   1. Definitions.
+1. ACCEPTANCE
+By downloading, importing, installing and/or using any Tool (or any portion thereof), You represent and warrant that: (a) You have read, understand and accept all of the provisions of this EULA; and (b) if You are accepting on behalf of an entity, You are an employee, contractor or agent of such entity and have the authority and all legal power to accept on behalf of such entity.
 
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
+2. LICENSE SCOPE
+Subject to the terms and conditions of this EULA, Sisense hereby grants You a royalty-free, non-exclusive, non-transferable, limited license to access, download and use the Tools (in the manner described in the documentation for such Tool) solely for utilization with Your use of the applicable Sisense subscription product (the “Product”), to which You must have purchased the necessary license and use rights pursuant to a separate written agreement with Sisense (the “Master Subscription Agreement”).
 
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
+3. RESTRICTIONS
+You agree that You will not (and have no license to) and will not permit any third party to: (i) use the Tools except as permitted under this EULA; (ii) sell, resell, license, sublicense, rent, lease, encumber, lend, distribute, transfer, or provide a third party with access to the Tools; (iii) modify or create derivative works of the Tools; (iv) circumvent or remove by any means any copy protection used by Sisense in connection with the Tools; (v) use the Tools to develop a competitive product offering; (vi) use the Tools to access Sisense products in a manner not authorized by the Master Subscription Agreement or this EULA; or (vii) use the Tools in any manner that violates the Master Subscription Agreement or any applicable laws or regulations.
 
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
+4. SISENSE OWNERSHIP
+Except for those portions licensed to Sisense by third parties, Sisense retains all right, title and interest in and to the Tools, including without limitation all copyrights and other intellectual property or other proprietary rights worldwide therein (including but not limited to all patent, trademark, service mark, copyright, trade secret, know-how, moral right, and any other intellectual and intangible property rights, including all continuations, continuations in part, applications, renewals, and extensions of any of the foregoing, whether registered or unregistered). All rights not expressly granted herein are reserved. You may not remove, delete or modify any of the Sisense copyright statements in the Tools.
 
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
+5. OPEN SOURCE COMPONENTS
+To the extent any open source software components are provided with or used by the Tools, such components are licensed to You under the terms of the applicable license agreements included with such open source software components.
 
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
+6. THIRD-PARTY COMPONENTS
+To the extent that any Tool includes one or more components licensed by a third party (a “Component”), and such third party’s license requirements apply to such Component in a Tool, such additional license terms will be provided in the open source disclosure file provided with or within a Tool download. Third-party license terms shall take precedence over this EULA to the extent that they impose additional restrictions or limitations on You than the license provided herein for download and use of a Component. You agree that: (a) to the extent that the terms between You and the third party for use of a third-party technology accessed by the Component are more restrictive, such terms shall apply to Your use of the Component; (b) Sisense, and not the third party, is responsible for the Component including, without limitation, for any warranties, maintenance, and support thereof, and the third party does not warrant the Component’s accuracy, reliability, completeness, usefulness, non-infringement, or quality of the Component, and will not be liable for any losses or damages of any kind, including lost profits or other indirect or consequential damages, relating to use of or reliance on the Component; and (c) the third party owns all right, title, and interest in and to the Component, including all intellectual property rights therein.
 
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
+7. TERM, TERMINATION, AND CHANGES
+This EULA shall continue as long as You are in compliance with the terms specified herein or until otherwise terminated. This EULA shall automatically terminate upon the expiration or termination of the Master Subscription Agreement. You agree, upon termination, to destroy all copies of the Tools within Your possession or control. The Disclaimer of Warranties, Limitation of Liability and Indemnification sections set out in this EULA shall survive any termination or expiration of this EULA. Sisense may, in its sole discretion, update this EULA from time to time.
 
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
+8. NO DUTY TO SUPPORT
+You expressly acknowledge that Sisense has no duty or obligation to support the Tools, or to provide updates or bug fixes to the Tools.
 
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
+9. DISCLAIMER OF WARRANTIES
+THE TOOLS ARE PROVIDED “AS IS” WITHOUT ANY WARRANTIES OF ANY KIND. TO THE MAXIMUM EXTENT PERMITTED BY LAW, SISENSE DISCLAIMS RESPONSIBILITY FOR ANY HARM RESULTING FROM YOUR USE OF ANY TOOL. SISENSE DISCLAIMS TO THE FULLEST EXTENT PERMITTED, ALL GUARANTEES AND EXPRESS, IMPLIED AND STATUTORY WARRANTIES, INCLUDING WITHOUT LIMITATION THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT OF PROPRIETARY RIGHTS, AND ANY WARRANTIES REGARDING THE AVAILABILITY, SECURITY, RELIABILITY, TIMELINESS AND PERFORMANCE OF ANY TOOL. YOU ACKNOWLEDGE THAT YOU DOWNLOAD AND USE THE TOOLS AT YOUR OWN DISCRETION AND RISK, AND YOU ARE SOLELY RESPONSIBLE FOR ANY DAMAGES TO HARDWARE DEVICES OR LOSS OF DATA THAT RESULT FROM THE DOWNLOAD OR USE OF ANY TOOL.
 
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
+10. LIMITATION OF LIABILITY
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL SISENSE BE LIABLE FOR ANY LOST PROFITS OR BUSINESS OPPORTUNITIES, LOSS OF USE, BUSINESS INTERRUPTION, LOSS OF DATA, OR ANY OTHER INDIRECT, SPECIAL, INCIDENTAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF OR FROM YOUR USE OF THE TOOLS, UNDER ANY THEORY OF LIABILITY, WHETHER BASED IN CONTRACT, TORT, NEGLIGENCE, PRODUCT LIABILITY, OR OTHERWISE. TO THE EXTENT THE PRECEDING LIMITATION DOES NOT APPLY UNDER APPLICABLE LAW, SISENSE’S LIABILITY ARISING OUT OF THE TOOLS PROVIDED HEREUNDER SHALL NOT, IN ANY EVENT, EXCEED USD $100.00. THE FOREGOING LIMITATIONS SHALL APPLY TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, REGARDLESS OF WHETHER A PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES AND REGARDLESS OF WHETHER ANY REMEDY FAILS OF ITS ESSENTIAL PURPOSE.
 
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
+11. INDEMNIFICATION
+You agree to defend, indemnify and hold harmless Sisense, and any of its directors, officers, employees, affiliates, subsidiaries or agents, from and against any and all claims, losses, damages, liabilities and other expenses (including reasonable attorneys' fees), arising from or related to: (i) Your use of the Tools; (ii) any derivative works You create using the Tools; and (iii) Your breach of this EULA.
 
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
+12. EXPORT CONTROL
+The Tools are provided subject to the U.S. Export Administration Regulations and the regulations of other jurisdictions (e.g., the European Union). Diversion contrary to applicable law is prohibited. Without limiting the foregoing, You agree that (i) You are not acting on behalf of any person who is a citizen, national, or resident of, or who is controlled by the government of any country to which the United States or other applicable government body has prohibited export transactions; (ii) You are not acting on behalf of, any person or entity listed on a relevant list of persons to whom export is prohibited (e.g., the U.S. Treasury Department list of Specially Designated Nationals and Blocked Persons, the U.S. Commerce Department Denied Persons List or Entity List, etc.); and (iii) You will not use the Tools for any purpose prohibited by applicable law.
 
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
+13. GOVERNMENT USE
+If a Tool provided under the Master Subscription Agreement is software, then it is commercial computer software developed exclusively at private expense. Unless otherwise set forth in the Master Subscription Agreement, use, duplication, and disclosure by civilian agencies of the U.S. Government will not exceed those minimum rights set forth in FAR 52.227-19(c) or successor regulations. Use, duplication, and disclosure by U.S. Department of Defense agencies is subject solely to the license terms contained in this EULA, as stated in DFARS 227.7202 or successor regulations. U.S. Government rights will apply only to the specific agency and program for which the Product is obtained.
 
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "[]"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright [2025] [Sisense Ltd.]
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
+14. GOVERNING LAW; ENTIRE AGREEMENT
+This EULA shall be governed by the laws of the State of New York and the United States of America without regard to conflict of laws principles. You may not assign any part of this EULA without the prior written consent of Sisense. Any attempted assignment without consent shall be void. This EULA represents the entire agreement between You and Sisense with respect to the Tools and supersedes all prior written or oral communications, understandings and agreements containing the subject matter contained herein. Any waiver of these terms must be in writing to be effective. If any provision of these terms is found to be invalid or unenforceable, the remaining terms will continue to be valid and enforceable to the fullest extent permitted by law. In the event of a conflict between this EULA and the Master Subscription Agreement, the terms of this EULA will prevail to the extent applicable to the license and use of the Tools.
