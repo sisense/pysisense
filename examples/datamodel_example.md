@@ -12,13 +12,13 @@ This guide demonstrates how to use the `DataModel` class from the `pysisense` pa
 ```python
 import os
 import json
-from pysisense import DataModel, APIClient
+from pysisense import DataModel, SisenseClient
 
 # Set the path to your config file
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 # Initialize the API client
-api_client = APIClient(config_file=config_path, debug=True)
+api_client = SisenseClient(config_file=config_path, debug=True)
 
 # --- Initialize the DataModel class using the shared APIClient ---
 datamodel = DataModel(api_client=api_client)

@@ -13,13 +13,13 @@ This guide demonstrates how to use the `AccessManagement` class from the `pysise
 import os
 import csv
 import json
-from pysisense import AccessManagement, APIClient
+from pysisense import AccessManagement, SisenseClient
 
 # Set the path to your config file
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 # Initialize the API client
-api_client = APIClient(config_file=config_path, debug=True)
+api_client = SisenseClient(config_file=config_path, debug=True)
 
 # Initialize the AccessManagement class
 access_mgmt = AccessManagement(api_client=api_client)

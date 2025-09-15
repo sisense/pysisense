@@ -12,13 +12,13 @@ This guide demonstrates how to use the `Dashboard` class from the `pysisense` pa
 ```python
 import os
 import json
-from pysisense import APIClient, Dashboard
+from pysisense import SisenseClient, Dashboard
 
 # Set the path to your config file
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 
 # Initialize the API client
-api_client = APIClient(config_file=config_path, debug=True)
+api_client = SisenseClient(config_file=config_path, debug=True)
 
 # --- Initialize the Dashboard class using the shared APIClient ---
 dashboard = Dashboard(api_client=api_client)
