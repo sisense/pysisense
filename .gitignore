@@ -9,6 +9,8 @@ __pycache__/
 .env
 pysisense_venv/
 venv-pypi/
+venv/
+sisensepypi/
 
 # macOS system files
 .DS_Store

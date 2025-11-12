@@ -21,6 +21,7 @@ class AccessManagement:
 
         # Use the logger from the APIClient instance
         self.logger = self.api_client.logger
+        self.logger.debug("AccessManagement class initialized.")
 
     def get_user(self, user_name):
         """
@@ -1100,6 +1101,7 @@ class AccessManagement:
             self.logger.info("No folders or dashboards to change ownership. Exiting.")
             return None
 
+
     def get_datamodel_columns(self, datamodel_name):
         """
         Retrieves columns from a DataModel by collecting them from its datasets and tables.
@@ -1117,7 +1119,7 @@ class AccessManagement:
 
         # Step 1: Get DataModel ID
         self.logger.debug(f"Fetching DataModel ID for '{datamodel_name}'")
-        schema_url = "/api/v2/datamodels/schema"
+        schema_url = f"/api/v2/datamodels/schema?title={datamodel_name}"
         response = self.api_client.get(schema_url)
 
         if not response or response.status_code != 200:
@@ -1125,7 +1127,18 @@ class AccessManagement:
             return []
 
         response_data = response.json()
-        datamodel_id = next((x.get("oid") for x in response_data if x.get("title") == datamodel_name), None)
+
+        # Endpoint is already filtered by title; just extract the oid
+        if isinstance(response_data, list):
+            first_match = next(
+                (x for x in response_data if isinstance(x, dict) and x.get("oid")),
+                None,
+            )
+            datamodel_id = first_match.get("oid") if first_match else None
+        elif isinstance(response_data, dict):
+            datamodel_id = response_data.get("oid")
+        else:
+            datamodel_id = None
 
         if not datamodel_id:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
@@ -1146,7 +1159,11 @@ class AccessManagement:
             return []
 
         response_data = response.json()
-        dataset_ids = [x.get("oid") for x in response_data if "oid" in x]
+        dataset_ids = [
+            x.get("oid")
+            for x in response_data
+            if isinstance(x, dict) and "oid" in x
+        ]
 
         if not dataset_ids:
             self.logger.warning(
@@ -1199,7 +1216,9 @@ class AccessManagement:
 
                 columns = table.get("columns")
                 if not columns or not isinstance(columns, list):
-                    self.logger.warning(f"Table '{table_name}' in DataSet ID '{dataset_id}' has no columns. Skipping.")
+                    self.logger.warning(
+                        f"Table '{table_name}' in DataSet ID '{dataset_id}' has no columns. Skipping."
+                    )
                     continue
 
                 table_column_count = len(columns)
@@ -1209,7 +1228,9 @@ class AccessManagement:
                 for column in columns:
                     column_name = column.get("name")
                     if not column_name:
-                        self.logger.warning(f"A column in table '{table_name}' has no name. Skipping.")
+                        self.logger.warning(
+                            f"A column in table '{table_name}' has no name. Skipping."
+                        )
                         continue
 
                     all_columns.append({
@@ -1227,6 +1248,7 @@ class AccessManagement:
         self.logger.debug(f"Final collected column data: {all_columns}")
 
         return all_columns
+
 
     def get_unused_columns(self, datamodel_name):
         """
