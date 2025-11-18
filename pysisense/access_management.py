@@ -1101,7 +1101,6 @@ class AccessManagement:
             self.logger.info("No folders or dashboards to change ownership. Exiting.")
             return None
 
-
     def get_datamodel_columns(self, datamodel_name):
         """
         Retrieves columns from a DataModel by collecting them from its datasets and tables.
@@ -1249,7 +1248,6 @@ class AccessManagement:
 
         return all_columns
 
-
     def get_unused_columns(self, datamodel_name):
         """
         Identify unused columns in a given DataModel by comparing all available columns against the columns
@@ -1264,6 +1262,10 @@ class AccessManagement:
 
         Returns:
             list: A list of dictionaries containing unused column details with a "used" field set to True or False.
+
+        Raises:
+            ValueError: If no columns are found for the given DataModel (for example, if it does not exist
+                        or is not accessible).
         """
         self.logger.info(f"Starting analysis for unused columns in DataModel: {datamodel_name}")
 
@@ -1271,7 +1273,11 @@ class AccessManagement:
         all_columns = self.get_datamodel_columns(datamodel_name)
         if not all_columns:
             self.logger.warning(f"No columns found for DataModel '{datamodel_name}'. Exiting.")
-            return []
+            # Treat this as an error condition: the DataModel likely does not exist or is not accessible.
+            raise ValueError(
+                f"No columns found for DataModel '{datamodel_name}'. "
+                "The DataModel may not exist or may not be accessible."
+            )
 
         total_datamodel_columns = len(all_columns)
         self.logger.info(f"Retrieved {total_datamodel_columns} columns from DataModel '{datamodel_name}'")
@@ -1288,7 +1294,17 @@ class AccessManagement:
         dashboards = response.json()
         if not dashboards:
             self.logger.warning(f"No dashboards found using DataModel '{datamodel_name}' or access is restricted.")
-            return []
+            # For a valid DataModel with no dashboards, treat all columns as unused.
+            used_columns_count = 0
+            unused_columns_count = len(all_columns)
+
+            for entry in all_columns:
+                entry["used"] = False
+
+            self.logger.info(f"Total used columns: {used_columns_count}")
+            self.logger.info(f"Total unused columns: {unused_columns_count}")
+
+            return all_columns
 
         dashboard_ids = {dash["oid"] for dash in dashboards}  # Get unique dashboard IDs
         total_dashboards = len(dashboard_ids)
@@ -1480,9 +1496,9 @@ class AccessManagement:
             column = entry["column"]
 
             # Check against cleaned dashboard column names
-            entry['used'] = (table, column) in dashboard_columns_set
+            entry["used"] = (table, column) in dashboard_columns_set
 
-            if entry['used']:
+            if entry["used"]:
                 used_columns_count += 1
             else:
                 unused_columns_count += 1
