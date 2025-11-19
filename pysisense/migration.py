@@ -1,21 +1,76 @@
+from typing import Optional
+
 from .sisenseclient import SisenseClient
 import time
 
 
 class Migration:
-
-    def __init__(self, source_yaml, target_yaml, debug=False):
+    def __init__(
+        self,
+        source_yaml: Optional[str] = None,
+        target_yaml: Optional[str] = None,
+        debug: bool = False,
+        *,
+        source_client: Optional[SisenseClient] = None,
+        target_client: Optional[SisenseClient] = None,
+    ):
         """
-        Initializes the Migration class with API clients and Access Management for both source and target environments.
+        Initializes the Migration class with API clients for both source and
+        target environments.
 
-        Parameters:
-            source_yaml (str): Path to the YAML file for source environment configuration.
-            target_yaml (str): Path to the YAML file for target environment configuration.
-            debug (bool, optional): Enables debug logging if True. Default is False.
+        Supported patterns:
+
+        1) YAML-based (existing behavior, fully supported):
+            migration = Migration(
+                source_yaml="source.yaml",
+                target_yaml="target.yaml",
+                debug=False,
+            )
+
+        2) Client-based (for agent app / inline connections):
+            src_client = SisenseClient.from_connection(
+                domain="https://source.sisense.com",
+                token="SRC_TOKEN",
+                is_ssl=True,
+                debug=True,
+            )
+            tgt_client = SisenseClient.from_connection(
+                domain="https://target.sisense.com",
+                token="TGT_TOKEN",
+                is_ssl=True,
+                debug=True,
+            )
+            migration = Migration(
+                source_client=src_client,
+                target_client=tgt_client,
+                debug=True,
+            )
+
+        Exactly one mode must be provided:
+        - Either both source_client and target_client
+        - Or both source_yaml and target_yaml
         """
-        # Initialize API clients for both source and target environments
-        self.source_client = SisenseClient(config_file=source_yaml, debug=debug)
-        self.target_client = SisenseClient(config_file=target_yaml, debug=debug)
+        # Prefer explicit clients if provided (agent / runtime connections)
+        if source_client is not None and target_client is not None:
+            self.source_client = source_client
+            self.target_client = target_client
+
+        # Otherwise fall back to YAML-based configuration (legacy / scripts)
+        elif source_yaml is not None and target_yaml is not None:
+            self.source_client = SisenseClient(
+                config_file=source_yaml,
+                debug=debug,
+            )
+            self.target_client = SisenseClient(
+                config_file=target_yaml,
+                debug=debug,
+            )
+
+        else:
+            raise ValueError(
+                "Migration requires either (source_client and target_client) "
+                "OR (source_yaml and target_yaml)."
+            )
 
         # Use the logger from the source client for consistency
         self.logger = self.source_client.logger
@@ -1173,10 +1228,8 @@ class Migration:
             if not dash_to_process:
                 self.logger.info(
                     "No successfully migrated dashboards were captured. Skipping shares and ownership migration. "
-                    (
-                        "This may be due to errors during migration or because the dashboards already existed "
-                        "and were skipped. Review the logs for more details."
-                    )
+                    "This may be due to errors during migration or because the dashboards already existed "
+                    "and were skipped. Review the logs for more details."
                 )
             else:
                 self.logger.info(f"Processing shares and ownership for dashboards: {dash_to_process}")
@@ -1502,10 +1555,8 @@ class Migration:
                         ):
                             final_reason = (
                                 f"Datamodel '{data_model['title']}' already exists on the target with a different ID. "
-                                (
-                                    "Consider using action='duplicate' with a new title, "
-                                    "or delete the existing model manually."
-                                )
+                                "Consider using action='duplicate' with a new title, "
+                                "or delete the existing model manually."
                             )
                             self.logger.error(final_reason)
                             migration_summary['failed'].append(data_model['title'])
