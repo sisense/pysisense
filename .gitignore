@@ -31,3 +31,6 @@ logs/*.log
 
 # flake8 configuration
 .flake8
+
+# Local scratch scripts (not tracked)
+scripts/
