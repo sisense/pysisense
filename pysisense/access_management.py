@@ -1,4 +1,6 @@
+from typing import Any, Dict, List, Optional, Union
 from .sisenseclient import SisenseClient
+from .datamodel import DataModel
 
 
 class AccessManagement:
@@ -18,6 +20,8 @@ class AccessManagement:
             self.api_client = api_client
         else:
             self.api_client = SisenseClient(debug=debug)
+
+        self.datamodel = DataModel(api_client=self.api_client, debug=debug)
 
         # Use the logger from the APIClient instance
         self.logger = self.api_client.logger
@@ -1507,6 +1511,101 @@ class AccessManagement:
         self.logger.info(f"Total unused columns: {unused_columns_count}")
 
         return all_columns
+
+    def get_unused_columns_bulk(
+        self,
+        datamodels: Optional[Union[str, List[str]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Run unused-column analysis for one or more data models and return a
+        combined result set.
+
+        Parameters
+        ----------
+        datamodels : str or list of str, optional
+            One or more data model references to analyze. Each reference can be:
+              - a data model ID, or
+              - a data model title (name).
+            At least one data model reference is required. At runtime this
+            parameter is tolerant of a single string and will normalize it to a
+            one-element list.
+
+        Returns
+        -------
+        list of dict
+            A flat list of rows across all processed data models. Each row has
+            the same structure as returned by get_unused_columns().
+            If no data models are successfully processed, an empty list is
+            returned and details are available in the logs.
+        """
+        self.logger.info("Starting bulk unused-column analysis for data models.")
+        self.logger.debug(f"Input datamodels parameter: {datamodels}")
+
+        if datamodels is None:
+            error_msg = "At least one data model reference (ID or name) is required."
+            self.logger.error(error_msg)
+            return []
+
+        if isinstance(datamodels, str):
+            refs = [datamodels]
+        else:
+            refs = [ref for ref in datamodels if isinstance(ref, str)]
+
+        if not refs:
+            error_msg = "No valid data model references provided."
+            self.logger.error(error_msg)
+            return []
+
+        self.logger.info(f"Processing specified data models: {refs}")
+
+        all_results: List[Dict[str, Any]] = []
+        processed_count = 0
+
+        for ref in refs:
+            self.logger.info(f"Resolving data model reference: {ref}")
+            resolved = self.datamodel.resolve_datamodel_reference(ref)
+
+            if not resolved.get("success"):
+                self.logger.warning(
+                    f"Skipping data model reference '{ref}': {resolved.get('error')}"
+                )
+                continue
+
+            datamodel_title = resolved.get("datamodel_title")
+            if not datamodel_title:
+                self.logger.warning(
+                    f"Resolved data model reference '{ref}' has no title. Skipping."
+                )
+                continue
+
+            try:
+                self.logger.info(
+                    f"Running unused-column analysis for data model '{datamodel_title}'"
+                )
+                rows = self.get_unused_columns(datamodel_title)
+            except ValueError as exc:
+                # get_unused_columns raises ValueError when no columns found
+                self.logger.warning(
+                    f"Skipping data model '{datamodel_title}' due to error: {exc}"
+                )
+                continue
+
+            all_results.extend(rows)
+            processed_count += 1
+
+        if processed_count == 0:
+            self.logger.warning(
+                "No data models were successfully processed in get_unused_columns_bulk."
+            )
+            return []
+
+        self.logger.info(
+            "Completed unused-column analysis for %d data model(s). "
+            "Total result rows: %d",
+            processed_count,
+            len(all_results),
+        )
+        return all_results
 
     def get_all_dashboard_shares(self):
         """

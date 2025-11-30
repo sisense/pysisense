@@ -429,3 +429,33 @@ Retrieves the row count for each table in a specific DataModel.
 #### Returns:
 
 * `list`: List of dictionaries, each containing `table_name` and `row_count`. Includes an additional final row with the total row count.
+
+---
+
+### `resolve_datamodel_reference(datamodel_ref)`
+
+Resolves a data model reference (ID or name) to a concrete data model ID and title.
+
+This helper accepts a single string that may be either:
+
+- A Sisense data model ID, or  
+- A data model title (name).
+
+It first attempts to treat the reference as an ID using the underlying
+“get by ID” logic. If that fails or the reference does not look like an
+ID, it falls back to the “get by name” logic.
+
+**Parameters:**
+
+- `datamodel_ref` (str):  
+  Data model reference to resolve. This can be either an ID or a name.
+
+**Returns:**
+
+- `dict`: Dictionary with the following keys:
+  - `success` (bool): `True` if the reference was resolved to a data model; otherwise `False`.
+  - `status_code` (int):  
+    `200` if resolved successfully, `404` if not found, or `500` if an unexpected error occurred.
+  - `datamodel_id` (str or None): Resolved data model ID (`oid`) if found, otherwise `None`.
+  - `datamodel_title` (str or None): Resolved data model title if found, otherwise `None`.
+  - `error` (str or None): Error message if `success` is `False`, otherwise `None`.

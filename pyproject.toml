@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysisense"
-version = "0.1.7"
+version = "0.2.0"
 description = "A Python SDK for interacting with Sisense API"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -41,4 +41,19 @@ license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 # package code is in ./pysisense
-exclude = ["tests*", "docs*", "examples*", "scripts*", "logs*", "venv-pypi*"]
+exclude = [
+  "tests*",
+  "docs*",
+  "examples*",
+  "scripts*",
+  "logs*",
+  "dist*",
+  "build*",
+  "pysisense.egg-info*",
+  ".pytest_cache*",
+  "venv*",
+  ".venv*",
+  "venv-pypi*",
+  "sisensepypi*",
+]
+

@@ -34,3 +34,12 @@ logs/*.log
 
 # Local scratch scripts (not tracked)
 scripts/
+
+# Yaml cache files
+*.yaml.cache
+
+# All YAML files
+*.yaml
+
+# pytest cache
+.pytest_cache/

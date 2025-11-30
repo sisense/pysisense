@@ -1,3 +1,4 @@
+from typing import Any, Dict, List
 from .sisenseclient import SisenseClient
 
 
@@ -1616,3 +1617,206 @@ class DataModel:
             f"Total rows: {total_row_count}"
         )
         return row_info
+
+    def resolve_datamodel_reference(self, datamodel_ref: str) -> Dict[str, Any]:
+        """
+        Resolve a data model reference (ID or title) to a concrete data model ID and title.
+
+        This helper accepts a single string that may be either:
+        - a Sisense data model ID, or
+        - a data model title (schema name).
+
+        It first attempts to treat the reference as an ID using
+        `/api/v2/datamodels/{id}/schema`. If that fails, it falls back to
+        calling `/api/v2/datamodels/schema` with a `title` query parameter.
+
+        Parameters
+        ----------
+        datamodel_ref : str
+            Data model reference to resolve. This can be either an ID or a name.
+
+        Returns
+        -------
+        dict
+            A dictionary with the following keys:
+            - success (bool): True if the reference was resolved to a data model.
+            - status_code (int): 200 if resolved successfully, 404 if not found,
+              or 500 if an unexpected error occurred.
+            - datamodel_id (str or None): Resolved data model ID (oid) if found,
+              otherwise None.
+            - datamodel_title (str or None): Resolved data model title if found,
+              otherwise None.
+            - error (str or None): Error message if success is False, otherwise None.
+        """
+        self.logger.debug(
+            "Resolving data model reference.",
+            extra={"datamodel_ref": datamodel_ref},
+        )
+
+        # -------------------------
+        # 1) Try treating it as an ID
+        # -------------------------
+        id_endpoint = f"/api/v2/datamodels/{datamodel_ref}/schema"
+        id_response = self.api_client.get(id_endpoint)
+
+        if id_response is not None and id_response.status_code == 200:
+            try:
+                payload: Dict[str, Any] = id_response.json()
+                datamodel_id = payload.get("oid")
+                datamodel_title = payload.get("title")
+
+                if datamodel_id:
+                    self.logger.debug(
+                        "Resolved data model reference as ID.",
+                        extra={
+                            "datamodel_ref": datamodel_ref,
+                            "datamodel_id": datamodel_id,
+                            "datamodel_title": datamodel_title,
+                        },
+                    )
+                    return {
+                        "success": True,
+                        "status_code": 200,
+                        "datamodel_id": datamodel_id,
+                        "datamodel_title": datamodel_title,
+                        "error": None,
+                    }
+            except Exception as exc:
+                self.logger.exception(
+                    "Failed to parse data model JSON when treating reference as ID.",
+                    extra={"datamodel_ref": datamodel_ref, "error": str(exc)},
+                )
+
+        # -------------------------
+        # 2) Treat it as a title
+        # -------------------------
+        title_endpoint = "/api/v2/datamodels/schema"
+        title_params = {"title": datamodel_ref}
+
+        self.logger.debug(
+            "Attempting to resolve data model reference by title.",
+            extra={"datamodel_ref": datamodel_ref, "endpoint": title_endpoint},
+        )
+
+        title_response = self.api_client.get(title_endpoint, params=title_params)
+
+        if title_response is None:
+            error_msg = (
+                "No response received while resolving data model by title."
+            )
+            self.logger.error(
+                error_msg,
+                extra={"datamodel_ref": datamodel_ref},
+            )
+            return {
+                "success": False,
+                "status_code": 500,
+                "datamodel_id": None,
+                "datamodel_title": None,
+                "error": error_msg,
+            }
+
+        if title_response.status_code != 200:
+            try:
+                error_body = title_response.json()
+            except Exception:
+                error_body = getattr(title_response, "text", "No response text")
+            error_msg = (
+                "Failed to resolve data model by title. "
+                f"Status: {title_response.status_code}, Error: {error_body}"
+            )
+            self.logger.error(
+                error_msg,
+                extra={"datamodel_ref": datamodel_ref},
+            )
+            return {
+                "success": False,
+                "status_code": title_response.status_code,
+                "datamodel_id": None,
+                "datamodel_title": None,
+                "error": error_msg,
+            }
+
+        try:
+            payload = title_response.json()
+        except Exception as exc:
+            error_msg = (
+                "Failed to parse data model JSON when resolving by title."
+            )
+            self.logger.exception(
+                error_msg,
+                extra={"datamodel_ref": datamodel_ref, "error": str(exc)},
+            )
+            return {
+                "success": False,
+                "status_code": 500,
+                "datamodel_id": None,
+                "datamodel_title": None,
+                "error": error_msg,
+            }
+
+        # The API might return a single object or a list; handle both.
+        candidates: List[Dict[str, Any]] = []
+        if isinstance(payload, list):
+            candidates = payload
+        elif isinstance(payload, dict):
+            candidates = [payload]
+
+        if not candidates:
+            error_msg = f"Data model reference '{datamodel_ref}' not found."
+            self.logger.warning(
+                error_msg,
+                extra={"datamodel_ref": datamodel_ref},
+            )
+            return {
+                "success": False,
+                "status_code": 404,
+                "datamodel_id": None,
+                "datamodel_title": None,
+                "error": error_msg,
+            }
+
+        # Prefer an exact title match (case-insensitive), otherwise take the first one.
+        exact_match = None
+        for candidate in candidates:
+            title = candidate.get("title")
+            if isinstance(title, str) and title.lower() == datamodel_ref.lower():
+                exact_match = candidate
+                break
+
+        chosen = exact_match or candidates[0]
+        datamodel_id = chosen.get("oid")
+        datamodel_title = chosen.get("title")
+
+        if not datamodel_id:
+            error_msg = (
+                "Resolved data model payload is missing 'oid' field."
+            )
+            self.logger.error(
+                error_msg,
+                extra={"datamodel_ref": datamodel_ref, "payload": chosen},
+            )
+            return {
+                "success": False,
+                "status_code": 500,
+                "datamodel_id": None,
+                "datamodel_title": None,
+                "error": error_msg,
+            }
+
+        self.logger.debug(
+            "Resolved data model reference by title.",
+            extra={
+                "datamodel_ref": datamodel_ref,
+                "datamodel_id": datamodel_id,
+                "datamodel_title": datamodel_title,
+            },
+        )
+
+        return {
+            "success": True,
+            "status_code": 200,
+            "datamodel_id": datamodel_id,
+            "datamodel_title": datamodel_title,
+            "error": None,
+        }

@@ -280,6 +280,20 @@ api_client.export_to_csv(unused_columns, file_name="unused_columns.csv")
 
 ---
 
+## Example 10B: Get Unused Columns in Multiple DataModels
+```python
+results = access_mgmt.get_unused_columns_bulk(
+    datamodels=["60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb", "MyDataModel_ec"]
+)
+print(json.dumps(results, indent=4))
+if results:
+    df = api_client.to_dataframe(results)
+    print(df)
+api_client.export_to_csv(results, file_name="unused_columns_bulk.csv")
+```
+
+---
+
 ## Example 11: Get Dashboard Shares Info
 
 Get sharing information for all dashboards.

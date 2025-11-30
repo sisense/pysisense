@@ -181,6 +181,33 @@ print(df)
 
 ---
 
+## Example 9: Resolve Dashboard Reference (ID or Name)
+
+Resolve one or more Dashboard references that may be either IDs or names.
+
+```python
+# Mix of Dashboard IDs and titles
+dashboard_refs = [
+    "6893741265c9f5484dc999d7",  # Dashboard ID
+    "Academy AI Content",        # Dashboard title
+]
+
+for ref in dashboard_refs:
+    result = dashboard.resolve_dashboard_reference(ref)
+    print(f"Input reference: {ref}")
+    print(json.dumps(result, indent=4))
+    print("-" * 60)
+
+# Example of using the resolved ID/title for another call
+resolved = dashboard.resolve_dashboard_reference("Academy AI Content")
+if resolved.get("success"):
+    dashboard_id = resolved.get("dashboard_id")
+    dashboard_title = resolved.get("dashboard_title")
+    print(f"Resolved Dashboard: ID={dashboard_id}, Title={dashboard_title}")
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

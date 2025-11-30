@@ -1,6 +1,10 @@
 include LICENSE
 include README.md
 
+# Example configs or local-only files that should not ship
+exclude config.yaml
+exclude .env
+
 # Exclude dev/test content from the sdist
 prune tests
 prune examples
@@ -8,8 +12,15 @@ prune docs
 prune scripts
 prune .github
 prune logs
-prune .env
-prun .vscode/
+prune .vscode
+prune dist
+prune build
+prune .pytest_cache
+prune sisensepypi
+prune venv
+prune .venv
+prune venv-*
+prune pysisense.egg-info
 
 # Ignore build/cache noise
 recursive-exclude __pycache__ *
