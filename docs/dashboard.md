@@ -137,3 +137,32 @@ Retrieves share information (users and groups) for a specific dashboard by its t
 **Returns:**
 
 - `list`: A list of dictionaries, each containing the type of share (`user` or `group`) and the corresponding name (email or group name). Returns an empty list if the dashboard is not found or has no shares.
+
+* * * * *
+
+### `resolve_dashboard_reference(dashboard_ref)`
+
+Resolves a dashboard reference (ID or name) to a concrete dashboard ID and title.
+
+This helper accepts a single string that may be either:
+
+- A Sisense dashboard ID, or  
+- A dashboard title (name).
+
+It first attempts to treat the reference as an ID using `get_dashboard_by_id`.  
+If that fails or the reference does not look like an ID, it falls back to `get_dashboard_by_name`.
+
+**Parameters:**
+
+- `dashboard_ref` (str):  
+  Dashboard reference to resolve. This can be either an ID or a name.
+
+**Returns:**
+
+- `dict`: Dictionary with the following keys:
+  - `success` (bool): `True` if the reference was resolved to a dashboard; otherwise `False`.
+  - `status_code` (int):  
+    `200` if resolved successfully, `404` if not found, or `500` if an unexpected error occurred.
+  - `dashboard_id` (str or None): Resolved dashboard ID (`oid`) if found, otherwise `None`.
+  - `dashboard_title` (str or None): Resolved dashboard title if found, otherwise `None`.
+  - `error` (str or None): Error message if `success` is `False`, otherwise `None`.

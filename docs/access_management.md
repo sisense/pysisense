@@ -178,6 +178,36 @@ Identifies unused columns in a DataModel by comparing against dashboard usage.
 
 * * * * *
 
+### `get_unused_columns_bulk(datamodels=None)`
+
+Runs unused-column analysis for one or more data models and returns a combined result set.
+
+This is a bulk wrapper around `get_unused_columns()`. It accepts data model
+references (IDs or titles), resolves each one via `Datamodel.resolve_datamodel_reference`,
+runs `get_unused_columns()` for every successfully resolved model, and concatenates
+all rows into a single list.
+
+**Parameters:**
+
+- `datamodels` (str or list of str, optional):  
+  One or more data model references to analyze. Each reference can be:
+  - A data model ID, or  
+  - A data model title (name).  
+
+  At least one data model reference is required. At runtime this parameter is
+  tolerant of a single string and will normalize it to a one-element list.
+
+**Returns:**
+
+- `list` of `dict`:  
+  A flat list of rows across all processed data models. Each row has the same
+  structure as returned by `get_unused_columns()`.  
+
+  If no data models are successfully processed, an empty list is returned and
+  details are available in the logs.
+
+* * * * *
+
 ### `get_all_dashboard_shares(self)`
 
 Retrieves all dashboard share settings, including user and group shares.
@@ -208,3 +238,4 @@ Schedules a build for a DataModel. Supports both:
 **Returns:**
 
 - `dict`: API response confirming schedule creation or error details.
+

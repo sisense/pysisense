@@ -500,6 +500,35 @@ api_client.export_to_csv(response, file_name=f"{datamodel_name}_count.csv")
 
 ---
 
+## Example 21: Resolve DataModel Reference (ID or Name)
+
+Resolve one or more DataModel references that may be either IDs or names.
+
+```python
+import json
+
+# Mix of DataModel IDs and titles
+datamodel_refs = [
+    "60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb",  # DataModel ID
+    "MyDataModel_ec",                        # DataModel title
+]
+
+for ref in datamodel_refs:
+    result = datamodel.resolve_datamodel_reference(ref)
+    print(f"Input reference: {ref}")
+    print(json.dumps(result, indent=4))
+    print("-" * 60)
+
+# Example of using the resolved ID/title for another call
+resolved = datamodel.resolve_datamodel_reference("MyDataModel_ec")
+if resolved.get("success"):
+    datamodel_id = resolved.get("datamodel_id")
+    datamodel_title = resolved.get("datamodel_title")
+    print(f"Resolved DataModel: ID={datamodel_id}, Title={datamodel_title}")
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

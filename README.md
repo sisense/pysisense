@@ -74,6 +74,9 @@ The [`examples/`](./examples) folder contains Markdown guides. Each guide explai
 - [`migration_example.md`](./examples/migration_example.md)  
   Environment Migration — migrate users, dashboards, and data models across environments (e.g., dev → prod).
 
+- [`wellcheck_examples.md`](./examples/wellcheck_examples.md)  
+  Data Health & Complexity — run structural checks on dashboards and data models (widget counts, pivot fields, island tables, RLS datatypes, import queries, many-to-many relationships, unused columns, and unused columns per data model via AccessManagement).
+
 Note: These guides are not meant to be executed end-to-end. Copy the relevant snippets into your own Python files or notebooks, update configuration (YAML paths, IDs, etc.), and run them in your environment.
 
 ---
@@ -97,6 +100,7 @@ You don’t need to create this folder manually — it will be created at runtim
 - 📦 **Data Models** – Explore, describe, and update schemas and security
 - 🔐 **Permissions** – Resolve and apply share rules (users & groups)
 - 🔄 **Cross-Environment Migrations** – Move dashboards, models, and users
+- **WellCheck Data Health Checks** – Analyze dashboard and data model health (structure complexity, widget density, pivot fields, island tables, RLS datatypes, import queries, many-to-many relationships, and unused columns)
 - 🧠 **Smart Logging & Data Helpers** – Auto log capture, CSV export, and DataFrame conversion
 - ➕ **And many more** – Refer to the documentation for full details
 
@@ -105,6 +109,7 @@ You don’t need to create this folder manually — it will be created at runtim
 ## 🔧 Design Philosophy
 
 - Pythonic SDK with class-based structure (`Dashboard`, `DataModel`, `AccessManagement`, `Migration`)
+- Additional analysis module: `WellCheck` – Run dashboard and data model health checks (structure, complexity, and best-practice validations)
 - Modular YAML-based authentication
 - Built-in logging and exception handling
 - Designed for end-to-end automation and real-world use
@@ -122,6 +127,7 @@ Comprehensive module-level documentation is available in the `docs/` folder:
 -   [Dashboard](docs/dashboard.md) – Retrieve, modify, and share Sisense dashboards
 -   [Migration](docs/migration.md) – Migrate users, dashboards, and models between environments
 -   [Utils](docs/utils.md) – Helper functions for export, formatting, and data operations
+-   [WellCheck](docs/wellcheck.md) – Run health checks on dashboards and data models (structure, complexity, and best-practice validations)
 
 You can also explore:
 
