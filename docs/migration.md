@@ -52,9 +52,13 @@ Migrates specific groups from the source to the target environment.
 
 * * * * *
 
-### `migrate_all_groups(self)`
+### `migrate_all_groups(self, emit=None)`
 
 Migrates all groups from the source to the target environment.
+
+#### Parameters:
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
 #### Returns:
 
@@ -76,9 +80,13 @@ Migrates specific users from the source to the target environment.
 
 * * * * *
 
-### `migrate_all_users(self)`
+### `migrate_all_users(self, emit=None)`
 
 Migrates all users from the source to the target environment.
+
+#### Parameters:
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
 #### Returns:
 
@@ -107,7 +115,7 @@ Migrates dashboard shares from the source to the target environment.
 
 * * * * *
 
-### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action=None, republish=False, migrate_share=False, change_ownership=False)`
+### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action=None, republish=False, migrate_share=False, change_ownership=False, emit=None)`
 
 Migrates specific dashboards with optional republishing, ownership transfer, and share migration.
 
@@ -131,13 +139,15 @@ Migrates specific dashboards with optional republishing, ownership transfer, and
 
 -   `change_ownership` (bool, optional): Whether to transfer ownership. Only relevant if `migrate_share` is `True`. Default is `False`.
 
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
 #### Returns:
 
 -   `dict`: Summary with succeeded, skipped, and failed dashboard lists.
 
 * * * * *
 
-### `migrate_all_dashboards(self, action=None, republish=False, migrate_share=False, change_ownership=False, batch_size=10, sleep_time=10)`
+### `migrate_all_dashboards(self, action=None, republish=False, migrate_share=False, change_ownership=False, batch_size=10, sleep_time=10, emit=None)`
 
 Migrates all dashboards from the source to the target environment in batches.
 
@@ -155,6 +165,8 @@ Migrates all dashboards from the source to the target environment in batches.
 
 -   `sleep_time` (int, optional): Pause time (seconds) between batches. Default is `10`.
 
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
 #### Returns:
 
 -   `dict`: Batch summary with lists of succeeded, skipped, and failed dashboards.
@@ -164,7 +176,7 @@ Migrates all dashboards from the source to the target environment in batches.
 Data Model Migration
 --------------------
 
-### `migrate_datamodels(self, datamodel_ids=None, datamodel_names=None, provider_connection_map=None, dependencies=None, shares=False, action=None, new_title=None)`
+### `migrate_datamodels(self, datamodel_ids=None, datamodel_names=None, provider_connection_map=None, dependencies=None, shares=False, action=None, new_title=None, emit=None)`
 
 Migrates specific data models with support for dependencies and shares.
 
@@ -198,13 +210,15 @@ Migrates specific data models with support for dependencies and shares.
 
 -   `new_title` (str, optional): New name for the duplicated data model. Used only when action='duplicate'.
 
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
 #### Returns:
 
 -   `dict`: Summary of succeeded, skipped, failed data model migrations, and failure reasons if any.
 
 * * * * *
 
-### `migrate_all_datamodels(self, dependencies=None, shares=False, batch_size=10, sleep_time=5)`
+### `migrate_all_datamodels(self, dependencies=None, shares=False, batch_size=10, sleep_time=5, emit=None)`
 
 Migrates all data models from the source to the target environment in batches.
 
@@ -219,6 +233,8 @@ Migrates all data models from the source to the target environment in batches.
 -   `sleep_time` (int, optional): Pause time (seconds) between batches. Default is `5`.
 
 -   `action` (str, optional): Strategy to handle existing data models. Same behavior as in `migrate_datamodels`. When set to duplicate, appends " (Duplicate)" to each model title automatically.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
 #### Returns:
 
