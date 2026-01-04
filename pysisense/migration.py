@@ -176,6 +176,37 @@ class Migration:
                 return payload["title"]
         return self._truncate(getattr(resp, "text", "") or "") or "Unknown error"    
 
+    def _export_dashboard(self, oid: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Export dashboard from source. Tries adminAccess=true then falls back without it.
+        Returns (exported_json, error_reason).
+        """
+        # Primary: adminAccess=true
+        resp = self.source_client.get(f"/api/dashboards/{oid}/export?adminAccess=true")
+        if resp and resp.status_code == 200:
+            try:
+                data = resp.json()
+                if isinstance(data, dict):
+                    return data, None
+                return None, "Export returned non-dict JSON"
+            except Exception:
+                return None, f"Export returned invalid JSON: {self._truncate(resp.text or '')}"
+
+        # Fallback: without adminAccess (old failsafe)
+        resp2 = self.source_client.get(f"/api/dashboards/{oid}/export")
+        if resp2 and resp2.status_code == 200:
+            try:
+                data = resp2.json()
+                if isinstance(data, dict):
+                    return data, None
+                return None, "Export returned non-dict JSON (fallback path)"
+            except Exception:
+                return None, f"Export returned invalid JSON (fallback path): {self._truncate(resp2.text or '')}"
+
+        status = resp.status_code if resp else None
+        status2 = resp2.status_code if resp2 else None
+        return None, f"Export failed (adminAccess={status}, fallback={status2})"
+
     # -------------------------------------------------------------------------
     # Migration methods
     # -------------------------------------------------------------------------
