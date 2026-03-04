@@ -62,7 +62,7 @@ class SisenseClient:
         if domain is not None or token is not None or is_ssl is not None:
             # Direct connection mode – require domain + token
             if not domain or not token:
-                raise ValueError("When using direct connection, both 'domain' and 'token' " "must be provided.")
+                raise ValueError("When using direct connection, both 'domain' and 'token' must be provided.")
 
             self.config = {
                 "domain": domain,
@@ -73,7 +73,7 @@ class SisenseClient:
         else:
             # Legacy YAML mode
             if not config_file:
-                raise ValueError("config_file must be provided when 'domain' and 'token' " "are not supplied.")
+                raise ValueError("config_file must be provided when 'domain' and 'token' are not supplied.")
             self.config = self._load_config(config_file)
 
         # Get the domain or IP address from the configuration
@@ -305,7 +305,7 @@ class SisenseClient:
                 except ValueError:
                     # If the response is not JSON, use raw text
                     error_message = response.text
-                self.logger.error(f"{method} request to {url} failed with status code " f"{response.status_code}: {error_message}")
+                self.logger.error(f"{method} request to {url} failed with status code {response.status_code}: {error_message}")
             else:
                 self.logger.warning(f"{method} request to {url} returned unexpected status code {response.status_code}")
 

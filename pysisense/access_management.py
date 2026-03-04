@@ -49,7 +49,7 @@ class AccessManagement:
         # Check if the API request failed
         if not response or not response.ok:
             error_msg = f"Failed to retrieve users from API for username: {user_name}."
-            self.logger.error(f"{error_msg} Status Code: " f"{response.status_code if response else 'No response'}")
+            self.logger.error(f"{error_msg} Status Code: {response.status_code if response else 'No response'}")
             return {"error": error_msg}
 
         # Parse the response JSON
@@ -82,7 +82,7 @@ class AccessManagement:
                         "GROUPS": [g["name"] for g in user.get("groups", [])],
                     }
             except Exception as e:
-                self.logger.exception(f"Error processing user object: {user} | " f"Exception: {str(e)}")
+                self.logger.exception(f"Error processing user object: {user} | Exception: {str(e)}")
 
         self.logger.warning(f"User with username '{user_name}' not found.")
         return {"error": f"User '{user_name}' not found."}
@@ -146,7 +146,7 @@ class AccessManagement:
                 data_list.append(base_data)
                 self.logger.debug(f"Successfully processed user: {user['email']}")
             except Exception as e:
-                self.logger.exception(f"Error processing user {user.get('email', 'Unknown')}: " f"{str(e)}")
+                self.logger.exception(f"Error processing user {user.get('email', 'Unknown')}: {str(e)}")
 
         # Log the result and return the final data list
         if data_list:
@@ -175,7 +175,7 @@ class AccessManagement:
 
         if not response or not response.ok:
             status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve groups for name '{name}'. " f"Status Code: {status_code}")
+            self.logger.error(f"Failed to retrieve groups for name '{name}'. Status Code: {status_code}")
             return {"error": f"Failed to retrieve groups for name '{name}'"}
 
         try:
@@ -411,23 +411,23 @@ class AccessManagement:
 
         # If user is not found, log and return error
         if not user or "error" in user:
-            error_msg = f"User '{user_name}' not found. " "Cannot proceed with deletion."
+            error_msg = f"User '{user_name}' not found. Cannot proceed with deletion."
             self.logger.error(error_msg)
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
             return {"error": error_msg}
         # support both formats just in case
         user_id = user.get("_id") or user.get("USER_ID")
         if not user_id:
-            self.logger.error(f"User object for '{user_name}' is missing ID field. " "Cannot proceed.")
+            self.logger.error(f"User object for '{user_name}' is missing ID field. Cannot proceed.")
             return {"error": (f"User '{user_name}' found but no ID field present.")}
 
-        self.logger.debug(f"User '{user_name}' found. Proceeding to delete user with ID: " f"{user_id}")
+        self.logger.debug(f"User '{user_name}' found. Proceeding to delete user with ID: {user_id}")
 
         # Send the DELETE request
         response = self.api_client.delete(f"/api/v1/users/{user['USER_ID']}")
 
         if response and response.status_code == 204:
-            self.logger.info(f"User '{user_name}' (ID: {user['USER_ID']}) deleted. " "No content returned.")
+            self.logger.info(f"User '{user_name}' (ID: {user['USER_ID']}) deleted. No content returned.")
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
             return {"message": "User deleted successfully."}
 
@@ -446,7 +446,7 @@ class AccessManagement:
                 error_message = response.json().get("error", "Unknown error")
             except Exception:
                 error_message = "No response body or invalid JSON"
-            self.logger.error(f"Failed to delete user '{user_name}' " f"(ID: {user['USER_ID']}). Error: {error_message}")
+            self.logger.error(f"Failed to delete user '{user_name}' (ID: {user['USER_ID']}). Error: {error_message}")
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
             return {"error": error_message}
 
@@ -471,7 +471,7 @@ class AccessManagement:
             return {"error": error_msg}
 
         group_id = group.get("GROUP_ID")
-        self.logger.debug(f"Group '{group_name}' found with ID: {group_id}. " f"Proceeding to fetch users.")
+        self.logger.debug(f"Group '{group_name}' found with ID: {group_id}. Proceeding to fetch users.")
 
         # Step 2: Fetch users for the group
         url = f"/api/v1/users?groupId={group_id}"
@@ -479,7 +479,7 @@ class AccessManagement:
 
         if not response or not response.ok:
             status = response.status_code if response else "No response"
-            error_msg = f"Failed to retrieve users for group '{group_name}'. " f"Status Code: {status}"
+            error_msg = f"Failed to retrieve users for group '{group_name}'. Status Code: {status}"
             self.logger.error(error_msg)
             return {"error": error_msg}
 
@@ -531,7 +531,7 @@ class AccessManagement:
         if "Admins" not in groups_dict:
             groups_dict["Admins"] = []  # Ensure 'Admins' group exists
 
-        self.logger.debug(f"Initialized groups dictionary with {len(groups_dict)} entries " f"(excluding excluded groups).")
+        self.logger.debug(f"Initialized groups dictionary with {len(groups_dict)} entries (excluding excluded groups).")
 
         # Step 4: Populate group membership from users
         for user in all_users:
@@ -544,7 +544,7 @@ class AccessManagement:
         for user in all_users:
             if user.get("ROLE_NAME") in ["sysAdmin", "dataAdmin", "admin"]:
                 groups_dict["Admins"].append(user["USER_NAME"])
-                self.logger.debug(f"Added user '{user['USER_NAME']}' to Admins group " f"based on role.")
+                self.logger.debug(f"Added user '{user['USER_NAME']}' to Admins group based on role.")
 
         # Step 6: Prepare final result
         result = [{"group": group_name, "username": usernames} for group_name, usernames in groups_dict.items()]
@@ -585,7 +585,7 @@ class AccessManagement:
         total_dashboards_changed = 0
 
         self.logger.info("Starting folder and dashboard traversal...")
-        self.logger.debug(f"Looking for folder '{folder_name}' to change ownership to " f"'{new_owner_name}'")
+        self.logger.debug(f"Looking for folder '{folder_name}' to change ownership to '{new_owner_name}'")
 
         matching_folders = []
         oid_to_parent_map = {}
@@ -613,7 +613,7 @@ class AccessManagement:
                 self.logger.debug(f"Checking folder '{folder['name']}' (ID: {folder['oid']})")
 
                 if folder["name"] == folder_name:
-                    self.logger.info(f"Found target folder: {folder['name']} " f"(ID: {folder['oid']})")
+                    self.logger.info(f"Found target folder: {folder['name']} (ID: {folder['oid']})")
                     matching_folders.append(folder)
                     traverse_folder(folder)
 
@@ -629,7 +629,7 @@ class AccessManagement:
                 for dash in folder.get("dashboards", []):
                     if (dash["oid"], dash["title"]) not in dashboard_details:
                         dashboard_details.add((dash["oid"], dash["title"]))
-                        self.logger.info(f"Dashboard found: {dash['title']} " f"(ID: {dash['oid']})")
+                        self.logger.info(f"Dashboard found: {dash['title']} (ID: {dash['oid']})")
 
                 for subfolder in folder.get("folders", []):
                     traverse_folder(subfolder)
@@ -682,7 +682,7 @@ class AccessManagement:
             for dash_id, dash_name in dashboard_details:
                 self.logger.info(f"Dashboard: {dash_name} (ID: {dash_id})")
         else:
-            self.logger.warning("Folder not found, moving to search dashboards and " "grant access step...")
+            self.logger.warning("Folder not found, moving to search dashboards and grant access step...")
             limit = 50
             skip = 0
             dashboards = []
@@ -702,29 +702,29 @@ class AccessManagement:
                     skip += limit
 
             all_folder_ids = {dic["parentFolder"] for dic in dashboards if "parentFolder" in dic and dic["parentFolder"]}
-            self.logger.debug(f"Collected parent folder IDs from dashboards: " f"{all_folder_ids}")
+            self.logger.debug(f"Collected parent folder IDs from dashboards: {all_folder_ids}")
 
             folder_response = self.api_client.get("/api/v1/folders")
             folder_response = folder_response.json()
             user_folder_ids = {folder["oid"] for folder in folder_response if "oid" in folder}
-            self.logger.debug(f"Collected user-accessible folder IDs: " f"{user_folder_ids}")
+            self.logger.debug(f"Collected user-accessible folder IDs: {user_folder_ids}")
 
             diff = all_folder_ids - user_folder_ids
-            self.logger.info(f"Folders the user does not have access to: " f"{diff}")
+            self.logger.info(f"Folders the user does not have access to: {diff}")
 
             for dash in dashboards:
                 if "parentFolder" in dash and dash["parentFolder"] in diff:
                     payload = dash["shares"]
                     payload.append({"shareId": user_id, "type": "user", "rule": "edit", "subscribe": False})
-                    self.logger.debug(f"Sharing dashboard {dash['title']} " f"(ID: {dash['oid']}) with {executing_user}")
-                    share_response = self.api_client.post(f'/api/shares/dashboard/{dash["oid"]}?adminAccess=true', data={"sharesTo": payload})
+                    self.logger.debug(f"Sharing dashboard {dash['title']} (ID: {dash['oid']}) with {executing_user}")
+                    share_response = self.api_client.post(f"/api/shares/dashboard/{dash['oid']}?adminAccess=true", data={"sharesTo": payload})
                     share_response = share_response.json()
                     if share_response:
-                        self.logger.info(f"Dashboard '{dash['title']}' shared with " f"{executing_user}")
+                        self.logger.info(f"Dashboard '{dash['title']}' shared with {executing_user}")
                     else:
-                        self.logger.error(f"Failed to share dashboard '{dash['title']}': " f"{share_response}")
+                        self.logger.error(f"Failed to share dashboard '{dash['title']}': {share_response}")
 
-            self.logger.info("Retrying folder and dashboard traversal after granting " "access...")
+            self.logger.info("Retrying folder and dashboard traversal after granting access...")
             folder_found = get_folder_details()
 
             if folder_found:
@@ -736,7 +736,7 @@ class AccessManagement:
                 for dash_id, dash_name in dashboard_details:
                     self.logger.info(f"Dashboard: {dash_name} (ID: {dash_id})")
             else:
-                self.logger.warning(f"Folder '{folder_name}' not found after attempting to " f"grant access. Exiting...")
+                self.logger.warning(f"Folder '{folder_name}' not found after attempting to grant access. Exiting...")
                 return
 
         # Change ownership logic
@@ -745,10 +745,10 @@ class AccessManagement:
 
             # Change folder owners
             self.logger.debug(f"Folders to be changed: {folder_details}")
-            self.logger.info(f"Changing ownership for {len(folder_details)} folders and " f"{len(dashboard_details)} dashboards.")
+            self.logger.info(f"Changing ownership for {len(folder_details)} folders and {len(dashboard_details)} dashboards.")
             for folder_id, folder_name in folder_details:
                 data = {"owner": new_owner_id}
-                self.logger.debug(f"Changing owner for folder {folder_name} (ID: {folder_id}) " f"with data: {data}")
+                self.logger.debug(f"Changing owner for folder {folder_name} (ID: {folder_id}) with data: {data}")
 
                 response = self.api_client.patch(f"/api/v1/folders/{folder_id}", data=data)
                 response = response.json()
@@ -757,7 +757,7 @@ class AccessManagement:
                 self.logger.debug(f"API response for folder change: {response}")
 
                 if response and response.get("owner") == new_owner_id:
-                    self.logger.info(f"Folder '{folder_name}' owner changed to " f"{new_owner_name}")
+                    self.logger.info(f"Folder '{folder_name}' owner changed to {new_owner_name}")
                     total_folders_changed += 1
                 else:
                     self.logger.error(f"Failed to change folder owner for '{folder_name}'.")
@@ -774,7 +774,7 @@ class AccessManagement:
                     current_owner_id = current_dashboard.get("owner")
 
                     if current_owner_id == new_owner_id:
-                        self.logger.info(f"Dashboard '{dash_name}' is already owned by " f"{new_owner_name}, no action needed.")
+                        self.logger.info(f"Dashboard '{dash_name}' is already owned by {new_owner_name}, no action needed.")
                     else:
                         if current_owner_id == user_id:
                             data = {"ownerId": new_owner_id, "originalOwnerRule": original_owner_rule}
@@ -792,7 +792,7 @@ class AccessManagement:
                             self.logger.error(f"Failed to change dashboard owner for '{dash_name}'.")
 
             # Log total changes
-            self.logger.info(f"Ownership changed for {total_folders_changed} folders and " f"{total_dashboards_changed} dashboards.")
+            self.logger.info(f"Ownership changed for {total_folders_changed} folders and {total_dashboards_changed} dashboards.")
             return {"total_folders_changed": total_folders_changed, "total_dashboards_changed": total_dashboards_changed}
         else:
             self.logger.info("No folders or dashboards to change ownership. Exiting.")
@@ -848,25 +848,25 @@ class AccessManagement:
         response = self.api_client.get(dataset_url)
 
         if not response or response.status_code != 200:
-            self.logger.error(f"Failed to fetch DataSet schema for DataModel ID " f"'{datamodel_id}'")
+            self.logger.error(f"Failed to fetch DataSet schema for DataModel ID '{datamodel_id}'")
             return []
 
         response_data = response.json()
         dataset_ids = [x.get("oid") for x in response_data if isinstance(x, dict) and "oid" in x]
 
         if not dataset_ids:
-            self.logger.warning(f"No datasets found for DataModel '{datamodel_name}' " f"(ID: {datamodel_id}).")
+            self.logger.warning(f"No datasets found for DataModel '{datamodel_name}' (ID: {datamodel_id}).")
             return []
 
         total_datasets = len(dataset_ids)
-        self.logger.info(f"Found {total_datasets} datasets for DataModel " f"'{datamodel_name}': {dataset_ids}")
+        self.logger.info(f"Found {total_datasets} datasets for DataModel '{datamodel_name}': {dataset_ids}")
 
         # Step 3: Loop through datasets and collect columns from tables
         total_tables = 0
         total_columns = 0
 
         for dataset_index, dataset_id in enumerate(dataset_ids, start=1):
-            self.logger.debug(f"Processing DataSet {dataset_index}/{total_datasets}: " f"Fetching tables for DataSet ID '{dataset_id}'")
+            self.logger.debug(f"Processing DataSet {dataset_index}/{total_datasets}: Fetching tables for DataSet ID '{dataset_id}'")
 
             table_url = f"{dataset_url}/{dataset_id}/tables"
             response = self.api_client.get(table_url)
@@ -878,12 +878,12 @@ class AccessManagement:
             tables = response.json()
             dataset_table_count = len(tables)
             total_tables += dataset_table_count
-            self.logger.info(f"Dataset {dataset_index}: Found {dataset_table_count} " f"tables in DataSet ID '{dataset_id}'")
+            self.logger.info(f"Dataset {dataset_index}: Found {dataset_table_count} tables in DataSet ID '{dataset_id}'")
 
             for table in tables:
                 table_name = table.get("name")
                 if not table_name:
-                    self.logger.warning(f"Table in DataSet ID '{dataset_id}' has no name. " "Skipping.")
+                    self.logger.warning(f"Table in DataSet ID '{dataset_id}' has no name. Skipping.")
                     continue
 
                 columns = table.get("columns")
@@ -904,7 +904,7 @@ class AccessManagement:
                     all_columns.append({"datamodel_id": datamodel_id, "datamodel_name": datamodel_name, "table": table_name, "column": column_name})
 
         # Step 4: Final logging
-        self.logger.info(f"DataModel '{datamodel_name}': Processed {total_datasets} datasets, " f"{total_tables} tables, and {total_columns} columns.")
+        self.logger.info(f"DataModel '{datamodel_name}': Processed {total_datasets} datasets, {total_tables} tables, and {total_columns} columns.")
         self.logger.debug(f"Final collected column data: {all_columns}")
 
         return all_columns
@@ -935,7 +935,7 @@ class AccessManagement:
         if not all_columns:
             self.logger.warning(f"No columns found for DataModel '{datamodel_name}'. Exiting.")
             # Treat this as an error condition: the DataModel likely does not exist or is not accessible.
-            raise ValueError(f"No columns found for DataModel '{datamodel_name}'. " "The DataModel may not exist or may not be accessible.")
+            raise ValueError(f"No columns found for DataModel '{datamodel_name}'. The DataModel may not exist or may not be accessible.")
 
         total_datamodel_columns = len(all_columns)
         self.logger.info(f"Retrieved {total_datamodel_columns} columns from DataModel '{datamodel_name}'")
@@ -1010,7 +1010,7 @@ class AccessManagement:
 
                             dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
 
-                            self.logger.debug(f"Filter {filter_index}: Extracted from levels - " f"Table: {table}, Column: {column}")
+                            self.logger.debug(f"Filter {filter_index}: Extracted from levels - Table: {table}, Column: {column}")
 
                     elif "jaql" in filter:
                         dim_value = filter["jaql"].get("dim", "Unknown.Table")
@@ -1021,7 +1021,7 @@ class AccessManagement:
 
                         dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
 
-                        self.logger.debug(f"Filter {filter_index}: Extracted from JAQL - " f"Table: {table}, Column: {column}")
+                        self.logger.debug(f"Filter {filter_index}: Extracted from JAQL - Table: {table}, Column: {column}")
 
             self.logger.info(f"Processed {filter_count} filters for dashboard '{dashboard_name}'")
 
@@ -1038,7 +1038,7 @@ class AccessManagement:
                 widget_id = widget.get("oid", "Unknown Widget")
                 widget_title = widget.get("title", "Unnamed Widget")
 
-                self.logger.debug(f"Processing widget {widget_index}/{total_widgets_in_dashboard}: " f"'{widget_title}' (ID: {widget_id})")
+                self.logger.debug(f"Processing widget {widget_index}/{total_widgets_in_dashboard}: '{widget_title}' (ID: {widget_id})")
 
                 for panel in widget.get("metadata", {}).get("panels", []):
                     for item in panel.get("items", []):
@@ -1047,7 +1047,7 @@ class AccessManagement:
                         # Extract columns from 'context' (Formula-based columns)
                         if "context" in jaql and isinstance(jaql["context"], dict):
                             if not jaql["context"]:
-                                self.logger.info(f"Widget {widget_index}: 'context' is an empty dict. " "Skipping context extraction.")
+                                self.logger.info(f"Widget {widget_index}: 'context' is an empty dict. Skipping context extraction.")
                                 continue
 
                             for _, value in jaql["context"].items():
@@ -1062,7 +1062,7 @@ class AccessManagement:
                                 )
                                 column_count += 1
 
-                                self.logger.debug(f"Widget {widget_index}: Extracted from context (Formula) - " f"Table: {table}, Column: {column}")
+                                self.logger.debug(f"Widget {widget_index}: Extracted from context (Formula) - Table: {table}, Column: {column}")
 
                         # Extract columns from 'dim' (Regular columns)
                         else:
@@ -1078,10 +1078,10 @@ class AccessManagement:
                             dashboard_columns.append({"datamodel_name": datamodel_name, "dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column})
                             column_count += 1
 
-                            self.logger.debug(f"Widget {widget_index}: Extracted from regular source - " f"Table: {table}, Column: {column}")
+                            self.logger.debug(f"Widget {widget_index}: Extracted from regular source - Table: {table}, Column: {column}")
 
             total_widgets += widget_count
-            self.logger.info(f"Processed {widget_count} widgets and {filter_count} filters " f"and extracted {column_count} columns for dashboard " f"'{dashboard_name}'")
+            self.logger.info(f"Processed {widget_count} widgets and {filter_count} filters and extracted {column_count} columns for dashboard '{dashboard_name}'")
 
         self.logger.info(f"Total filters processed: {total_filters}")
         self.logger.info(f"Total widgets processed: {total_widgets}")
@@ -1195,7 +1195,7 @@ class AccessManagement:
             return []
 
         self.logger.info(
-            "Completed unused-column analysis for %d data model(s). " "Total result rows: %d",
+            "Completed unused-column analysis for %d data model(s). Total result rows: %d",
             processed_count,
             len(all_results),
         )

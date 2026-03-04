@@ -143,9 +143,9 @@ class Dashboard:
 
         # If executing_user is provided, temporarily change dashboard ownership
         if executing_user:
-            self.logger.debug(f"API username '{executing_user}' provided. " f"Fetching original owner of dashboard {dashboard_id}.")
+            self.logger.debug(f"API username '{executing_user}' provided. Fetching original owner of dashboard {dashboard_id}.")
 
-            dashboard_response = self.api_client.get(f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}" f"&asObject=false")
+            dashboard_response = self.api_client.get(f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}&asObject=false")
             if dashboard_response is None or dashboard_response.status_code != 200:
                 self.logger.error(f"Dashboard with ID '{dashboard_id}' not found or failed to retrieve.")
                 return f"Error: Dashboard '{dashboard_id}' not found."
@@ -238,7 +238,7 @@ class Dashboard:
 
             if ownership_restore_response is None or ownership_restore_response.status_code != 200:
                 error_message = ownership_restore_response.json() if ownership_restore_response else "No response received."
-                self.logger.error(f"Failed to revert ownership of dashboard {dashboard_id} to original owner. " f"Error: {error_message}")
+                self.logger.error(f"Failed to revert ownership of dashboard {dashboard_id} to original owner. Error: {error_message}")
                 return f"Error: Failed to revert ownership of dashboard {dashboard_id}."
 
             self.logger.info(f"Ownership of dashboard {dashboard_id} successfully restored to original owner.")
@@ -269,7 +269,7 @@ class Dashboard:
 
         # If executing_user is provided, temporarily change dashboard ownership
         if executing_user:
-            self.logger.debug(f"API username '{executing_user}' provided. " f"Fetching original owner of dashboard {dashboard_id}.")
+            self.logger.debug(f"API username '{executing_user}' provided. Fetching original owner of dashboard {dashboard_id}.")
 
             dashboard_response = self.api_client.get(f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}&asObject=false")
             if dashboard_response is None or dashboard_response.status_code != 200:
@@ -331,7 +331,7 @@ class Dashboard:
             except Exception:
                 error_message = getattr(script_response, "text", "No response text")
 
-            self.logger.error(f"Failed to add widget script to dashboard {dashboard_id} " f"widget {widget_id}. Error: {error_message}")
+            self.logger.error(f"Failed to add widget script to dashboard {dashboard_id} widget {widget_id}. Error: {error_message}")
 
             if script_response.status_code == 403 and executing_user is None:
                 return (
@@ -373,7 +373,7 @@ class Dashboard:
 
             if ownership_restore_response is None or ownership_restore_response.status_code != 200:
                 error_message = ownership_restore_response.json() if ownership_restore_response else "No response received."
-                self.logger.error(f"Failed to revert ownership of dashboard {dashboard_id} to original owner. " f"Error: {error_message}")
+                self.logger.error(f"Failed to revert ownership of dashboard {dashboard_id} to original owner. Error: {error_message}")
                 return f"Error: Failed to revert ownership of dashboard {dashboard_id}."
 
             self.logger.info(f"Ownership of dashboard {dashboard_id} successfully restored to original owner.")
@@ -429,12 +429,12 @@ class Dashboard:
         # Fetch existing shares
         shares_response = self.api_client.get(endpoint)
         if shares_response is None or shares_response.status_code != 200:
-            self.logger.warning(f"Failed to retrieve existing shares for dashboard {dashboard_id} with admin access. " f"Trying without admin access.")
+            self.logger.warning(f"Failed to retrieve existing shares for dashboard {dashboard_id} with admin access. Trying without admin access.")
             # Try without admin access
             shares_response = self.api_client.get(f"/api/shares/dashboard/{dashboard_id}")
             if shares_response is None or shares_response.status_code != 200:
                 error_message = shares_response.json() if shares_response else "No response received."
-                self.logger.error(f"Failed to retrieve existing shares for dashboard {dashboard_id}. " f"Error: {error_message}")
+                self.logger.error(f"Failed to retrieve existing shares for dashboard {dashboard_id}. Error: {error_message}")
                 return f"Error: Failed to retrieve existing shares for dashboard {dashboard_id}."
 
         existing_shares = shares_response.json().get("sharesTo", [])
@@ -453,7 +453,7 @@ class Dashboard:
         for user in users:
             if user["shareId"] in existing_share_map:
                 if user["rule"] != existing_share_map[user["shareId"]]:  # Rule change detected
-                    self.logger.info(f"Updating rule for existing user {user['shareId']} from " f"'{existing_share_map[user['shareId']]}' to '{user['rule']}'.")
+                    self.logger.info(f"Updating rule for existing user {user['shareId']} from '{existing_share_map[user['shareId']]}' to '{user['rule']}'.")
                     updated_users.append(user)
             else:
                 new_users.append(user)
@@ -461,7 +461,7 @@ class Dashboard:
         for group in groups:
             if group["shareId"] in existing_share_map:
                 if group["rule"] != existing_share_map[group["shareId"]]:  # Rule change detected
-                    self.logger.info(f"Updating rule for existing group {group['shareId']} from " f"'{existing_share_map[group['shareId']]}' to '{group['rule']}'.")
+                    self.logger.info(f"Updating rule for existing group {group['shareId']} from '{existing_share_map[group['shareId']]}' to '{group['rule']}'.")
                     updated_groups.append(group)
             else:
                 new_groups.append(group)
@@ -491,7 +491,7 @@ class Dashboard:
                 # If fallback also fails, return error
                 if response is None or response.status_code != 200:
                     error_message = response.json() if response and response.content else "No response received."
-                    self.logger.error(f"Failed to add/update shares for dashboard '{dashboard_id}' via fallback. " f"Error: {error_message}")
+                    self.logger.error(f"Failed to add/update shares for dashboard '{dashboard_id}' via fallback. Error: {error_message}")
                     return f"Error: Failed to add/update shares for dashboard '{dashboard_id}'."
 
             if response.status_code == 200:
@@ -584,7 +584,7 @@ class Dashboard:
 
                         dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
 
-                        self.logger.debug(f"Filter {filter_index}: Extracted from levels - Table: {table}, " f"Column: {column}")
+                        self.logger.debug(f"Filter {filter_index}: Extracted from levels - Table: {table}, Column: {column}")
 
                 elif "jaql" in filter:
                     dim_value = filter["jaql"].get("dim", "Unknown.Table")
@@ -627,7 +627,7 @@ class Dashboard:
 
             widget_title = widget.get("title", "Unnamed Widget")
 
-            self.logger.debug(f"Processing widget {widget_index}/{total_widgets} - ID: {widget_id}, " f"Title: {widget_title}")
+            self.logger.debug(f"Processing widget {widget_index}/{total_widgets} - ID: {widget_id}, Title: {widget_title}")
 
             for panel in widget.get("metadata", {}).get("panels", []):
                 for item in panel.get("items", []):
@@ -645,7 +645,7 @@ class Dashboard:
                             dashboard_columns.append({"dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column})
                             column_count += 1
 
-                            self.logger.debug(f"Widget {widget_index}: Extracted from context (Formula) - " f"Key: {context_key}, Table: {table}, Column: {column}")
+                            self.logger.debug(f"Widget {widget_index}: Extracted from context (Formula) - Key: {context_key}, Table: {table}, Column: {column}")
 
                     # Case 2: Extract from 'dim' (Regular columns)
                     else:
@@ -658,9 +658,9 @@ class Dashboard:
                         dashboard_columns.append({"dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column})
                         column_count += 1
 
-                        self.logger.debug(f"Widget {widget_index}: Extracted from regular source - Table: {table}, " f"Column: {column}")
+                        self.logger.debug(f"Widget {widget_index}: Extracted from regular source - Table: {table}, Column: {column}")
 
-        self.logger.info(f"Processed {total_widgets} widgets and extracted {column_count} columns " f"for dashboard '{dashboard_name}'")
+        self.logger.info(f"Processed {total_widgets} widgets and extracted {column_count} columns for dashboard '{dashboard_name}'")
 
         # Step 5: Deduplicate columns based on 'table' and 'column'
         distinct_columns_set = set()
@@ -679,7 +679,7 @@ class Dashboard:
                 distinct_dashboard_columns.append(entry)
                 distinct_columns_set.add(key)
 
-        self.logger.info(f"Retrieved {len(distinct_dashboard_columns)} distinct columns from dashboard " f"'{dashboard_name}'")
+        self.logger.info(f"Retrieved {len(distinct_dashboard_columns)} distinct columns from dashboard '{dashboard_name}'")
 
         return distinct_dashboard_columns
 

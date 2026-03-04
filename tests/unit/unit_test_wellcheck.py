@@ -1128,8 +1128,8 @@ def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
 
     # 3) CSV responses for the aggregate queries
     #    Two data rows + header => count = 2 (> 1) for each side.
-    left_query = "select [LeftKey], count([LeftKey]) as key_count1 " "from [LeftTable] " "group by [LeftKey] " "having count([LeftKey]) > 1"
-    right_query = "select [RightKey], count([RightKey]) as key_count2 " "from [RightTable] " "group by [RightKey] " "having count([RightKey]) > 1"
+    left_query = "select [LeftKey], count([LeftKey]) as key_count1 from [LeftTable] group by [LeftKey] having count([LeftKey]) > 1"
+    right_query = "select [RightKey], count([RightKey]) as key_count2 from [RightTable] group by [RightKey] having count([RightKey]) > 1"
 
     left_csv_resp = FakeResponse(status_code=200, json_data={})
     left_csv_resp.text = "LeftKey,key_count1\nA,2\nB,3\n"

@@ -68,7 +68,7 @@ class Migration:
             )
 
         else:
-            raise ValueError("Migration requires either (source_client and target_client) " "OR (source_yaml and target_yaml).")
+            raise ValueError("Migration requires either (source_client and target_client) OR (source_yaml and target_yaml).")
 
         # Use the logger from the source client for consistency
         self.logger = self.source_client.logger
@@ -249,7 +249,7 @@ class Migration:
         # If no groups match, log an info message and exit early
         if not bulk_group_data:
             self.logger.info("No matching groups found for migration. Ending process.")
-            return [{"message": ("No matching groups found for migration. Ending process. " "Please verify the group names and try again.")}]
+            return [{"message": ("No matching groups found for migration. Ending process. Please verify the group names and try again.")}]
 
         # Step 3: Make the bulk POST request with the group data
         self.logger.info(f"Sending bulk migration request for {len(bulk_group_data)} groups")
@@ -257,7 +257,7 @@ class Migration:
         response = self.target_client.post("/api/v1/groups/bulk", data=bulk_group_data)
 
         # Log the full response at debug level
-        self.logger.debug(f"Target environment response status code: " f"{response.status_code if response else 'No response'}")
+        self.logger.debug(f"Target environment response status code: {response.status_code if response else 'No response'}")
         self.logger.debug(f"Target environment response body: {response.text if response else 'No response body'}")
 
         # If response is missing or empty
@@ -299,7 +299,7 @@ class Migration:
 
         # Summary
         success_count = sum(1 for r in migration_results if r["status"] == "Success")
-        self.logger.info(f"Finished migrating groups. Successfully migrated {success_count} " f"out of {len(bulk_group_data)} groups.")
+        self.logger.info(f"Finished migrating groups. Successfully migrated {success_count} out of {len(bulk_group_data)} groups.")
 
         # Return results and raw error if any
         return {"results": migration_results, "total_count": len(bulk_group_data), "raw_error": raw_error}
@@ -700,7 +700,7 @@ class Migration:
         source_response = self.source_client.get("/api/v1/users", params=params)
         if not source_response or source_response.status_code != 200:
             self.logger.error("Failed to retrieve users from the source environment.")
-            return [{"message": ("Failed to retrieve users from the source environment. " "Please check the logs for more details.")}]
+            return [{"message": ("Failed to retrieve users from the source environment. Please check the logs for more details.")}]
         self.logger.debug(f"Source environment response status code: {source_response.status_code}")
         self.logger.debug(f"Source environment response body: {source_response.text}")
 
@@ -718,11 +718,11 @@ class Migration:
 
         if not target_roles_response or target_roles_response.status_code != 200:
             self.logger.error("Failed to retrieve roles from the target environment.")
-            return [{"message": ("Failed to retrieve roles from the target environment. " "Please check the logs for details.")}]
+            return [{"message": ("Failed to retrieve roles from the target environment. Please check the logs for details.")}]
 
         if not target_groups_response or target_groups_response.status_code != 200:
             self.logger.error("Failed to retrieve groups from the target environment.")
-            return [{"message": ("Failed to retrieve groups from the target environment. " "Please check the logs for details.")}]
+            return [{"message": ("Failed to retrieve groups from the target environment. Please check the logs for details.")}]
 
         target_roles = target_roles_response.json()
         target_groups = target_groups_response.json()
@@ -799,7 +799,7 @@ class Migration:
 
         # Step 7: Final summary
         success_count = sum(1 for r in migration_results if r["status"] == "Success")
-        self.logger.info(f"Finished migrating users. Successfully migrated {success_count} " f"out of {len(bulk_user_data)} users.")
+        self.logger.info(f"Finished migrating users. Successfully migrated {success_count} out of {len(bulk_user_data)} users.")
 
         # Step 8: Return structured result
         return {"results": migration_results, "total_count": len(bulk_user_data), "raw_error": raw_error}
@@ -1454,7 +1454,7 @@ class Migration:
                                 "name": group_name,  # Add group name for later duplicate check
                             }
                         )
-                        self.logger.debug(f"Prepared group share for migration: {group_name} " f"(Rule: {share.get('rule', 'viewer')})")
+                        self.logger.debug(f"Prepared group share for migration: {group_name} (Rule: {share.get('rule', 'viewer')})")
 
             # Combine new shares with existing ones
             self.logger.debug(f"Fetching shares for target dashboard ID {target_id} with adminAccess=true.")
@@ -1463,12 +1463,12 @@ class Migration:
 
             if target_dashboard_shares_response is not None:
                 if target_dashboard_shares_response.status_code == 403:
-                    self.logger.warning(f"Access denied for target dashboard ID {target_id} with adminAccess. " f"Retrying without adminAccess.")
+                    self.logger.warning(f"Access denied for target dashboard ID {target_id} with adminAccess. Retrying without adminAccess.")
                     target_dashboard_shares_response = self.target_client.get(f"/api/shares/dashboard/{target_id}")
                     if target_dashboard_shares_response and target_dashboard_shares_response.status_code == 200:
-                        self.logger.debug(f"Successfully fetched shares for target dashboard ID {target_id} " "without adminAccess.")
+                        self.logger.debug(f"Successfully fetched shares for target dashboard ID {target_id} without adminAccess.")
                     else:
-                        self.logger.error(f"Retry without adminAccess also failed for target dashboard ID {target_id}. " "Ending processing for this dashboard.")
+                        self.logger.error(f"Retry without adminAccess also failed for target dashboard ID {target_id}. Ending processing for this dashboard.")
                         share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
                         share_migration_summary["share_fail_count"] += len(new_shares)
                         dashboard_results.append({"source_id": source_id, "target_id": target_id, "shares_added": 0, "status": "Skipped", "reason": "Target dashboard not found or inaccessible"})
@@ -1476,12 +1476,12 @@ class Migration:
                 elif target_dashboard_shares_response.status_code == 200:
                     self.logger.debug(f"Shares fetched with adminAccess for target dashboard ID {target_id}.")
                 else:
-                    self.logger.error(f"Unexpected status code when accessing target dashboard ID {target_id}: " f"{target_dashboard_shares_response.status_code}")
+                    self.logger.error(f"Unexpected status code when accessing target dashboard ID {target_id}: {target_dashboard_shares_response.status_code}")
                     share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
                     share_migration_summary["share_fail_count"] += len(new_shares)
                     continue
             else:
-                self.logger.error(f"Failed to fetch shares for target dashboard ID {target_id}. " "Response is None. Ending processing for this dashboard.")
+                self.logger.error(f"Failed to fetch shares for target dashboard ID {target_id}. Response is None. Ending processing for this dashboard.")
                 share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
                 share_migration_summary["share_fail_count"] += len(new_shares)
                 continue
@@ -1535,7 +1535,7 @@ class Migration:
             self.logger.debug(f"Final shares payload: {all_shares}")
 
             if not all_shares:
-                self.logger.warning(f"No valid shares found for source dashboard ID {source_id}. " "Ensure users and groups exist in the target environment.")
+                self.logger.warning(f"No valid shares found for source dashboard ID {source_id}. Ensure users and groups exist in the target environment.")
                 continue
 
             # Post the shares to the target environment
@@ -1555,7 +1555,7 @@ class Migration:
                     if response and response.status_code in [200, 201]:
                         self.logger.debug(f"POST request successful without adminAccess for dashboard ID {target_id}.")
                     else:
-                        self.logger.error(f"Retry without adminAccess also failed for POST request to dashboard ID {target_id}. " f"Status Code: {response.status_code if response else 'No response'}")
+                        self.logger.error(f"Retry without adminAccess also failed for POST request to dashboard ID {target_id}. Status Code: {response.status_code if response else 'No response'}")
                 elif response.status_code not in [200, 201]:
                     self.logger.error(f"Unexpected status code for POST request to {post_url}: {response.status_code}.")
             else:
@@ -1566,7 +1566,7 @@ class Migration:
                 self.logger.info(f"Shares migrated successfully to target dashboard ID {target_id}.")
                 share_migration_summary["new_share_success_count"] += len(filtered_new_shares)
             else:
-                self.logger.error(f"Failed to migrate shares for target dashboard ID {target_id}. " f"Status Code: {response.status_code if response else 'No response'}")
+                self.logger.error(f"Failed to migrate shares for target dashboard ID {target_id}. Status Code: {response.status_code if response else 'No response'}")
                 share_migration_summary["share_fail_count"] += len(filtered_new_shares)
                 share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
             dashboard_results.append(
@@ -1590,9 +1590,9 @@ class Migration:
 
                 # Proceed only if the owner is different
                 if current_target_owner_id and current_target_owner_id == potential_owner_id:
-                    self.logger.info(f"Target dashboard ID {target_id} already owned by user ID {potential_owner_id}. " "Skipping ownership change.")
+                    self.logger.info(f"Target dashboard ID {target_id} already owned by user ID {potential_owner_id}. Skipping ownership change.")
                 else:
-                    self.logger.info(f"Changing ownership of target dashboard ID {target_id} to user: " f"{potential_owner_name} (ID: {potential_owner_id}).")
+                    self.logger.info(f"Changing ownership of target dashboard ID {target_id} to user: {potential_owner_name} (ID: {potential_owner_id}).")
 
                     ownership_url = f"/api/v1/dashboards/{target_id}/change_owner?adminAccess=true"
                     self.logger.debug(f"Making POST request to {ownership_url} for ownership change.")
@@ -1601,7 +1601,7 @@ class Migration:
 
                     # Check for 403 and retry without adminAccess
                     if owner_change_response is None or owner_change_response.status_code == 403:
-                        self.logger.warning(f"Access denied for ownership change at {ownership_url}. " "Retrying without adminAccess.")
+                        self.logger.warning(f"Access denied for ownership change at {ownership_url}. Retrying without adminAccess.")
                         ownership_url_without_admin = f"/api/v1/dashboards/{target_id}/change_owner"
                         self.logger.debug(f"Retrying ownership change POST request to {ownership_url_without_admin}.")
                         owner_change_response = self.target_client.post(ownership_url_without_admin, data={"ownerId": potential_owner_id, "originalOwnerRule": "edit"})
@@ -1610,9 +1610,7 @@ class Migration:
                     if owner_change_response and owner_change_response.status_code in [200, 201]:
                         self.logger.info(f"Ownership changed successfully for dashboard ID {target_id}.")
                     else:
-                        self.logger.error(
-                            f"Failed to change ownership for dashboard ID {target_id}. " f"Status Code: " f"{owner_change_response.status_code if owner_change_response else 'No response'}."
-                        )
+                        self.logger.error(f"Failed to change ownership for dashboard ID {target_id}. Status Code: {owner_change_response.status_code if owner_change_response else 'No response'}.")
 
         self.logger.info("Finished share migration.")
         self.logger.info(share_migration_summary)
@@ -2202,7 +2200,7 @@ class Migration:
                         }
                     )
 
-        self.logger.info(f"Bulk import parsed results: " f"succeeded={len(summary['succeeded'])}, skipped={len(summary['skipped'])}, failed={len(summary['failed'])}.")
+        self.logger.info(f"Bulk import parsed results: succeeded={len(summary['succeeded'])}, skipped={len(summary['skipped'])}, failed={len(summary['failed'])}.")
 
         self._emit(
             emit,
@@ -2279,7 +2277,7 @@ class Migration:
                 self.logger.warning(f"Source dashboard '{src_title}' (source_id={src_id}) not found among succeeded target dashboards.")
                 continue
             if len(targets) > 1:
-                self.logger.warning(f"Multiple target dashboards share the same title '{src_title}'. " f"Using the first one for shares/ownership migration. target_ids={targets}")
+                self.logger.warning(f"Multiple target dashboards share the same title '{src_title}'. Using the first one for shares/ownership migration. target_ids={targets}")
             source_to_target[src_id] = targets[0]
 
         if not source_to_target:
@@ -3367,7 +3365,7 @@ class Migration:
                     )
 
                 elif response is not None and response.status_code == 404 and action == "overwrite":
-                    fallback_reason = f"Data model '{data_model.get('title')}' not found in target for overwrite. " f"Retrying without overwrite option."
+                    fallback_reason = f"Data model '{data_model.get('title')}' not found in target for overwrite. Retrying without overwrite option."
                     self.logger.warning(fallback_reason)
 
                     self._emit(

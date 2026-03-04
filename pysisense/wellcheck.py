@@ -142,7 +142,7 @@ class WellCheck:
             response = self.api_client.get(endpoint)
 
             if response is None:
-                self.logger.warning(f"Failed to retrieve dashboard data for dashboard OID: {dashboard_id} " f"(Title: {dashboard_title})")
+                self.logger.warning(f"Failed to retrieve dashboard data for dashboard OID: {dashboard_id} (Title: {dashboard_title})")
                 continue
 
             if response.status_code != 200:
@@ -150,7 +150,7 @@ class WellCheck:
                     error_body = response.json()
                 except Exception:
                     error_body = getattr(response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve dashboard data for dashboard OID: {dashboard_id} " f"(Title: {dashboard_title}). Status: {response.status_code}, " f"Error: {error_body}")
+                self.logger.warning(f"Failed to retrieve dashboard data for dashboard OID: {dashboard_id} (Title: {dashboard_title}). Status: {response.status_code}, Error: {error_body}")
                 continue
 
             try:
@@ -207,7 +207,7 @@ class WellCheck:
 
         widgets = dashboard_data.get("widgets")
         if not widgets or not isinstance(widgets, list):
-            self.logger.warning(f"Failed to retrieve data for dashboard OID: {dashboard_oid} " f"(Title: {dashboard_title})")
+            self.logger.warning(f"Failed to retrieve data for dashboard OID: {dashboard_oid} (Title: {dashboard_title})")
             return None
 
         pivot_count = 0
@@ -300,7 +300,7 @@ class WellCheck:
                     jtd_ids=jtd_ids,
                 )
             else:
-                self.logger.warning(f"Expected string for 'script' in widget, but got {type(value)} " f"in dashboard: {dashboard_title} in widget: {widget.get('oid')}")
+                self.logger.warning(f"Expected string for 'script' in widget, but got {type(value)} in dashboard: {dashboard_title} in widget: {widget.get('oid')}")
 
         return pivot_count, tabber_count, jtd_count, accordion_count, jtd_ids
 
@@ -483,7 +483,7 @@ class WellCheck:
                     error_body = response.json()
                 except Exception:
                     error_body = getattr(response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve data or no widgets found for dashboard ID: {dashboard_id}. " f"Status: {response.status_code}, Error: {error_body}")
+                self.logger.warning(f"Failed to retrieve data or no widgets found for dashboard ID: {dashboard_id}. Status: {response.status_code}, Error: {error_body}")
                 continue
 
             try:
@@ -574,7 +574,7 @@ class WellCheck:
 
         # Validate input
         if dashboards is None:
-            error_msg = "At least one dashboard reference (ID or name) is required " "for widget field analysis."
+            error_msg = "At least one dashboard reference (ID or name) is required for widget field analysis."
             self.logger.error(error_msg)
             return []
 
@@ -611,7 +611,7 @@ class WellCheck:
 
             if not dashboard_id:
                 self.logger.warning(
-                    "Resolved dashboard reference '%s' has no dashboard_id. " "Skipping widget field analysis.",
+                    "Resolved dashboard reference '%s' has no dashboard_id. Skipping widget field analysis.",
                     ref,
                 )
                 continue
@@ -626,7 +626,7 @@ class WellCheck:
             response = self.api_client.get(endpoint)
             if response is None:
                 self.logger.warning(
-                    "Failed to retrieve dashboard data for widget fields. " "Dashboard OID: %s (Title: %s)",
+                    "Failed to retrieve dashboard data for widget fields. Dashboard OID: %s (Title: %s)",
                     dashboard_id,
                     dashboard_title,
                 )
@@ -638,7 +638,7 @@ class WellCheck:
                 except Exception:
                     error_body = getattr(response, "text", "No response text")
                 self.logger.warning(
-                    "Failed to retrieve dashboard data for widget fields. " "Dashboard OID: %s (Title: %s). Status: %s, Error: %s",
+                    "Failed to retrieve dashboard data for widget fields. Dashboard OID: %s (Title: %s). Status: %s, Error: %s",
                     dashboard_id,
                     dashboard_title,
                     response.status_code,
@@ -901,7 +901,7 @@ class WellCheck:
                     error_body = response.json()
                 except Exception:
                     error_body = getattr(response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve data for datamodel ID: {datamodel_id}" f" with status {response.status_code}: {error_body}")
+                self.logger.warning(f"Failed to retrieve data for datamodel ID: {datamodel_id} with status {response.status_code}: {error_body}")
                 continue
 
             try:
@@ -925,7 +925,7 @@ class WellCheck:
 
                 tables = schema.get("tables") or []
                 if not tables:
-                    self.logger.warning(f'No tables found in dataset {dataset.get("oid")} for datamodel {datamodel_title}')
+                    self.logger.warning(f"No tables found in dataset {dataset.get('oid')} for datamodel {datamodel_title}")
                     continue
 
                 for table in tables:
@@ -956,7 +956,7 @@ class WellCheck:
                                 row["has_union"] = "yes"
                                 custom_tables_with_union += 1
                             else:
-                                self.logger.info(f"SQL expression does not contain 'union' for table '{table_name}' " f"for datamodel '{datamodel_title}'")
+                                self.logger.info(f"SQL expression does not contain 'union' for table '{table_name}' for datamodel '{datamodel_title}'")
                     else:
                         self.logger.warning(f"Expression not found for table '{table_name}' for datamodel '{datamodel_title}'")
 
@@ -1062,13 +1062,13 @@ class WellCheck:
                     error_body = response.json()
                 except Exception:
                     error_body = getattr(response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' " f"({datamodel_id}). Status: {response.status_code}, Error: {error_body}")
+                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' ({datamodel_id}). Status: {response.status_code}, Error: {error_body}")
                 continue
 
             try:
                 schema_data = response.json()
             except Exception as exc:
-                self.logger.exception(f"Failed to parse schema JSON for datamodel '{datamodel_title}' " f"({datamodel_id}): {exc}")
+                self.logger.exception(f"Failed to parse schema JSON for datamodel '{datamodel_title}' ({datamodel_id}): {exc}")
                 continue
 
             self.logger.info(f"\nStarting to process datamodel '{datamodel_title}'")
@@ -1131,9 +1131,9 @@ class WellCheck:
                         if "table" in column:
                             relation_tables.append(column["table"])
                         else:
-                            self.logger.warning(f'table information is missing in one of the column in the relation \'{relation["oid"]}\' for datamdodel \'{datamodel_title}\'')
+                            self.logger.warning(f"table information is missing in one of the column in the relation '{relation['oid']}' for datamdodel '{datamodel_title}'")
                 else:
-                    self.logger.warning(f'column information is missing in the relation \'{relation["oid"]}\' for datamdodel \'{datamodel_title}\'')
+                    self.logger.warning(f"column information is missing in the relation '{relation['oid']}' for datamdodel '{datamodel_title}'")
         else:
             self.logger.warning(f"schema_data is None or no relations exist for the datamodel '{datamodel_title}'")
 
@@ -1147,7 +1147,7 @@ class WellCheck:
                     tables = dataset["schema"]["tables"]
 
                     if not tables:
-                        self.logger.warning(f'No tables found in dataset {dataset["oid"]} for datamodel {datamodel_title}')
+                        self.logger.warning(f"No tables found in dataset {dataset['oid']} for datamodel {datamodel_title}")
                         continue
 
                     for table in tables:
@@ -1265,7 +1265,7 @@ class WellCheck:
 
             schema_response = self.api_client.get(schema_endpoint)
             if schema_response is None:
-                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' " f"({datamodel_id})")
+                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' ({datamodel_id})")
                 continue
 
             if schema_response.status_code != 200:
@@ -1273,20 +1273,20 @@ class WellCheck:
                     error_body = schema_response.json()
                 except Exception:
                     error_body = getattr(schema_response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' " f"({datamodel_id}). Status: {schema_response.status_code}, " f"Error: {error_body}")
+                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' ({datamodel_id}). Status: {schema_response.status_code}, Error: {error_body}")
                 continue
 
             try:
                 schema_data = schema_response.json()
             except Exception as exc:
-                self.logger.exception(f"Failed to parse schema JSON for datamodel '{datamodel_title}' " f"({datamodel_id}): {exc}")
+                self.logger.exception(f"Failed to parse schema JSON for datamodel '{datamodel_title}' ({datamodel_id}): {exc}")
                 continue
 
             datamodel_type = schema_data.get("type")
             datamodel_server = schema_data.get("server")
 
             if not datamodel_type or not datamodel_server:
-                self.logger.warning(f"Datamodel '{datamodel_title}' ({datamodel_id}) is missing " f"'type' or 'server' in schema; cannot inspect RLS.")
+                self.logger.warning(f"Datamodel '{datamodel_title}' ({datamodel_id}) is missing 'type' or 'server' in schema; cannot inspect RLS.")
                 continue
 
             # Determine RLS endpoint based on datamodel type
@@ -1295,10 +1295,10 @@ class WellCheck:
             elif datamodel_type == "live":
                 rls_endpoint = f"/api/v1/elasticubes/live/{datamodel_title}/datasecurity"
             else:
-                self.logger.warning(f"Datamodel '{datamodel_title}' has unsupported type " f"'{datamodel_type}' for RLS inspection.")
+                self.logger.warning(f"Datamodel '{datamodel_title}' has unsupported type '{datamodel_type}' for RLS inspection.")
                 continue
 
-            self.logger.debug(f"Fetching data security rules from: {rls_endpoint} " f"(type={datamodel_type}, server={datamodel_server})")
+            self.logger.debug(f"Fetching data security rules from: {rls_endpoint} (type={datamodel_type}, server={datamodel_server})")
 
             rls_response = self.api_client.get(rls_endpoint)
             if rls_response is None:
@@ -1310,13 +1310,13 @@ class WellCheck:
                     error_body = rls_response.json()
                 except Exception:
                     error_body = getattr(rls_response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve data security rules for the datamodel " f"'{datamodel_title}'. Status: {rls_response.status_code}, " f"Error: {error_body}")
+                self.logger.warning(f"Failed to retrieve data security rules for the datamodel '{datamodel_title}'. Status: {rls_response.status_code}, Error: {error_body}")
                 continue
 
             try:
                 rls_data = rls_response.json()
             except Exception as exc:
-                self.logger.exception(f"Failed to parse data security rules JSON for datamodel " f"'{datamodel_title}': {exc}")
+                self.logger.exception(f"Failed to parse data security rules JSON for datamodel '{datamodel_title}': {exc}")
                 continue
 
             if not rls_data:
@@ -1329,7 +1329,7 @@ class WellCheck:
             if isinstance(rls_data, list):
                 for rls in rls_data:
                     if not rls:
-                        self.logger.warning(f"The datamodel '{datamodel_title}' contains an " f"invalid Data Security Rule")
+                        self.logger.warning(f"The datamodel '{datamodel_title}' contains an invalid Data Security Rule")
                         continue
 
                     new_rls_dict = {
@@ -1348,13 +1348,13 @@ class WellCheck:
                             datamodel_rls_non_numeric.append(new_rls_dict)
                             total_rls_non_numeric += 1
             else:
-                self.logger.warning(f"Unexpected data security payload type for datamodel " f"'{datamodel_title}': {type(rls_data).__name__}")
+                self.logger.warning(f"Unexpected data security payload type for datamodel '{datamodel_title}': {type(rls_data).__name__}")
                 continue
 
             total_datamodels_processed += 1
 
-            self.logger.info(f"Total Data Security Rules in the datamodel " f"'{datamodel_title}': {len(datamodel_rls)}")
-            self.logger.info(f"Total Non-Numeric Data Security Rules in the datamodel " f"'{datamodel_title}': {len(datamodel_rls_non_numeric)}")
+            self.logger.info(f"Total Data Security Rules in the datamodel '{datamodel_title}': {len(datamodel_rls)}")
+            self.logger.info(f"Total Non-Numeric Data Security Rules in the datamodel '{datamodel_title}': {len(datamodel_rls_non_numeric)}")
 
         if total_datamodels_processed == 0:
             self.logger.warning("No datamodels were successfully processed for RLS datatype inspection.")
@@ -1459,7 +1459,7 @@ class WellCheck:
                     error_body = response.json()
                 except Exception:
                     error_body = getattr(response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve data for datamodel ID: {datamodel_id}. " f"Status: {response.status_code}, Error: {error_body}")
+                self.logger.warning(f"Failed to retrieve data for datamodel ID: {datamodel_id}. Status: {response.status_code}, Error: {error_body}")
                 continue
 
             try:
@@ -1526,7 +1526,7 @@ class WellCheck:
 
             if not tables:
                 # Preserve original wording
-                self.logger.warning(f'No tables found in dataset {dataset.get("oid")} for datamodel {datamodel_title}')
+                self.logger.warning(f"No tables found in dataset {dataset.get('oid')} for datamodel {datamodel_title}")
                 continue
 
             for table in tables:
@@ -1544,16 +1544,16 @@ class WellCheck:
 
                     if config_options is None:
                         # Preserve original wording
-                        self.logger.warning(f"configOptions is null in table '{table_name}' " f"for datamodel '{datamodel_title}'")
+                        self.logger.warning(f"configOptions is null in table '{table_name}' for datamodel '{datamodel_title}'")
                     elif "importQuery" in config_options:
                         row["has_import_query"] = "yes"
                         tables_with_import_query += 1
                     else:
                         # Preserve original wording
-                        self.logger.info(f"importQuery not found in configOptions for table " f"'{table_name}' for datamodel '{datamodel_title}'")
+                        self.logger.info(f"importQuery not found in configOptions for table '{table_name}' for datamodel '{datamodel_title}'")
                 else:
                     # Preserve original wording
-                    self.logger.warning(f"configOptions not found for table '{table_name}' " f"for datamodel '{datamodel_title}'")
+                    self.logger.warning(f"configOptions not found for table '{table_name}' for datamodel '{datamodel_title}'")
 
                 results.append(row)
 
@@ -1636,7 +1636,7 @@ class WellCheck:
                 self.logger.warning(f"Resolved datamodel reference '{ref}' has no datamodel_id. Skipping.")
                 continue
 
-            self.logger.debug(f"Resolved datamodel reference '{ref}' to ID '{datamodel_id}', " f"title '{datamodel_title}'.")
+            self.logger.debug(f"Resolved datamodel reference '{ref}' to ID '{datamodel_id}', title '{datamodel_title}'.")
 
             # Collect relation-based table/column pairs for this datamodel
             pairs = self._collect_datamodel_relation_pairs_for_m2m(
@@ -1658,8 +1658,8 @@ class WellCheck:
                 right_column = pair["right_column"]
 
                 # Build the two aggregate queries
-                query1 = f"select [{left_column}], count([{left_column}]) as key_count1 " f"from [{left_table}] " f"group by [{left_column}] " f"having count([{left_column}]) > 1"
-                query2 = f"select [{right_column}], count([{right_column}]) as key_count2 " f"from [{right_table}] " f"group by [{right_column}] " f"having count([{right_column}]) > 1"
+                query1 = f"select [{left_column}], count([{left_column}]) as key_count1 from [{left_table}] group by [{left_column}] having count([{left_column}]) > 1"
+                query2 = f"select [{right_column}], count([{right_column}]) as key_count2 from [{right_table}] group by [{right_column}] having count([{right_column}]) > 1"
 
                 # Execute queries as CSV
                 resp1 = self.api_client.get(
@@ -1692,7 +1692,7 @@ class WellCheck:
 
                 # Preserve the original print-style output as a log line
                 # Original: ec_name, left_table, left_column, right_table, right_column, is_m2m
-                self.logger.info(f"{datamodel_title}, {left_table}, {left_column}, " f"{right_table}, {right_column}, {is_m2m}")
+                self.logger.info(f"{datamodel_title}, {left_table}, {left_column}, {right_table}, {right_column}, {is_m2m}")
 
                 results.append(
                     {
@@ -1735,11 +1735,11 @@ class WellCheck:
         Build unique table/column pairs from the relations of a single datamodel.
         """
         endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/relations"
-        self.logger.debug(f"Fetching relations for datamodel '{datamodel_title}' " f"from endpoint: {endpoint}")
+        self.logger.debug(f"Fetching relations for datamodel '{datamodel_title}' from endpoint: {endpoint}")
 
         response = self.api_client.get(endpoint)
         if response is None:
-            self.logger.warning(f"Failed to retrieve relations for datamodel ID: {datamodel_id} " f"(Title: {datamodel_title})")
+            self.logger.warning(f"Failed to retrieve relations for datamodel ID: {datamodel_id} (Title: {datamodel_title})")
             return []
 
         if response.status_code != 200:
@@ -1747,7 +1747,7 @@ class WellCheck:
                 error_body = response.json()
             except Exception:
                 error_body = getattr(response, "text", "No response text")
-            self.logger.warning(f"Failed to retrieve relations for datamodel ID: {datamodel_id} " f"(Title: {datamodel_title}). Status: {response.status_code}, " f"Error: {error_body}")
+            self.logger.warning(f"Failed to retrieve relations for datamodel ID: {datamodel_id} (Title: {datamodel_title}). Status: {response.status_code}, Error: {error_body}")
             return []
 
         try:
@@ -1757,7 +1757,7 @@ class WellCheck:
             return []
 
         if not isinstance(relations, list):
-            self.logger.warning(f"Unexpected relations payload type for datamodel '{datamodel_title}': " f"{type(relations)}")
+            self.logger.warning(f"Unexpected relations payload type for datamodel '{datamodel_title}': {type(relations)}")
             return []
 
         pairs: list[dict[str, str]] = []
@@ -1843,19 +1843,19 @@ class WellCheck:
         table_id = column_ref.get("table")
 
         if not dataset_id or not table_id:
-            self.logger.warning(f"Missing dataset or table reference in relation column for " f"datamodel '{datamodel_title}'.")
+            self.logger.warning(f"Missing dataset or table reference in relation column for datamodel '{datamodel_title}'.")
             return None
 
         cache_key = (str(dataset_id), str(table_id))
         if cache_key in table_cache:
             return table_cache[cache_key]
 
-        endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/" f"datasets/{dataset_id}/tables/{table_id}"
-        self.logger.debug(f"Fetching table details for dataset '{dataset_id}', table '{table_id}' " f"in datamodel '{datamodel_title}' from endpoint: {endpoint}")
+        endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/datasets/{dataset_id}/tables/{table_id}"
+        self.logger.debug(f"Fetching table details for dataset '{dataset_id}', table '{table_id}' in datamodel '{datamodel_title}' from endpoint: {endpoint}")
 
         response = self.api_client.get(endpoint)
         if response is None:
-            self.logger.warning(f"Failed to retrieve table details for dataset '{dataset_id}', " f"table '{table_id}' in datamodel '{datamodel_title}'.")
+            self.logger.warning(f"Failed to retrieve table details for dataset '{dataset_id}', table '{table_id}' in datamodel '{datamodel_title}'.")
             return None
 
         if response.status_code != 200:
@@ -1864,14 +1864,14 @@ class WellCheck:
             except Exception:
                 error_body = getattr(response, "text", "No response text")
             self.logger.warning(
-                f"Failed to retrieve table details for dataset '{dataset_id}', " f"table '{table_id}' in datamodel '{datamodel_title}'. " f"Status: {response.status_code}, Error: {error_body}"
+                f"Failed to retrieve table details for dataset '{dataset_id}', table '{table_id}' in datamodel '{datamodel_title}'. Status: {response.status_code}, Error: {error_body}"
             )
             return None
 
         try:
             details = response.json()
         except Exception as exc:
-            self.logger.exception(f"Failed to parse table JSON for dataset '{dataset_id}', " f"table '{table_id}' in datamodel '{datamodel_title}': {exc}")
+            self.logger.exception(f"Failed to parse table JSON for dataset '{dataset_id}', table '{table_id}' in datamodel '{datamodel_title}': {exc}")
             return None
 
         table_cache[cache_key] = details
@@ -1895,7 +1895,7 @@ class WellCheck:
                         return name
 
         # Fallback if the column cannot be resolved
-        self.logger.warning(f"Unable to resolve column OID '{column_oid}' to a name in datamodel " f"'{datamodel_title}'. Using OID as fallback.")
+        self.logger.warning(f"Unable to resolve column OID '{column_oid}' to a name in datamodel '{datamodel_title}'. Using OID as fallback.")
         return str(column_oid)
 
     def run_full_wellcheck(
@@ -2052,11 +2052,11 @@ class WellCheck:
             access_mgmt = getattr(self, "access_mgmt", None)
 
             if access_mgmt is None:
-                self.logger.warning("WellCheck.access_mgmt is not configured. " "Unused-columns analysis will be skipped in run_full_wellcheck.")
+                self.logger.warning("WellCheck.access_mgmt is not configured. Unused-columns analysis will be skipped in run_full_wellcheck.")
             else:
                 unused_columns = access_mgmt.get_unused_columns_bulk(datamodels=datamodel_refs)
                 self.logger.info(
-                    "Completed unused-columns analysis for %d data model reference(s). " "Total result rows: %d",
+                    "Completed unused-columns analysis for %d data model reference(s). Total result rows: %d",
                     len(datamodel_refs),
                     len(unused_columns),
                 )

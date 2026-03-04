@@ -42,7 +42,7 @@ class DataModel:
             return {"error": "No response from API while retrieving DataModel"}
 
         if not response.ok:
-            self.logger.error(f"Failed to retrieve DataModel '{datamodel_name}'. " f"Status Code: {response.status_code}, Error: {response.text}")
+            self.logger.error(f"Failed to retrieve DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve DataModel. Status Code: {response.status_code}"}
 
         datamodels = response.json()
@@ -87,7 +87,7 @@ class DataModel:
             return {"error": "No response from API while retrieving datamodel metadata."}
 
         if not response.ok:
-            self.logger.error(f"Failed to retrieve datamodel metadata. " f"Status Code: {response.status_code}, Error: {response.text}")
+            self.logger.error(f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}"}
 
         data = response.json()
@@ -129,7 +129,7 @@ class DataModel:
             return {"error": "No response from API while retrieving connections"}
 
         if not response.ok:
-            self.logger.error(f"Failed to retrieve connections. Status Code: {response.status_code}, " f"Error: {response.text}")
+            self.logger.error(f"Failed to retrieve connections. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve connections. Status Code: {response.status_code}"}
 
         connections = response.json()
@@ -181,7 +181,7 @@ class DataModel:
             return {"error": "No response from API while retrieving table schema"}
 
         if not response.ok:
-            self.logger.error(f"Failed to retrieve schema for table '{table_name}'. " f"Status Code: {response.status_code}, Error: {response.text}")
+            self.logger.error(f"Failed to retrieve schema for table '{table_name}'. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve table schema. Status Code: {response.status_code}"}
 
         schema = response.json()
@@ -224,7 +224,7 @@ class DataModel:
             return {"error": "No response from API while creating DataModel"}
 
         if not response.ok:
-            self.logger.error(f"Failed to create DataModel '{datamodel_name}'. " f"Status Code: {response.status_code}, Error: {response.text}")
+            self.logger.error(f"Failed to create DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to create DataModel. Status Code: {response.status_code}"}
 
         datamodel_id = response.json().get("oid")
@@ -399,7 +399,7 @@ class DataModel:
         Returns:
             dict: A dictionary containing the full dataset object on success, or an error message on failure.
         """
-        self.logger.debug(f"Creating dataset in DataModel '{datamodel_name}' with connection '{connection_name}', " f"database '{database_name}', and schema '{schema_name}'")
+        self.logger.debug(f"Creating dataset in DataModel '{datamodel_name}' with connection '{connection_name}', database '{database_name}', and schema '{schema_name}'")
 
         # Step 1: Get DataModel ID
         self.logger.debug(f"Retrieving DataModel ID for '{datamodel_name}'")
@@ -494,8 +494,8 @@ class DataModel:
             self.logger.debug(f"Retrieving Dataset ID from DataModel '{datamodel_name}'")
             datasets = datamodel.get("datasets")
             if datasets and len(datasets) > 1:
-                self.logger.warning(f"Multiple datasets found in DataModel '{datamodel_name}'. " f"Provide a dataset_id to specify which one to use.")
-                return {"error": (f"Multiple datasets found in DataModel '{datamodel_name}'. " f"Provide a dataset_id to specify which one to use.")}
+                self.logger.warning(f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")
+                return {"error": (f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")}
 
             dataset_info = datasets[0]
             dataset_id = dataset_info.get("oid")
@@ -511,7 +511,7 @@ class DataModel:
                 self.logger.debug(f"Using provided schema name: {schema_name}")
             connection_name = dataset_info.get("connection", {}).get("name")
 
-            self.logger.debug(f"Resolved Dataset ID: {dataset_id}, " f"Database Name: {database_name}, " f"Schema Name: {schema_name}, " f"Connection Name: {connection_name}")
+            self.logger.debug(f"Resolved Dataset ID: {dataset_id}, Database Name: {database_name}, Schema Name: {schema_name}, Connection Name: {connection_name}")
 
             if not dataset_id:
                 self.logger.error(f"No dataset ID found in DataModel '{datamodel_name}'. Aborting table creation.")
@@ -542,9 +542,9 @@ class DataModel:
                 else:
                     self.logger.debug(f"Using provided schema name: {schema_name}")
                 connection_name = dataset_details.get("connection", {}).get("name")
-                self.logger.debug(f"Resolved Dataset ID: {dataset_id}, " f"Database Name: {database_name}, " f"Schema Name: {schema_name}, " f"Connection Name: {connection_name}")
+                self.logger.debug(f"Resolved Dataset ID: {dataset_id}, Database Name: {database_name}, Schema Name: {schema_name}, Connection Name: {connection_name}")
             else:
-                self.logger.error(f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'. " f"Status Code: {dataset.status_code}, Error: {dataset.text}")
+                self.logger.error(f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'. Status Code: {dataset.status_code}, Error: {dataset.text}")
                 return {"error": f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'"}
 
         # Step 3: Fetch schema of the table to be created
@@ -556,7 +556,7 @@ class DataModel:
             self.logger.error(f"Missing database or schema name for table '{table_name}'.")
             return {"error": f"Missing database or schema name for table '{table_name}'."}
 
-        self.logger.debug(f"Fetching schema for table '{table_name}' in database '{db_name_to_use}' " f"and schema '{schema_name_to_use}' under connection '{connection_name}'")
+        self.logger.debug(f"Fetching schema for table '{table_name}' in database '{db_name_to_use}' and schema '{schema_name_to_use}' under connection '{connection_name}'")
         table_schema = self.get_table_schema(connection_name, db_name_to_use, schema_name_to_use, table_name)
 
         if "error" in table_schema:
@@ -637,7 +637,7 @@ class DataModel:
                         self.logger.error("Increment mode requires 'column_name' in build_behavior_config.")
                         return {"error": "Missing 'column_id' for increment mode."}
                     if not column_id:
-                        self.logger.error(f"Couldn't resolve column id matching. Column '{column_name}' " f"not found in table '{table_name}'.")
+                        self.logger.error(f"Couldn't resolve column id matching. Column '{column_name}' not found in table '{table_name}'.")
                         return {"error": f"Column '{column_name}' not found in table '{table_name}'"}
                     build_behavior = {"type": "accumulativeSync", "accumulativeConfig": {"column": column_id, "type": "lastStored", "lastDays": None, "keepOnlyDays": None}}
                 else:
@@ -652,7 +652,7 @@ class DataModel:
                     self.logger.info(f"Table '{table_name}' build behavior updated successfully.")
                     return patch_response.json()
                 else:
-                    self.logger.error(f"Failed to update table '{table_name}' build behavior. " f"Status Code: {patch_response.status_code}, Error: {patch_response.text}")
+                    self.logger.error(f"Failed to update table '{table_name}' build behavior. Status Code: {patch_response.status_code}, Error: {patch_response.text}")
                     return {"error": "Failed to update table build behavior"}
 
             return table
@@ -1396,7 +1396,7 @@ class DataModel:
 
         else:
             error_text = response.text if response else "No response from API."
-            self.logger.error(f"Failed to retrieve data from DataModel '{datamodel_name}', " f"Table '{table_name}'. Error: {error_text}")
+            self.logger.error(f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'. Error: {error_text}")
             return []
 
     def get_row_count(self, datamodel_name):
@@ -1453,7 +1453,7 @@ class DataModel:
 
         # Step 3: Add total row count as a final row
         row_info.append({"table_name": "total_row_count", "row_count": total_row_count})
-        self.logger.info(f"Completed row count collection for DataModel '{datamodel_name}'. " f"Total rows: {total_row_count}")
+        self.logger.info(f"Completed row count collection for DataModel '{datamodel_name}'. Total rows: {total_row_count}")
         return row_info
 
     def resolve_datamodel_reference(self, datamodel_ref: str) -> dict[str, Any]:
@@ -1557,7 +1557,7 @@ class DataModel:
                 error_body = title_response.json()
             except Exception:
                 error_body = getattr(title_response, "text", "No response text")
-            error_msg = "Failed to resolve data model by title. " f"Status: {title_response.status_code}, Error: {error_body}"
+            error_msg = f"Failed to resolve data model by title. Status: {title_response.status_code}, Error: {error_body}"
             self.logger.error(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref},
