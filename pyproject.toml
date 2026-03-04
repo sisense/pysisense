@@ -62,7 +62,28 @@ exclude = [
 dev = [
     "commitizen>=4.10.1",
     "pre-commit>=4.3.0",
+    "ruff>=0.15.4",
 ]
+
+[tool.ruff]
+line-length = 200
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "B",  # bugbear
+    "SIM" # simplify
+]
+
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
