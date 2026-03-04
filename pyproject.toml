@@ -16,6 +16,7 @@ dependencies = [
   "requests>=2.32.3",
   "PyYAML>=6.0.2",
   "pandas>=2.2.3",
+  "python-semantic-release>=10.5.3",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -69,3 +70,11 @@ version = "0.1.0"
 tag_format = "v$version"
 update_changelog_on_bump = false
 
+[tool.semantic_release]
+version_variable = ["pysisense/__init__.py:__version__"]
+branch = "main"
+changelog_file = "CHANGELOG.md"
+upload_to_pypi = false
+upload_to_release = true
+commit_message = "chore(release): {version}"
+tag_format = "v{version}"
