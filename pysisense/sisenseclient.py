@@ -1,24 +1,24 @@
+import logging
 import os
 import re
-import logging
-from typing import Optional
 
 import requests
 import urllib3
 import yaml
 
-from .utils import convert_to_dataframe, export_to_csv as export_csv_util
+from .utils import convert_to_dataframe
+from .utils import export_to_csv as export_csv_util
 
 
 class SisenseClient:
     def __init__(
         self,
-        config_file: Optional[str] = "config.yaml",
+        config_file: str | None = "config.yaml",
         debug: bool = False,
         *,
-        domain: Optional[str] = None,
-        token: Optional[str] = None,
-        is_ssl: Optional[bool] = None,
+        domain: str | None = None,
+        token: str | None = None,
+        is_ssl: bool | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -62,10 +62,7 @@ class SisenseClient:
         if domain is not None or token is not None or is_ssl is not None:
             # Direct connection mode – require domain + token
             if not domain or not token:
-                raise ValueError(
-                    "When using direct connection, both 'domain' and 'token' "
-                    "must be provided."
-                )
+                raise ValueError("When using direct connection, both 'domain' and 'token' " "must be provided.")
 
             self.config = {
                 "domain": domain,
@@ -76,10 +73,7 @@ class SisenseClient:
         else:
             # Legacy YAML mode
             if not config_file:
-                raise ValueError(
-                    "config_file must be provided when 'domain' and 'token' "
-                    "are not supplied."
-                )
+                raise ValueError("config_file must be provided when 'domain' and 'token' " "are not supplied.")
             self.config = self._load_config(config_file)
 
         # Get the domain or IP address from the configuration
@@ -124,9 +118,7 @@ class SisenseClient:
         # Always disable SSL certificate verification (current behavior)
         self.verify = False
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        self.logger.warning(
-            "SSL verification is disabled. Avoid using this in production."
-        )
+        self.logger.warning("SSL verification is disabled. Avoid using this in production.")
 
     @classmethod
     def from_connection(
@@ -166,7 +158,7 @@ class SisenseClient:
             dict: Parsed YAML configuration as a dictionary.
         """
         # Open and parse the YAML file
-        with open(config_file, "r") as stream:
+        with open(config_file) as stream:
             return yaml.load(stream, Loader=yaml.FullLoader)
 
     def _get_logger(self, name, log_filename, log_level):
@@ -189,9 +181,7 @@ class SisenseClient:
             handler = logging.FileHandler(log_filename, mode="a")
 
             # Define the format for log messages
-            formatter = logging.Formatter(
-                "%(asctime)s - %(levelname)s - %(message)s"
-            )
+            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
             handler.setFormatter(formatter)
 
             # Add the file handler to the logger
@@ -287,41 +277,27 @@ class SisenseClient:
         url = f"{self.base_url}{endpoint}"
 
         # Log the request details (method, URL, params, and data)
-        self.logger.debug(
-            f"Making {method} request to {url} with data: {data} and params: {params}"
-        )
+        self.logger.debug(f"Making {method} request to {url} with data: {data} and params: {params}")
 
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
-                response = requests.get(
-                    url, headers=self.headers, params=params, verify=self.verify
-                )
+                response = requests.get(url, headers=self.headers, params=params, verify=self.verify)
             elif method == "POST":
-                response = requests.post(
-                    url, headers=self.headers, json=data, verify=self.verify
-                )
+                response = requests.post(url, headers=self.headers, json=data, verify=self.verify)
             elif method == "PUT":
-                response = requests.put(
-                    url, headers=self.headers, json=data, verify=self.verify
-                )
+                response = requests.put(url, headers=self.headers, json=data, verify=self.verify)
             elif method == "PATCH":
-                response = requests.patch(
-                    url, headers=self.headers, json=data, verify=self.verify
-                )
+                response = requests.patch(url, headers=self.headers, json=data, verify=self.verify)
             elif method == "DELETE":
-                response = requests.delete(
-                    url, headers=self.headers, verify=self.verify
-                )
+                response = requests.delete(url, headers=self.headers, verify=self.verify)
             else:
                 # Raise an error for unsupported HTTP methods
                 raise ValueError(f"Unsupported HTTP method: {method}")
 
             # Handle known response codes
             if response.status_code in [200, 201, 204]:
-                self.logger.debug(
-                    f"{method} request to {url} succeeded with status code {response.status_code}"
-                )
+                self.logger.debug(f"{method} request to {url} succeeded with status code {response.status_code}")
             elif response.status_code in [400, 404, 500]:
                 # Log the error response text if available
                 try:
@@ -329,14 +305,9 @@ class SisenseClient:
                 except ValueError:
                     # If the response is not JSON, use raw text
                     error_message = response.text
-                self.logger.error(
-                    f"{method} request to {url} failed with status code "
-                    f"{response.status_code}: {error_message}"
-                )
+                self.logger.error(f"{method} request to {url} failed with status code " f"{response.status_code}: {error_message}")
             else:
-                self.logger.warning(
-                    f"{method} request to {url} returned unexpected status code {response.status_code}"
-                )
+                self.logger.warning(f"{method} request to {url} returned unexpected status code {response.status_code}")
 
             # Always return the full response object
             return response

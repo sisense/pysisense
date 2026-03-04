@@ -1,11 +1,10 @@
 import os
-from typing import Any, List
+from typing import Any
 
 import pytest
 
 from pysisense.sisenseclient import SisenseClient
 from pysisense.wellcheck import WellCheck
-
 
 CONFIG_PATH = os.environ.get("PYSISENSE_CONFIG_PATH", "config.yaml")
 
@@ -36,7 +35,7 @@ def test_check_dashboard_widget_counts_integration_smoke() -> None:
     response = client.get("/api/v1/dashboards/admin?dashboardType=owner")
     assert response is not None, "Expected a response from the dashboards admin endpoint."
 
-    dashboards: List[Any] = response.json()
+    dashboards: list[Any] = response.json()
     if not dashboards:
         pytest.skip("No dashboards returned from admin endpoint; skipping integration test.")
 

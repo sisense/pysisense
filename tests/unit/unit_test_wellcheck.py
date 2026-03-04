@@ -1,14 +1,14 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pysisense.wellcheck import WellCheck
 
 
 class FakeLogger:
     def __init__(self) -> None:
-        self.messages: List[Dict[str, Any]] = []
+        self.messages: list[dict[str, Any]] = []
 
     def _log(self, level: str, msg: str, **extra: Any) -> None:
-        entry: Dict[str, Any] = {"level": level, "msg": msg}
+        entry: dict[str, Any] = {"level": level, "msg": msg}
         if extra:
             entry["extra"] = extra
         self.messages.append(entry)
@@ -49,11 +49,11 @@ class FakeApiClient:
       - logger
     """
 
-    def __init__(self, responses: Dict[str, FakeResponse], logger: FakeLogger) -> None:
+    def __init__(self, responses: dict[str, FakeResponse], logger: FakeLogger) -> None:
         self._responses = responses
         self.logger = logger
 
-    def get(self, endpoint: str) -> Optional[FakeResponse]:
+    def get(self, endpoint: str) -> FakeResponse | None:
         return self._responses.get(endpoint)
 
 
@@ -62,7 +62,7 @@ class FakeDashboard:
     Fake Dashboard helper that only implements resolve_dashboard_reference.
     """
 
-    def __init__(self, mapping: Dict[str, Dict[str, Any]]) -> None:
+    def __init__(self, mapping: dict[str, dict[str, Any]]) -> None:
         """
         Parameters
         ----------
@@ -73,7 +73,7 @@ class FakeDashboard:
         """
         self._mapping = mapping
 
-    def resolve_dashboard_reference(self, dashboard_ref: str) -> Dict[str, Any]:
+    def resolve_dashboard_reference(self, dashboard_ref: str) -> dict[str, Any]:
         if dashboard_ref in self._mapping:
             entry = self._mapping[dashboard_ref]
             return {
@@ -98,7 +98,7 @@ class FakeDatamodel:
     Fake Datamodel helper that only implements resolve_datamodel_reference.
     """
 
-    def __init__(self, mapping: Dict[str, Dict[str, Any]]) -> None:
+    def __init__(self, mapping: dict[str, dict[str, Any]]) -> None:
         """
         Parameters
         ----------
@@ -109,7 +109,7 @@ class FakeDatamodel:
         """
         self._mapping = mapping
 
-    def resolve_datamodel_reference(self, datamodel_ref: str) -> Dict[str, Any]:
+    def resolve_datamodel_reference(self, datamodel_ref: str) -> dict[str, Any]:
         if datamodel_ref in self._mapping:
             entry = self._mapping[datamodel_ref]
             return {
@@ -139,7 +139,7 @@ class WellCheckTestHarness(WellCheck):
         self,
         api_client: FakeApiClient,
         dashboard: FakeDashboard,
-        datamodel: Optional[FakeDatamodel] = None,
+        datamodel: FakeDatamodel | None = None,
     ) -> None:
         self.api_client = api_client
         self.logger = api_client.logger
@@ -164,11 +164,7 @@ def test_check_dashboard_structure_returns_empty_when_no_dashboards() -> None:
 
     assert result == []
     # Ensure an error was logged about missing dashboard references
-    assert any(
-        m["level"] == "error"
-        and "At least one dashboard reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "At least one dashboard reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_dashboard_structure_skips_unresolved_references() -> None:
@@ -184,11 +180,7 @@ def test_check_dashboard_structure_skips_unresolved_references() -> None:
     # Nothing resolved or processed
     assert result == []
     # There should be at least one warning about skipping the reference
-    assert any(
-        m["level"] == "warning"
-        and "Skipping dashboard reference 'missing_dashboard'" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "warning" and "Skipping dashboard reference 'missing_dashboard'" in m["msg"] for m in logger.messages)
 
 
 def test_check_dashboard_structure_counts_widgets_and_jtds() -> None:
@@ -271,16 +263,8 @@ def test_check_dashboard_structure_counts_widgets_and_jtds() -> None:
     assert row["accordion_count"] == 1
 
     # Summary logs – keep assertions tolerant to wording
-    assert any(
-        m["level"] == "info"
-        and "Total dashboards processed" in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Total JTD" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and "Total dashboards processed" in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Total JTD" in m["msg"] for m in logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +282,7 @@ def test_check_dashboard_widget_counts_returns_empty_when_no_dashboards() -> Non
     result = wellcheck.check_dashboard_widget_counts(dashboards=None)
 
     assert result == []
-    assert any(
-        m["level"] == "error"
-        and "At least one dashboard reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "At least one dashboard reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_dashboard_widget_counts_skips_unresolved_references() -> None:
@@ -315,11 +295,7 @@ def test_check_dashboard_widget_counts_skips_unresolved_references() -> None:
     result = wellcheck.check_dashboard_widget_counts(dashboards=["missing_dashboard"])
 
     assert result == []
-    assert any(
-        m["level"] == "warning"
-        and "Skipping dashboard reference 'missing_dashboard'" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "warning" and "Skipping dashboard reference 'missing_dashboard'" in m["msg"] for m in logger.messages)
 
 
 def test_check_dashboard_widget_counts_counts_widgets() -> None:
@@ -388,11 +364,7 @@ def test_check_pivot_widget_fields_returns_empty_when_no_dashboards() -> None:
     # No dashboards -> empty result
     assert result == []
     # Ensure an error was logged about missing dashboard references
-    assert any(
-        m["level"] == "error"
-        and "At least one dashboard reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "At least one dashboard reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_pivot_widget_fields_skips_unresolved_references() -> None:
@@ -555,14 +527,7 @@ def test_check_datamodel_custom_tables_returns_empty_when_no_datamodels() -> Non
 
     assert result == []
     # Ensure an error was logged about missing data model references
-    assert any(
-        m["level"] == "error"
-        and (
-            "At least one data model reference" in m["msg"]
-            or "At least one datamodel reference" in m["msg"]
-        )
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and ("At least one data model reference" in m["msg"] or "At least one datamodel reference" in m["msg"]) for m in logger.messages)
 
 
 def test_check_datamodel_custom_tables_detects_union_in_custom_tables() -> None:
@@ -586,16 +551,12 @@ def test_check_datamodel_custom_tables_detects_union_in_custom_tables() -> None:
                         {
                             "name": "custom_no_union",
                             "type": "custom",
-                            "expression": {
-                                "expression": "SELECT * FROM orders"
-                            },
+                            "expression": {"expression": "SELECT * FROM orders"},
                         },
                         {
                             "name": "custom_with_union",
                             "type": "custom",
-                            "expression": {
-                                "expression": "SELECT * FROM a UNION SELECT * FROM b"
-                            },
+                            "expression": {"expression": "SELECT * FROM a UNION SELECT * FROM b"},
                         },
                         {
                             "name": "physical_table",
@@ -649,26 +610,10 @@ def test_check_datamodel_custom_tables_detects_union_in_custom_tables() -> None:
     assert by_table["custom_with_union"]["has_union"] == "yes"
 
     # Summary logs should reflect processed counts
-    assert any(
-        m["level"] == "info"
-        and "Processed 1 data models." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Processed 3 tables." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Processed 2 custom tables." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Found 1 custom tables using 'union'." in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and "Processed 1 data models." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Processed 3 tables." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Processed 2 custom tables." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Found 1 custom tables using 'union'." in m["msg"] for m in logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -694,11 +639,7 @@ def test_check_datamodel_island_tables_returns_empty_when_no_datamodels() -> Non
 
     assert result == []
     # An error about missing datamodel references should be logged
-    assert any(
-        m["level"] == "error"
-        and "datamodel reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "datamodel reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_island_tables_skips_unresolved_references() -> None:
@@ -715,18 +656,12 @@ def test_check_datamodel_island_tables_skips_unresolved_references() -> None:
         datamodel=datamodel,
     )
 
-    result = wellcheck.check_datamodel_island_tables(
-        datamodels=["missing_datamodel"]
-    )
+    result = wellcheck.check_datamodel_island_tables(datamodels=["missing_datamodel"])
 
     # Nothing resolved or processed
     assert result == []
     # There should be a warning about skipping the reference
-    assert any(
-        m["level"] == "warning"
-        and "Skipping datamodel reference 'missing_datamodel'" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "warning" and "Skipping datamodel reference 'missing_datamodel'" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_island_tables_finds_island_tables() -> None:
@@ -821,16 +756,8 @@ def test_check_datamodel_island_tables_finds_island_tables() -> None:
     assert row["relation"] == "no"
 
     # Summary logs should mention processed datamodels and island tables
-    assert any(
-        m["level"] == "info"
-        and "Processed 1 data models" in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Island tables" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and "Processed 1 data models" in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Island tables" in m["msg"] for m in logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -855,11 +782,7 @@ def test_check_datamodel_rls_datatypes_returns_empty_when_no_datamodels() -> Non
 
     assert result == []
     # Ensure an error was logged about missing datamodel references
-    assert any(
-        m["level"] == "error"
-        and "At least one datamodel reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "At least one datamodel reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_rls_datatypes_skips_unresolved_references() -> None:
@@ -876,18 +799,12 @@ def test_check_datamodel_rls_datatypes_skips_unresolved_references() -> None:
         datamodel=datamodel,
     )
 
-    result = wellcheck.check_datamodel_rls_datatypes(
-        datamodels=["missing_datamodel"]
-    )
+    result = wellcheck.check_datamodel_rls_datatypes(datamodels=["missing_datamodel"])
 
     # Nothing resolved or processed
     assert result == []
     # There should be a warning about skipping the reference
-    assert any(
-        m["level"] == "warning"
-        and "Skipping datamodel reference 'missing_datamodel'" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "warning" and "Skipping datamodel reference 'missing_datamodel'" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_rls_datatypes_detects_numeric_and_non_numeric() -> None:
@@ -976,21 +893,9 @@ def test_check_datamodel_rls_datatypes_detects_numeric_and_non_numeric() -> None
     assert by_key[("Orders", "Region")]["datatype"] == "string"
 
     # Summary logs should reflect processed counts
-    assert any(
-        m["level"] == "info"
-        and "Processed 1 data models." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Processed 2 data security rules." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Found 1 non-numeric data security rules." in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and "Processed 1 data models." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Processed 2 data security rules." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Found 1 non-numeric data security rules." in m["msg"] for m in logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -1016,10 +921,7 @@ def test_check_datamodel_import_queries_returns_empty_when_no_datamodels() -> No
 
     assert result == []
     # Ensure an error was logged about missing datamodel references
-    assert any(
-        m["level"] == "error" and "datamodel reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "datamodel reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_import_queries_skips_unresolved_references() -> None:
@@ -1036,18 +938,12 @@ def test_check_datamodel_import_queries_skips_unresolved_references() -> None:
         datamodel=datamodel,
     )
 
-    result = wellcheck.check_datamodel_import_queries(
-        datamodels=["missing_datamodel"]
-    )
+    result = wellcheck.check_datamodel_import_queries(datamodels=["missing_datamodel"])
 
     # Nothing resolved or processed
     assert result == []
     # There should be a warning about skipping the reference
-    assert any(
-        m["level"] == "warning"
-        and "Skipping datamodel reference 'missing_datamodel'" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "warning" and "Skipping datamodel reference 'missing_datamodel'" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_import_queries_detects_import_queries() -> None:
@@ -1078,9 +974,7 @@ def test_check_datamodel_import_queries_detects_import_queries() -> None:
                         },
                         {
                             "name": "table_with_import",
-                            "configOptions": {
-                                "importQuery": "SELECT * FROM some_table"
-                            },
+                            "configOptions": {"importQuery": "SELECT * FROM some_table"},
                         },
                         {
                             "name": "table_null_config",
@@ -1137,21 +1031,9 @@ def test_check_datamodel_import_queries_detects_import_queries() -> None:
     assert by_table["table_null_config"]["has_import_query"] == "no"
 
     # Summary logs should reflect processed counts
-    assert any(
-        m["level"] == "info"
-        and "Processed 1 data models." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Processed 3 tables." in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Found 1 tables with import queries." in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and "Processed 1 data models." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Processed 3 tables." in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Found 1 tables with import queries." in m["msg"] for m in logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -1176,11 +1058,7 @@ def test_check_datamodel_m2m_relationships_returns_empty_when_no_datamodels() ->
     result = wellcheck.check_datamodel_m2m_relationships(datamodels=None)
 
     assert result == []
-    assert any(
-        m["level"] == "error"
-        and "At least one datamodel reference" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "error" and "At least one datamodel reference" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_m2m_relationships_skips_unresolved_references() -> None:
@@ -1197,16 +1075,10 @@ def test_check_datamodel_m2m_relationships_skips_unresolved_references() -> None
         datamodel=datamodel,
     )
 
-    result = wellcheck.check_datamodel_m2m_relationships(
-        datamodels=["missing_datamodel"]
-    )
+    result = wellcheck.check_datamodel_m2m_relationships(datamodels=["missing_datamodel"])
 
     assert result == []
-    assert any(
-        m["level"] == "warning"
-        and "Skipping datamodel reference 'missing_datamodel'" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "warning" and "Skipping datamodel reference 'missing_datamodel'" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
@@ -1225,12 +1097,8 @@ def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
 
     # Endpoints used by the implementation
     relations_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/relations"
-    left_table_endpoint = (
-        f"/api/v2/datamodels/{datamodel_id}/schema/datasets/DS1/tables/T1"
-    )
-    right_table_endpoint = (
-        f"/api/v2/datamodels/{datamodel_id}/schema/datasets/DS2/tables/T2"
-    )
+    left_table_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/datasets/DS1/tables/T1"
+    right_table_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/datasets/DS2/tables/T2"
     datasource_endpoint = f"/api/datasources/{datamodel_title}/sql"
 
     # 1) Relations payload: a single relation with two columns (one left, one right)
@@ -1260,18 +1128,8 @@ def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
 
     # 3) CSV responses for the aggregate queries
     #    Two data rows + header => count = 2 (> 1) for each side.
-    left_query = (
-        "select [LeftKey], count([LeftKey]) as key_count1 "
-        "from [LeftTable] "
-        "group by [LeftKey] "
-        "having count([LeftKey]) > 1"
-    )
-    right_query = (
-        "select [RightKey], count([RightKey]) as key_count2 "
-        "from [RightTable] "
-        "group by [RightKey] "
-        "having count([RightKey]) > 1"
-    )
+    left_query = "select [LeftKey], count([LeftKey]) as key_count1 " "from [LeftTable] " "group by [LeftKey] " "having count([LeftKey]) > 1"
+    right_query = "select [RightKey], count([RightKey]) as key_count2 " "from [RightTable] " "group by [RightKey] " "having count([RightKey]) > 1"
 
     left_csv_resp = FakeResponse(status_code=200, json_data={})
     left_csv_resp.text = "LeftKey,key_count1\nA,2\nB,3\n"
@@ -1281,15 +1139,9 @@ def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
 
     # We key responses by (endpoint, query) where query is None for non-SQL calls
     responses = {
-        (relations_endpoint, None): FakeResponse(
-            status_code=200, json_data=relations_payload
-        ),
-        (left_table_endpoint, None): FakeResponse(
-            status_code=200, json_data=left_table_payload
-        ),
-        (right_table_endpoint, None): FakeResponse(
-            status_code=200, json_data=right_table_payload
-        ),
+        (relations_endpoint, None): FakeResponse(status_code=200, json_data=relations_payload),
+        (left_table_endpoint, None): FakeResponse(status_code=200, json_data=left_table_payload),
+        (right_table_endpoint, None): FakeResponse(status_code=200, json_data=right_table_payload),
         (datasource_endpoint, left_query): left_csv_resp,
         (datasource_endpoint, right_query): right_csv_resp,
     }
@@ -1347,25 +1199,11 @@ def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
     assert row["is_m2m"] is True
 
     # Check that the original print-style info log was preserved
-    assert any(
-        m["level"] == "info"
-        and datamodel_title in m["msg"]
-        and "LeftTable" in m["msg"]
-        and "RightTable" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and datamodel_title in m["msg"] and "LeftTable" in m["msg"] and "RightTable" in m["msg"] for m in logger.messages)
 
     # Summary logs should mention processed datamodels and M2M count
-    assert any(
-        m["level"] == "info"
-        and "Processed 1 data models" in m["msg"]
-        for m in logger.messages
-    )
-    assert any(
-        m["level"] == "info"
-        and "Found 1 many-to-many relationships" in m["msg"]
-        for m in logger.messages
-    )
+    assert any(m["level"] == "info" and "Processed 1 data models" in m["msg"] for m in logger.messages)
+    assert any(m["level"] == "info" and "Found 1 many-to-many relationships" in m["msg"] for m in logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -1384,12 +1222,12 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
 
     class FakeAccessManagement:
         def __init__(self) -> None:
-            self.called_with: Optional[List[str]] = None
+            self.called_with: list[str] | None = None
 
         def get_unused_columns_bulk(
             self,
-            datamodels: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            datamodels: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.called_with = datamodels
             # Return a simple stub row
             return [
@@ -1419,35 +1257,35 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
             self.access_mgmt = access_mgmt
 
             # Track what each sub-check was called with
-            self.structure_called_with: Optional[List[str]] = None
-            self.widget_counts_called_with: Optional[List[str]] = None
-            self.pivot_fields_called_with: Optional[Dict[str, Any]] = None
-            self.custom_tables_called_with: Optional[List[str]] = None
-            self.island_tables_called_with: Optional[List[str]] = None
-            self.rls_called_with: Optional[List[str]] = None
-            self.import_queries_called_with: Optional[List[str]] = None
-            self.m2m_called_with: Optional[List[str]] = None
+            self.structure_called_with: list[str] | None = None
+            self.widget_counts_called_with: list[str] | None = None
+            self.pivot_fields_called_with: dict[str, Any] | None = None
+            self.custom_tables_called_with: list[str] | None = None
+            self.island_tables_called_with: list[str] | None = None
+            self.rls_called_with: list[str] | None = None
+            self.import_queries_called_with: list[str] | None = None
+            self.m2m_called_with: list[str] | None = None
 
         # Dashboard-level checks
         def check_dashboard_structure(
             self,
-            dashboards: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            dashboards: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.structure_called_with = dashboards
             return [{"dashboard_id": "D1", "pivot_count": 1}]
 
         def check_dashboard_widget_counts(
             self,
-            dashboards: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            dashboards: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.widget_counts_called_with = dashboards
             return [{"dashboard_id": "D1", "widget_count": 3}]
 
         def check_pivot_widget_fields(
             self,
-            dashboards: Optional[List[str]] = None,
+            dashboards: list[str] | None = None,
             max_fields: int = 20,
-        ) -> List[Dict[str, Any]]:
+        ) -> list[dict[str, Any]]:
             self.pivot_fields_called_with = {
                 "dashboards": dashboards,
                 "max_fields": max_fields,
@@ -1464,17 +1302,15 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
         # Datamodel-level checks
         def check_datamodel_custom_tables(
             self,
-            datamodels: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            datamodels: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.custom_tables_called_with = datamodels
-            return [
-                {"data_model": "DM1", "table": "T_custom", "has_union": "no"}
-            ]
+            return [{"data_model": "DM1", "table": "T_custom", "has_union": "no"}]
 
         def check_datamodel_island_tables(
             self,
-            datamodels: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            datamodels: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.island_tables_called_with = datamodels
             return [
                 {
@@ -1489,8 +1325,8 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
 
         def check_datamodel_rls_datatype(
             self,
-            datamodels: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            datamodels: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.rls_called_with = datamodels
             return [
                 {
@@ -1503,17 +1339,15 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
 
         def check_datamodel_import_queries(
             self,
-            datamodels: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            datamodels: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.import_queries_called_with = datamodels
-            return [
-                {"data_model": "DM1", "table": "T_import", "has_import_query": "yes"}
-            ]
+            return [{"data_model": "DM1", "table": "T_import", "has_import_query": "yes"}]
 
         def check_datamodel_m2m_relationships(
             self,
-            datamodels: Optional[List[str]] = None,
-        ) -> List[Dict[str, Any]]:
+            datamodels: list[str] | None = None,
+        ) -> list[dict[str, Any]]:
             self.m2m_called_with = datamodels
             return [
                 {
@@ -1550,9 +1384,7 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
     assert set(wellcheck.widget_counts_called_with or []) == set(dashboards_input)
 
     assert wellcheck.pivot_fields_called_with is not None
-    assert set(wellcheck.pivot_fields_called_with["dashboards"] or []) == set(
-        dashboards_input
-    )
+    assert set(wellcheck.pivot_fields_called_with["dashboards"] or []) == set(dashboards_input)
     assert wellcheck.pivot_fields_called_with["max_fields"] == 30
 
     assert set(wellcheck.custom_tables_called_with or []) == set(datamodels_input)
@@ -1575,9 +1407,7 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
 
     # Dashboard subsections
     assert dashboards_section["structure"] == [{"dashboard_id": "D1", "pivot_count": 1}]
-    assert dashboards_section["widget_counts"] == [
-        {"dashboard_id": "D1", "widget_count": 3}
-    ]
+    assert dashboards_section["widget_counts"] == [{"dashboard_id": "D1", "widget_count": 3}]
     assert dashboards_section["pivot_widget_fields"] == [
         {
             "dashboard_id": "D1",
@@ -1588,9 +1418,7 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
     ]
 
     # Datamodel subsections
-    assert datamodels_section["custom_tables"] == [
-        {"data_model": "DM1", "table": "T_custom", "has_union": "no"}
-    ]
+    assert datamodels_section["custom_tables"] == [{"data_model": "DM1", "table": "T_custom", "has_union": "no"}]
     assert datamodels_section["island_tables"][0]["table"] == "IslandTable"
     assert datamodels_section["rls_datatypes"][0]["column"] == "C_rls"
     assert datamodels_section["import_queries"][0]["has_import_query"] == "yes"
