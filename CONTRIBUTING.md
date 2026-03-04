@@ -59,6 +59,15 @@ Here are some resources to help you get started:
    uv pip install -e ".[dev]"
    ```
 
+4. **Set up pre-commit hooks**:
+   Before you start committing, install pre-commit hooks to automatically check your code quality:
+   ```bash
+   uv run setup
+   # or manually:
+   pre-commit install
+   ```
+   This ensures that linting and code formatting checks run automatically before each commit.
+
 ### General Guidelines
 
 When making contributions to the project, please follow these steps:

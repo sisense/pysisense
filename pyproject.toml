@@ -85,6 +85,9 @@ ignore = []
 quote-style = "double"
 indent-style = "space"
 
+[tool.uv.scripts]
+setup = "pre-commit install"
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "0.1.0"
