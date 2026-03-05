@@ -46,6 +46,27 @@ api_client.export_to_csv(response, file_name="user_info.csv")
 
 ---
 
+## Example 1b: Get User Information with Role/Group IDs and Names
+
+Retrieve information for a specific user by their email, including both role
+and group IDs and names. This is useful when you want a richer record for
+auditing, exports, or feeding other APIs that expect IDs.
+
+```python
+user_email = 'john.doe@example.com'
+response = access_mgmt.get_user_with_role_and_group_names(user_email)
+print(json.dumps(response, indent=4))
+
+# Optional: Convert the response to a DataFrame and print
+df = api_client.to_dataframe(response)
+print(df)
+
+# Optional: Export the response to a CSV file
+api_client.export_to_csv(response, file_name="user_with_role_and_groups.csv")
+```
+
+---
+
 ## Example 2: Get All Users
 
 Fetch all users in the system.
@@ -55,6 +76,21 @@ response = access_mgmt.get_users_all()
 df = api_client.to_dataframe(response)
 print(df)
 api_client.export_to_csv(response, file_name="all_users.csv")
+```
+
+---
+
+## Example 2b: Get All Users with Role/Group IDs and Names
+
+Fetch all users in the system, including both role and group IDs and names.
+Compared to `get_users_all()`, this function provides a more complete view,
+which is ideal for exports and downstream automation.
+
+```python
+response = access_mgmt.get_users_with_role_names_and_group_names()
+df = api_client.to_dataframe(response)
+print(df)
+api_client.export_to_csv(response, file_name="all_users_with_roles_and_groups.csv")
 ```
 
 ---

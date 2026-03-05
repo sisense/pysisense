@@ -32,6 +32,42 @@ Retrieves user details by their email (username) and expands the response to inc
 
 * * * * *
 
+### `get_user_with_role_and_group_names(self, user_name)`
+
+Retrieves user details by their email (username) and returns both role and
+group **IDs and names** in a single payload. This is useful when you need to
+persist or compare IDs (for API calls or joins) while still having readable
+names.
+
+**Parameters:**
+
+-   `user_name` (str): The email or username of the user to be retrieved.
+
+**Returns:**
+
+-   `dict`: User details including:
+    - `USER_ID`
+    - `USER_NAME`
+    - `FIRST_NAME`
+    - `LAST_NAME`
+    - `EMAIL`
+    - `IS_ACTIVE`
+    - `ROLE_ID`
+    - `ROLE_NAME` (with the same role alias mapping as `get_user`)
+    - `GROUP_IDS` (list of group IDs)
+    - `GROUP_NAMES` (list of group names)  
+    or `{'error': 'message'}` if the user is not found or the API call fails.
+
+**When to use vs `get_user`:**
+
+- Use **`get_user`** when you only need **role name and group names** for a
+  single user and do not care about the underlying IDs.
+- Use **`get_user_with_role_and_group_names`** when you need **both IDs and
+  names** (for example, to feed other APIs that expect IDs, or to export a
+  richer record).
+
+* * * * *
+
 ### `get_users_all(self)`
 
 Fetches all users along with tenant, group, and role information.
@@ -41,6 +77,36 @@ Fetches all users along with tenant, group, and role information.
 -   `list`: List of user dictionaries or list containing one dict with an 'error' key.
 
 * * * * *
+
+### `get_users_with_role_names_and_group_names(self)`
+
+Retrieves **all users** from Sisense and enriches them with role and group IDs
+and names. Internally it calls the users API once and then looks up role and
+group names via the roles and groups APIs, so roles and groups are resolved
+in-memory without per-user API calls.
+
+**Returns:**
+
+-   `list`: Each entry is a dictionary containing:
+    - `USER_ID`
+    - `USER_NAME`
+    - `FIRST_NAME`
+    - `LAST_NAME`
+    - `EMAIL`
+    - `IS_ACTIVE`
+    - `ROLE_ID`
+    - `ROLE_NAME`
+    - `GROUP_IDS` (list of group IDs)
+    - `GROUP_NAMES` (list of group names)  
+    or a single-item list with `{'error': 'message'}` if an API call fails.
+
+**When to use vs `get_users_all`:**
+
+- Use **`get_users_all`** when you want a quick list of all users with
+  **role name and group names only**, and do not need role or group IDs.
+- Use **`get_users_with_role_names_and_group_names`** when you need a
+  **richer export** for all users that includes both IDs and names for roles
+  and groups (for reporting, audit, synchronization, or feeding other APIs).
 
 ### `get_group(self, name)`
 

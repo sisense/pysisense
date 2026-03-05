@@ -27,6 +27,268 @@ class AccessManagement:
         self.logger = self.api_client.logger
         self.logger.debug("AccessManagement class initialized.")
 
+    def _build_role_and_group_mappings(
+        self,
+    ) -> Optional[Dict[str, Dict[str, str]]]:
+        """
+        Internal helper to fetch and build role and group ID-to-name mappings.
+
+        Returns:
+            dict or None: {
+                "roles_by_id": {role_id: role_name, ...},
+                "groups_by_id": {group_id: group_name, ...},
+            }
+            or None if any API call fails.
+        """
+        # Fetch roles
+        roles_response = self.api_client.get("/api/roles")
+        if not roles_response or not roles_response.ok:
+            self.logger.error("Failed to fetch roles from API.")
+            return None
+
+        try:
+            roles_data = roles_response.json()
+            roles_by_id = {
+                role.get("_id"): role.get("name")
+                for role in roles_data
+                if isinstance(role, dict) and role.get("_id")
+            }
+        except Exception as exc:
+            self.logger.exception("Failed to parse roles response JSON.")
+            return None
+
+        # Fetch groups
+        groups_response = self.api_client.get("/api/v1/groups")
+        if not groups_response or not groups_response.ok:
+            self.logger.error("Failed to fetch groups from API.")
+            return None
+
+        try:
+            groups_data = groups_response.json()
+            groups_by_id = {
+                group.get("_id"): group.get("name")
+                for group in groups_data
+                if isinstance(group, dict) and group.get("_id")
+            }
+        except Exception as exc:
+            self.logger.exception("Failed to parse groups response JSON.")
+            return None
+
+        self.logger.debug(
+            "Built role and group mappings in helper. "
+            f"Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}"
+        )
+        return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
+
+    def get_user_with_role_and_group_names(
+        self, user_name: str
+    ) -> Dict[str, Any]:
+        """
+        Retrieves a single user by email/username and returns both role and
+        group IDs and names.
+
+        Parameters:
+            user_name (str): The email or username of the user to be retrieved.
+
+        Returns:
+            dict: User details including:
+                - USER_ID
+                - USER_NAME
+                - FIRST_NAME
+                - LAST_NAME
+                - EMAIL
+                - IS_ACTIVE
+                - ROLE_ID
+                - ROLE_NAME
+                - GROUP_IDS (list of group IDs)
+                - GROUP_NAMES (list of group names)
+            or {"error": "..."} on failure.
+        """
+        self.logger.debug(
+            f"Getting user with role and group IDs/names for: {user_name}"
+        )
+
+        # Reuse expanded users endpoint to get role & group objects
+        params = {"expand": "groups,role"}
+        response = self.api_client.get("/api/v1/users", params=params)
+
+        if not response or not response.ok:
+            error_msg = (
+                f"Failed to retrieve users from API for username: {user_name}."
+            )
+            self.logger.error(
+                f"{error_msg} Status Code: "
+                f"{response.status_code if response else 'No response'}"
+            )
+            return {"error": error_msg}
+
+        try:
+            users = response.json()
+        except Exception as exc:
+            self.logger.exception(
+                "Error decoding JSON response for user list in "
+                "get_user_with_role_and_group_names."
+            )
+            return {"error": f"Failed to decode API response: {exc}"}
+
+        ROLE_MAPPING = {
+            "consumer": "viewer",
+            "super": "sysAdmin",
+            "contributor": "dashboardDesigner",
+        }
+
+        for user in users:
+            try:
+                if user.get("email") != user_name:
+                    continue
+
+                role_obj = user.get("role") or {}
+                groups_obj = user.get("groups") or []
+
+                role_id = role_obj.get("_id")
+                role_name_raw = role_obj.get("name")
+                role_name = ROLE_MAPPING.get(role_name_raw, role_name_raw)
+
+                group_ids = []
+                group_names = []
+                for g in groups_obj:
+                    if not isinstance(g, dict):
+                        continue
+                    gid = g.get("_id")
+                    gname = g.get("name")
+                    if gid:
+                        group_ids.append(gid)
+                    if gname:
+                        group_names.append(gname)
+
+                result = {
+                    "USER_ID": user.get("_id"),
+                    "USER_NAME": user.get("userName"),
+                    "FIRST_NAME": user.get("firstName"),
+                    "LAST_NAME": user.get("lastName", ""),
+                    "EMAIL": user.get("email"),
+                    "IS_ACTIVE": user.get("active"),
+                    "ROLE_ID": role_id,
+                    "ROLE_NAME": role_name,
+                    "GROUP_IDS": group_ids,
+                    "GROUP_NAMES": group_names,
+                }
+
+                self.logger.info(
+                    f"Found user '{user_name}' with role and group IDs/names."
+                )
+                return result
+
+            except Exception as exc:
+                self.logger.exception(
+                    f"Error processing user object in "
+                    f"get_user_with_role_and_group_names: {exc}"
+                )
+
+        self.logger.warning(
+            f"User with username '{user_name}' not found "
+            "in get_user_with_role_and_group_names."
+        )
+        return {"error": f"User '{user_name}' not found."}
+
+    def get_users_with_role_names_and_group_names(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves all users from Sisense and enriches them with role names and
+        group names by resolving the raw role and group IDs via the roles and
+        groups APIs.
+
+        This uses the users API (with raw IDs), then looks up:
+          - role names from `/api/roles`
+          - group names from `/api/v1/groups`
+
+        Returns:
+            list[dict]: A list where each entry contains:
+                - USER_ID
+                - USER_NAME
+                - FIRST_NAME
+                - LAST_NAME
+                - EMAIL
+                - IS_ACTIVE
+                - ROLE_ID
+                - ROLE_NAME
+                - GROUP_IDS
+                - GROUP_NAMES
+            If any API call fails, a single-item list with an ``error`` key is returned.
+        """
+        self.logger.debug(
+            "Fetching users with raw role/group IDs to enrich with names."
+        )
+
+        # Step 1: Fetch users (raw IDs)
+        users_response = self.api_client.get("/api/v1/users")
+        if not users_response or not users_response.ok:
+            self.logger.error("Failed to retrieve users from API.")
+            return [{"error": "Failed to retrieve users from API"}]
+
+        try:
+            users_raw = users_response.json()
+        except Exception as exc:
+            self.logger.exception("Failed to parse users response JSON.")
+            return [{"error": f"Failed to parse users response JSON: {exc}"}]
+
+        # Step 2/3: Build role and group mappings once
+        mappings = self._build_role_and_group_mappings()
+        if mappings is None:
+            return [{"error": "Failed to build role and group mappings"}]
+
+        roles_by_id = mappings["roles_by_id"]
+        groups_by_id = mappings["groups_by_id"]
+
+        # Step 4: Enrich each user with role/group names
+        enriched_users: List[Dict[str, Any]] = []
+
+        for user in users_raw:
+            if not isinstance(user, dict):
+                self.logger.warning(
+                    f"Skipping unexpected user entry (not a dict): {user}"
+                )
+                continue
+
+            user_id = user.get("_id")
+            role_id = user.get("roleId") or user.get("role", {}).get("_id")
+            group_ids = user.get("groups") or []
+
+            # Normalize groups to a list of IDs (in case full objects are returned)
+            normalized_group_ids: List[str] = []
+            for g in group_ids:
+                if isinstance(g, dict):
+                    gid = g.get("_id")
+                else:
+                    gid = g
+                if gid:
+                    normalized_group_ids.append(gid)
+
+            role_name = roles_by_id.get(role_id, None)
+            group_names = [
+                groups_by_id.get(gid, gid) for gid in normalized_group_ids
+            ]
+
+            enriched_users.append(
+                {
+                    "USER_ID": user_id,
+                    "USER_NAME": user.get("userName"),
+                    "FIRST_NAME": user.get("firstName"),
+                    "LAST_NAME": user.get("lastName", ""),
+                    "EMAIL": user.get("email"),
+                    "IS_ACTIVE": user.get("active"),
+                    "ROLE_ID": role_id,
+                    "ROLE_NAME": role_name,
+                    "GROUP_IDS": normalized_group_ids,
+                    "GROUP_NAMES": group_names,
+                }
+            )
+
+        self.logger.info(
+            "Resolved users with role and group names. "
+            f"Total users processed: {len(enriched_users)}"
+        )
+        return enriched_users
+
     def get_user(self, user_name):
         """
         Retrieves user details by their email (username) and expands the
