@@ -29,7 +29,7 @@ class AccessManagement:
 
     def _build_role_and_group_mappings(
         self,
-    ) -> Optional[Dict[str, Dict[str, str]]]:
+    ) -> dict[str, dict[str, str]] | None:
         """
         Internal helper to fetch and build role and group ID-to-name mappings.
 
@@ -48,12 +48,8 @@ class AccessManagement:
 
         try:
             roles_data = roles_response.json()
-            roles_by_id = {
-                role.get("_id"): role.get("name")
-                for role in roles_data
-                if isinstance(role, dict) and role.get("_id")
-            }
-        except Exception as exc:
+            roles_by_id = {role.get("_id"): role.get("name") for role in roles_data if isinstance(role, dict) and role.get("_id")}
+        except Exception:
             self.logger.exception("Failed to parse roles response JSON.")
             return None
 
@@ -65,24 +61,15 @@ class AccessManagement:
 
         try:
             groups_data = groups_response.json()
-            groups_by_id = {
-                group.get("_id"): group.get("name")
-                for group in groups_data
-                if isinstance(group, dict) and group.get("_id")
-            }
-        except Exception as exc:
+            groups_by_id = {group.get("_id"): group.get("name") for group in groups_data if isinstance(group, dict) and group.get("_id")}
+        except Exception:
             self.logger.exception("Failed to parse groups response JSON.")
             return None
 
-        self.logger.debug(
-            "Built role and group mappings in helper. "
-            f"Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}"
-        )
+        self.logger.debug("Built role and group mappings in helper. " f"Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
         return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
 
-    def get_user_with_role_and_group_names(
-        self, user_name: str
-    ) -> Dict[str, Any]:
+    def get_user_with_role_and_group_names(self, user_name: str) -> dict[str, Any]:
         """
         Retrieves a single user by email/username and returns both role and
         group IDs and names.
@@ -104,31 +91,21 @@ class AccessManagement:
                 - GROUP_NAMES (list of group names)
             or {"error": "..."} on failure.
         """
-        self.logger.debug(
-            f"Getting user with role and group IDs/names for: {user_name}"
-        )
+        self.logger.debug(f"Getting user with role and group IDs/names for: {user_name}")
 
         # Reuse expanded users endpoint to get role & group objects
         params = {"expand": "groups,role"}
         response = self.api_client.get("/api/v1/users", params=params)
 
         if not response or not response.ok:
-            error_msg = (
-                f"Failed to retrieve users from API for username: {user_name}."
-            )
-            self.logger.error(
-                f"{error_msg} Status Code: "
-                f"{response.status_code if response else 'No response'}"
-            )
+            error_msg = f"Failed to retrieve users from API for username: {user_name}."
+            self.logger.error(f"{error_msg} Status Code: " f"{response.status_code if response else 'No response'}")
             return {"error": error_msg}
 
         try:
             users = response.json()
         except Exception as exc:
-            self.logger.exception(
-                "Error decoding JSON response for user list in "
-                "get_user_with_role_and_group_names."
-            )
+            self.logger.exception("Error decoding JSON response for user list in " "get_user_with_role_and_group_names.")
             return {"error": f"Failed to decode API response: {exc}"}
 
         ROLE_MAPPING = {
@@ -174,24 +151,16 @@ class AccessManagement:
                     "GROUP_NAMES": group_names,
                 }
 
-                self.logger.info(
-                    f"Found user '{user_name}' with role and group IDs/names."
-                )
+                self.logger.info(f"Found user '{user_name}' with role and group IDs/names.")
                 return result
 
             except Exception as exc:
-                self.logger.exception(
-                    f"Error processing user object in "
-                    f"get_user_with_role_and_group_names: {exc}"
-                )
+                self.logger.exception(f"Error processing user object in " f"get_user_with_role_and_group_names: {exc}")
 
-        self.logger.warning(
-            f"User with username '{user_name}' not found "
-            "in get_user_with_role_and_group_names."
-        )
+        self.logger.warning(f"User with username '{user_name}' not found " "in get_user_with_role_and_group_names.")
         return {"error": f"User '{user_name}' not found."}
 
-    def get_users_with_role_names_and_group_names(self) -> List[Dict[str, Any]]:
+    def get_users_with_role_names_and_group_names(self) -> list[dict[str, Any]]:
         """
         Retrieves all users from Sisense and enriches them with role names and
         group names by resolving the raw role and group IDs via the roles and
@@ -215,9 +184,7 @@ class AccessManagement:
                 - GROUP_NAMES
             If any API call fails, a single-item list with an ``error`` key is returned.
         """
-        self.logger.debug(
-            "Fetching users with raw role/group IDs to enrich with names."
-        )
+        self.logger.debug("Fetching users with raw role/group IDs to enrich with names.")
 
         # Step 1: Fetch users (raw IDs)
         users_response = self.api_client.get("/api/v1/users")
@@ -240,13 +207,11 @@ class AccessManagement:
         groups_by_id = mappings["groups_by_id"]
 
         # Step 4: Enrich each user with role/group names
-        enriched_users: List[Dict[str, Any]] = []
+        enriched_users: list[dict[str, Any]] = []
 
         for user in users_raw:
             if not isinstance(user, dict):
-                self.logger.warning(
-                    f"Skipping unexpected user entry (not a dict): {user}"
-                )
+                self.logger.warning(f"Skipping unexpected user entry (not a dict): {user}")
                 continue
 
             user_id = user.get("_id")
@@ -254,19 +219,14 @@ class AccessManagement:
             group_ids = user.get("groups") or []
 
             # Normalize groups to a list of IDs (in case full objects are returned)
-            normalized_group_ids: List[str] = []
+            normalized_group_ids: list[str] = []
             for g in group_ids:
-                if isinstance(g, dict):
-                    gid = g.get("_id")
-                else:
-                    gid = g
+                gid = g.get("_id") if isinstance(g, dict) else g
                 if gid:
                     normalized_group_ids.append(gid)
 
             role_name = roles_by_id.get(role_id, None)
-            group_names = [
-                groups_by_id.get(gid, gid) for gid in normalized_group_ids
-            ]
+            group_names = [groups_by_id.get(gid, gid) for gid in normalized_group_ids]
 
             enriched_users.append(
                 {
@@ -283,10 +243,7 @@ class AccessManagement:
                 }
             )
 
-        self.logger.info(
-            "Resolved users with role and group names. "
-            f"Total users processed: {len(enriched_users)}"
-        )
+        self.logger.info("Resolved users with role and group names. " f"Total users processed: {len(enriched_users)}")
         return enriched_users
 
     def get_user(self, user_name):
@@ -1636,7 +1593,4 @@ class AccessManagement:
             return response_data
         except (AttributeError, ValueError):
             self.logger.warning("Response does not contain valid JSON. Returning raw response.")
-            return {
-                "message": "Schedule build created successfully",
-                "raw_response": getattr(response, 'text', 'No response text')
-            }
+            return {"message": "Schedule build created successfully", "raw_response": getattr(response, "text", "No response text")}

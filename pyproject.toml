@@ -17,6 +17,7 @@ dependencies = [
   "PyYAML>=6.0.2",
   "pandas>=2.2.3",
   "python-semantic-release>=10.5.3",
+  "pytest>=8.4.2",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -84,9 +85,6 @@ ignore = []
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
-
-[tool.uv.scripts]
-setup = "pre-commit install"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
