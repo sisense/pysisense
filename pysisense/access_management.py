@@ -66,7 +66,7 @@ class AccessManagement:
             self.logger.exception("Failed to parse groups response JSON.")
             return None
 
-        self.logger.debug("Built role and group mappings in helper. " f"Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
+        self.logger.debug(f"Built role and group mappings in helper. Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
         return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
 
     def get_user_with_role_and_group_names(self, user_name: str) -> dict[str, Any]:
@@ -99,13 +99,13 @@ class AccessManagement:
 
         if not response or not response.ok:
             error_msg = f"Failed to retrieve users from API for username: {user_name}."
-            self.logger.error(f"{error_msg} Status Code: " f"{response.status_code if response else 'No response'}")
+            self.logger.error(f"{error_msg} Status Code: {response.status_code if response else 'No response'}")
             return {"error": error_msg}
 
         try:
             users = response.json()
         except Exception as exc:
-            self.logger.exception("Error decoding JSON response for user list in " "get_user_with_role_and_group_names.")
+            self.logger.exception("Error decoding JSON response for user list in get_user_with_role_and_group_names.")
             return {"error": f"Failed to decode API response: {exc}"}
 
         ROLE_MAPPING = {
@@ -155,9 +155,9 @@ class AccessManagement:
                 return result
 
             except Exception as exc:
-                self.logger.exception(f"Error processing user object in " f"get_user_with_role_and_group_names: {exc}")
+                self.logger.exception(f"Error processing user object in get_user_with_role_and_group_names: {exc}")
 
-        self.logger.warning(f"User with username '{user_name}' not found " "in get_user_with_role_and_group_names.")
+        self.logger.warning(f"User with username '{user_name}' not found in get_user_with_role_and_group_names.")
         return {"error": f"User '{user_name}' not found."}
 
     def get_users_with_role_names_and_group_names(self) -> list[dict[str, Any]]:
@@ -243,7 +243,7 @@ class AccessManagement:
                 }
             )
 
-        self.logger.info("Resolved users with role and group names. " f"Total users processed: {len(enriched_users)}")
+        self.logger.info(f"Resolved users with role and group names. Total users processed: {len(enriched_users)}")
         return enriched_users
 
     def get_user(self, user_name):
