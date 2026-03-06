@@ -172,7 +172,7 @@ with open(csv_file_path, mode="r", newline="", encoding="utf-8") as csvfile:
 Update details for an existing user.
 
 ```python
-user_name = "mike.jones@example.com"
+user_email = "mike.jones@example.com"
 user_data = {
     "firstName": "Mikey",                                 # Optional: Update user's first name
     "lastName": "Jonesss",                                # Optional: Update user's last name
@@ -182,7 +182,7 @@ user_data = {
         "language": "fr-FR"
     }
 }
-response = access_mgmt.update_user(user_name, user_data)
+response = access_mgmt.update_user(user_email, user_data)
 print(json.dumps(response, indent=4))
 ```
 

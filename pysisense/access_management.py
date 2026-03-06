@@ -510,37 +510,88 @@ class AccessManagement:
             self.logger.error(f"Failed to create user. Error: {error_message}")
             return {"error": error_message}
 
-    def update_user(self, user_name, user_data):
+    def update_user(self, user_email: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Updates a user by their User Name.
+        Update an existing Sisense user identified by their email address.
 
-        Parameters:
-            user_name (str): The email or username of the user to be updated.
-            user_data (dict): A dictionary containing user details to update,
-            such as role, groups, etc.
+        This method finds the user by email and performs a partial update (PATCH).
+        All update fields MUST be provided inside the ``user_data`` dictionary. Do not
+        pass update fields at the top level.
 
-        Returns:
-            dict: The response from the API if successful,
-                or a dictionary with an 'error' key if the operation fails.
+        Parameters
+        ----------
+        user_email : str
+            Email address of the user to update (used to locate the user).
+        user_data : dict[str, Any]
+            Dictionary of fields to update. Only include fields you want to change.
+
+            Supported fields
+            ----------------
+            - email : str
+                Update the user's email address.
+            - userName : str
+                Update the user's username/login name.
+            - firstName : str
+                Update the user's first name.
+            - lastName : str
+                Update the user's last name.
+            - role : str
+                Role name (e.g., "viewer", "designer"). This is resolved to ``roleId`` before
+                sending the API request.
+            - roleId : str
+                Role ID to apply directly (if provided, no role-name resolution is performed).
+            - groups : list[str]
+                List of group names to apply. Group names are resolved to group IDs before
+                sending the API request. If ``groups`` is explicitly provided as an empty
+                list (``[]``), group memberships are cleared (tenant defaults may still apply).
+
+        Returns
+        -------
+        dict[str, Any]
+            The updated user payload when successful. If the operation fails, returns a
+            dictionary with an ``error`` key.
+
+        Examples
+        --------
+        Update username and first name::
+
+            access_mgmt.update_user(
+                user_email="b@test.com",
+                user_data={"userName": "newb@test.com", "firstName": "Mikey"}
+            )
+
+        Update email::
+
+            access_mgmt.update_user(
+                user_email="b@test.com",
+                user_data={"email": "newb@test.com"}
+            )
+
+        Update role by name::
+
+            access_mgmt.update_user(
+                user_email="b@test.com",
+                user_data={"role": "designer"}
+            )
         """
-        self.logger.debug(f"Updating user with username: {user_name}")
+        self.logger.debug("Updating user with email: %s", user_email)
 
-        # Reuse the get_user method to fetch user details
-        user = self.get_user(user_name)
+        # Reuse the get_user method to fetch user details (email-based lookup)
+        user = self.get_user(user_email)
 
-        # If user is not found, return error
         if not user:
-            self.logger.error(f"User '{user_name}' not found.")
-            return {"error": f"User '{user_name}' not found."}
+            self.logger.error("User with email '%s' not found.", user_email)
+            return {"error": f"User with email '{user_email}' not found."}
 
         # Custom role mapping
         role_alias_mapping = {"VIEWER": "CONSUMER", "DESIGNER": "CONTRIBUTOR"}
 
         # Step 1: Resolve role if provided
         if "role" in user_data:
-            user_role = user_data["role"].upper()
+            user_role = str(user_data["role"]).upper()
             mapped_role = role_alias_mapping.get(user_role, user_role)
 
+            role_response = self.api_client.get("/api/roles")
             role_response = self.api_client.get("/api/roles")
             if not role_response or not role_response.ok:
                 status = role_response.status_code if role_response else "No response"
@@ -560,15 +611,21 @@ class AccessManagement:
                     break
             else:
                 error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
+                error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
                 self.logger.error(error_msg)
                 return {"error": error_msg}
 
             user_data.pop("role", None)
 
-        # Step 2: Resolve groups if provided
-        group_names = user_data.get("groups", [])
-        if group_names:
-            user_data["groups"] = [group.upper() for group in group_names]
+        # Step 2: Resolve groups only if explicitly provided
+        if "groups" in user_data:
+            group_names = user_data.get("groups") or []
+
+            # If caller explicitly passed an empty list, they intend to clear groups
+            if not group_names:
+                user_data["groups"] = []
+            else:
+                normalized_group_names = [str(g).upper() for g in group_names]
 
             group_response = self.api_client.get("/api/v1/groups")
             if not group_response or not group_response.ok:
@@ -593,9 +650,8 @@ class AccessManagement:
                     self.logger.error(error_msg)
                     return {"error": error_msg}
 
-            user_data["groups"] = updated_groups
-        else:
-            user_data["groups"] = []
+                user_data["groups"] = updated_groups
+        # No else here on purpose: if groups isn't provided, do not touch it.
 
         # Step 3: Send the PATCH request to update the user
         self.logger.debug(f"Final updated user data for API call: {user_data}")
@@ -603,7 +659,7 @@ class AccessManagement:
 
         if response and response.ok:
             response_data = response.json()
-            self.logger.info(f"User updated successfully: {response_data}")
+            self.logger.info("User updated successfully: %s", response_data)
             return response_data
         else:
             error_message = response.json().get("error", "Unknown error") if response else "No response received"
