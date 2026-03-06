@@ -246,65 +246,76 @@ class AccessManagement:
         self.logger.info(f"Resolved users with role and group names. Total users processed: {len(enriched_users)}")
         return enriched_users
 
-    def get_user(self, user_name):
+    def get_user(self, user_email: str) -> dict[str, Any]:
         """
-        Retrieves user details by their email (username) and expands the
-        response to include group and role information.
+        Retrieve a user's details by email address, expanding group and role information.
 
-        Parameters:
-            user_name (str): The email or username of the user to be retrieved.
+        This method fetches users with expanded ``groups`` and ``role`` data and then
+        returns the record matching the provided email address.
 
-        Returns:
-            dict: User details on success, or {'error': 'message'} on failure.
+        Parameters
+        ----------
+        user_email : str
+            Email address of the user to retrieve.
+
+        Returns
+        -------
+        dict[str, Any]
+            User details on success. If the operation fails, returns a dictionary with an
+            ``error`` key.
         """
-        self.logger.debug(f"Getting user with username: {user_name}")
+        self.logger.debug("Getting user with email: %s", user_email)
 
-        # Parameters to expand the response with group and role information
         params = {"expand": "groups,role"}
-
-        # Fetch all users from the API with the specified query parameters
         response = self.api_client.get("/api/v1/users", params=params)
 
-        # Check if the API request failed
         if not response or not response.ok:
-            error_msg = f"Failed to retrieve users from API for username: {user_name}."
-            self.logger.error(f"{error_msg} Status Code: {response.status_code if response else 'No response'}")
+            status = response.status_code if response else "No response"
+            error_msg = f"Failed to retrieve users from API for email: {user_email}."
+            self.logger.error("%s Status Code: %s", error_msg, status)
             return {"error": error_msg}
 
-        # Parse the response JSON
         try:
             users = response.json()
-            self.logger.debug(f"Found {len(users)} users in the response.")
-        except Exception as e:
+            self.logger.debug("Found %s users in the response.", len(users))
+        except Exception as exc:
             self.logger.exception("Error decoding JSON response for user list.")
-            return {"error": f"Failed to decode API response: {str(e)}"}
+            return {"error": f"Failed to decode API response: {str(exc)}"}
 
-        # Mapping role names
-        ROLE_MAPPING = {"consumer": "viewer", "super": "sysAdmin", "contributor": "dashboardDesigner"}
+        role_mapping = {
+            "consumer": "viewer",
+            "super": "sysAdmin",
+            "contributor": "dashboardDesigner",
+        }
 
-        # Iterate over each user in the response to find the one matching the
-        # given username
         for user in users:
             try:
-                self.logger.debug(f"Checking user: {user.get('email')}")
-                if user.get("email") == user_name:
-                    self.logger.info(f"Found user: {user_name}")
+                self.logger.debug("Checking user: %s", user.get("email"))
+                if user.get("email") == user_email:
+                    self.logger.info("Found user: %s", user_email)
                     return {
                         "USER_ID": user["_id"],
-                        "USER_NAME": user["userName"],
-                        "FIRST_NAME": user["firstName"],
+                        "USER_NAME": user.get("userName", ""),
+                        "FIRST_NAME": user.get("firstName", ""),
                         "LAST_NAME": user.get("lastName", ""),
-                        "EMAIL": user["email"],
-                        "IS_ACTIVE": user["active"],
-                        "ROLE_ID": user["role"]["_id"],
-                        "ROLE_NAME": ROLE_MAPPING.get(user["role"]["name"], user["role"]["name"]),
-                        "GROUPS": [g["name"] for g in user.get("groups", [])],
+                        "EMAIL": user.get("email", ""),
+                        "IS_ACTIVE": user.get("active", False),
+                        "ROLE_ID": user.get("role", {}).get("_id", ""),
+                        "ROLE_NAME": role_mapping.get(
+                            user.get("role", {}).get("name", ""),
+                            user.get("role", {}).get("name", ""),
+                        ),
+                        "GROUPS": [g.get("name", "") for g in user.get("groups", [])],
                     }
-            except Exception as e:
-                self.logger.exception(f"Error processing user object: {user} | Exception: {str(e)}")
+            except Exception as exc:
+                self.logger.exception(
+                    "Error processing user object for email %s. Exception: %s",
+                    user_email,
+                    str(exc),
+                )
 
-        self.logger.warning(f"User with username '{user_name}' not found.")
-        return {"error": f"User '{user_name}' not found."}
+        self.logger.warning("User with email '%s' not found.", user_email)
+        return {"error": f"User '{user_email}' not found."}
 
     def get_users_all(self):
         """

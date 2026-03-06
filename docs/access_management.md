@@ -18,13 +18,13 @@ Initializes the AccessManagement class.
 
 * * * * *
 
-### `get_user(self, user_name)`
+### `get_user(self, user_email)`
 
-Retrieves user details by their email (username) and expands the response to include group and role information.
+Retrieves user details by email address and expands the response to include group and role information.
 
 **Parameters:**
 
--   `user_name` (str): The email or username of the user to be retrieved.
+-   `user_email` (str): Email address of the user to be retrieved.
 
 **Returns:**
 

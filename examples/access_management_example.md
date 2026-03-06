@@ -169,7 +169,7 @@ with open(csv_file_path, mode="r", newline="", encoding="utf-8") as csvfile:
 
 ## Example 4: Update an Existing User
 
-Update details for an existing user.
+Update details for an existing user (the user is located by email).
 
 ```python
 user_email = "mike.jones@example.com"
