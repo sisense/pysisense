@@ -1,18 +1,19 @@
-from typing import Any, Callable, Dict, List, Optional, Literal, Tuple, Union
+import time
+from collections.abc import Callable
+from typing import Any, Literal
 
 from .sisenseclient import SisenseClient
-import time
 
 
 class Migration:
     def __init__(
         self,
-        source_yaml: Optional[str] = None,
-        target_yaml: Optional[str] = None,
+        source_yaml: str | None = None,
+        target_yaml: str | None = None,
         debug: bool = False,
         *,
-        source_client: Optional[SisenseClient] = None,
-        target_client: Optional[SisenseClient] = None,
+        source_client: SisenseClient | None = None,
+        target_client: SisenseClient | None = None,
     ):
         """
         Initializes the Migration class with API clients for both source and
@@ -67,10 +68,7 @@ class Migration:
             )
 
         else:
-            raise ValueError(
-                "Migration requires either (source_client and target_client) "
-                "OR (source_yaml and target_yaml)."
-            )
+            raise ValueError("Migration requires either (source_client and target_client) OR (source_yaml and target_yaml).")
 
         # Use the logger from the source client for consistency
         self.logger = self.source_client.logger
@@ -79,7 +77,11 @@ class Migration:
     # Shared helpers (for all migration methods)
     # -------------------------------------------------------------------------
 
-    def _emit(self, emit: Optional[Callable[[Dict[str, Any]], None]], event: Dict[str, Any],) -> None:
+    def _emit(
+        self,
+        emit: Callable[[dict[str, Any]], None] | None,
+        event: dict[str, Any],
+    ) -> None:
         """
         Safely emit a progress event to the provided callback.
 
@@ -98,12 +100,12 @@ class Migration:
             # Never let progress reporting break the actual migration.
             self.logger.debug("Progress emitter raised; ignoring.", exc_info=True)
 
-    def _safe_status_code(self, resp: Any) -> Optional[int]:
+    def _safe_status_code(self, resp: Any) -> int | None:
         """
         Safely extract an HTTP status code from a response-like object.
         """
         try:
-            return int(getattr(resp, "status_code"))
+            return int(resp.status_code)
         except Exception:
             return None
 
@@ -112,7 +114,7 @@ class Migration:
             return ""
         return text if len(text) <= limit else (text[:limit] + "...")
 
-    def _safe_json(self, resp: Any) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def _safe_json(self, resp: Any) -> tuple[dict[str, Any] | None, str | None]:
         """
         Returns (json_dict, error_reason).
         """
@@ -174,9 +176,9 @@ class Migration:
                 return payload["error"]["message"]
             if isinstance(payload.get("title"), str):
                 return payload["title"]
-        return self._truncate(getattr(resp, "text", "") or "") or "Unknown error"    
+        return self._truncate(getattr(resp, "text", "") or "") or "Unknown error"
 
-    def _export_dashboard(self, oid: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def _export_dashboard(self, oid: str) -> tuple[dict[str, Any] | None, str | None]:
         """
         Export dashboard from source. Tries adminAccess=true then falls back without it.
         Returns (exported_json, error_reason).
@@ -240,22 +242,14 @@ class Migration:
         for group in source_groups:
             if group["name"] in group_name_list:
                 # Prepare group data excluding unnecessary fields
-                group_data = {
-                    key: value for key, value in group.items()
-                    if key not in ["created", "lastUpdated", "tenantId", "_id"]
-                }
+                group_data = {key: value for key, value in group.items() if key not in ["created", "lastUpdated", "tenantId", "_id"]}
                 bulk_group_data.append(group_data)
                 self.logger.debug(f"Prepared data for group: {group['name']}")
 
         # If no groups match, log an info message and exit early
         if not bulk_group_data:
             self.logger.info("No matching groups found for migration. Ending process.")
-            return [{
-                "message": (
-                    "No matching groups found for migration. Ending process. "
-                    "Please verify the group names and try again."
-                )
-            }]
+            return [{"message": ("No matching groups found for migration. Ending process. Please verify the group names and try again.")}]
 
         # Step 3: Make the bulk POST request with the group data
         self.logger.info(f"Sending bulk migration request for {len(bulk_group_data)} groups")
@@ -263,25 +257,16 @@ class Migration:
         response = self.target_client.post("/api/v1/groups/bulk", data=bulk_group_data)
 
         # Log the full response at debug level
-        self.logger.debug(
-            f"Target environment response status code: "
-            f"{response.status_code if response else 'No response'}"
-        )
+        self.logger.debug(f"Target environment response status code: {response.status_code if response else 'No response'}")
         self.logger.debug(f"Target environment response body: {response.text if response else 'No response body'}")
 
         # If response is missing or empty
         if response is None:
             self.logger.error("No response received from the migration API.")
-            return {
-                "results": [{"name": group["name"], "status": "Failed"} for group in bulk_group_data],
-                "raw_error": "No response received from the migration API."
-            }
+            return {"results": [{"name": group["name"], "status": "Failed"} for group in bulk_group_data], "raw_error": "No response received from the migration API."}
         elif not response.text.strip():
             self.logger.error(f"Empty response body received. Status code: {response.status_code}")
-            return {
-                "results": [{"name": group["name"], "status": "Failed"} for group in bulk_group_data],
-                "raw_error": f"Empty response body. Status code: {response.status_code}"
-            }
+            return {"results": [{"name": group["name"], "status": "Failed"} for group in bulk_group_data], "raw_error": f"Empty response body. Status code: {response.status_code}"}
 
         # Step 4: Handle the response from the bulk API call
         migration_results = []
@@ -314,22 +299,15 @@ class Migration:
 
         # Summary
         success_count = sum(1 for r in migration_results if r["status"] == "Success")
-        self.logger.info(
-            f"Finished migrating groups. Successfully migrated {success_count} "
-            f"out of {len(bulk_group_data)} groups."
-        )
+        self.logger.info(f"Finished migrating groups. Successfully migrated {success_count} out of {len(bulk_group_data)} groups.")
 
         # Return results and raw error if any
-        return {
-            "results": migration_results,
-            "total_count": len(bulk_group_data),
-            "raw_error": raw_error
-        }
+        return {"results": migration_results, "total_count": len(bulk_group_data), "raw_error": raw_error}
 
     def migrate_all_groups(
         self,
-        emit: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Migrate groups from the source environment to the target environment using the bulk endpoint.
 
@@ -363,8 +341,8 @@ class Migration:
             - ``raw_error``: Any
             - ``warnings``: List[str]
         """
-        warnings: List[str] = []
-        migration_results: List[Dict[str, str]] = []
+        warnings: list[str] = []
+        migration_results: list[dict[str, str]] = []
         raw_error: Any = None
 
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting group migration from source to target."})
@@ -435,7 +413,10 @@ class Migration:
             }
 
         self.logger.info("Retrieved %s groups from the source environment.", source_count)
-        self._emit(emit, {"type": "progress", "step": "fetch_source_groups", "message": "Retrieved groups from the source environment.", "source_count": source_count},)
+        self._emit(
+            emit,
+            {"type": "progress", "step": "fetch_source_groups", "message": "Retrieved groups from the source environment.", "source_count": source_count},
+        )
 
         # NEW: Resolve system tenant id so we only migrate system-tenant groups
         self._emit(emit, {"type": "progress", "step": "fetch_system_tenant", "message": "Fetching tenants from the source environment to resolve system tenant."})
@@ -472,7 +453,7 @@ class Migration:
             }
 
         tenants = tenants_response.json() or []
-        system_tenant_id: Optional[str] = None
+        system_tenant_id: str | None = None
         for t in tenants:
             if isinstance(t, dict) and t.get("name") == "system":
                 system_tenant_id = t.get("_id")
@@ -521,11 +502,14 @@ class Migration:
 
         # Step 2: Filter out specific groups
         excluded_names = {"Admins", "All users in system", "Everyone"}
-        bulk_group_data: List[Dict[str, Any]] = []
+        bulk_group_data: list[dict[str, Any]] = []
         skipped_count = 0
         skipped_multi_tenant_count = 0
 
-        self._emit(emit, {"type": "progress", "step": "filter_groups", "message": "Filtering groups and preparing bulk payload.", "excluded_names": sorted(excluded_names)},)
+        self._emit(
+            emit,
+            {"type": "progress", "step": "filter_groups", "message": "Filtering groups and preparing bulk payload.", "excluded_names": sorted(excluded_names)},
+        )
 
         for group in source_groups:
             name = group.get("name")
@@ -564,7 +548,10 @@ class Migration:
 
         if eligible_count == 0:
             self.logger.info("No eligible groups found for migration. Ending process.")
-            self._emit(emit, {"type": "completed", "step": "filter_groups", "message": "No eligible groups found for migration.", "status": "noop", "eligible_count": 0, "skipped_count": skipped_count},)
+            self._emit(
+                emit, {"type": "completed", "step": "filter_groups", "message": "No eligible groups found for migration.", "status": "noop", "eligible_count": 0, "skipped_count": skipped_count}
+            )
+
             return {
                 "ok": True,
                 "status": "noop",
@@ -580,7 +567,10 @@ class Migration:
         # Step 3: Make the bulk POST request with the group data
         self.logger.info("Sending bulk migration request for %s groups", eligible_count)
         self.logger.debug("Payload for bulk migration: %s", bulk_group_data)
-        self._emit(emit, {"type": "progress", "step": "bulk_post", "message": "Sending bulk migration request.", "eligible_count": eligible_count},)
+        self._emit(
+            emit,
+            {"type": "progress", "step": "bulk_post", "message": "Sending bulk migration request.", "eligible_count": eligible_count},
+        )
 
         response = self.target_client.post("/api/v1/groups/bulk", data=bulk_group_data)
 
@@ -588,13 +578,19 @@ class Migration:
         self.logger.debug("Target environment response status code: %s", status_code if status_code is not None else "No response")
         self.logger.debug("Target environment response body: %s", response.text if response is not None and hasattr(response, "text") else "No response body")
 
-        self._emit(emit, {"type": "progress", "step": "bulk_post", "message": "Received response from target bulk endpoint.", "status_code": status_code},)
+        self._emit(
+            emit,
+            {"type": "progress", "step": "bulk_post", "message": "Received response from target bulk endpoint.", "status_code": status_code},
+        )
         # Step 4: Handle the response from the bulk API call
         if response is not None and status_code == 201:
             try:
                 response_data = response.json()
                 self.logger.info("Bulk migration succeeded.")
-                self._emit(emit, {"type": "progress", "step": "process_response", "message": "Processing bulk migration response.", "status_code": status_code},)
+                self._emit(
+                    emit,
+                    {"type": "progress", "step": "process_response", "message": "Processing bulk migration response.", "status_code": status_code},
+                )
 
                 for group in response_data:
                     group_name = group.get("name", "Unknown Group")
@@ -603,7 +599,10 @@ class Migration:
                 warn = "Bulk response was not valid JSON; assuming migration succeeded based on status code."
                 warnings.append(warn)
                 self.logger.warning(warn)
-                self._emit(emit, {"type": "warning", "step": "process_response", "message": warn},)
+                self._emit(
+                    emit,
+                    {"type": "warning", "step": "process_response", "message": warn},
+                )
                 migration_results = [{"name": gd.get("name", "Unknown Group"), "status": "Success"} for gd in bulk_group_data]
         else:
             raw_error = self._safe_error_payload(response, context="bulk_post")
@@ -611,7 +610,7 @@ class Migration:
             self.logger.error("Raw error response: %s", raw_error)
 
             # Optional: extract existingGroups when present (Sisense bulk error shape)
-            existing_groups: List[str] = []
+            existing_groups: list[str] = []
             try:
                 # Expected: {"error": {"moreInfo": {"existingGroups": [...]}}}
                 existing_groups = raw_error.get("error", {}).get("moreInfo", {}).get("existingGroups", [])  # type: ignore[union-attr]
@@ -694,19 +693,14 @@ class Migration:
         self.logger.info("Starting user migration from source to target.")
 
         # Query parameters to expand the response with group and role information
-        params = {'expand': 'groups,role'}
+        params = {"expand": "groups,role"}
 
         # Step 1: Get all users from the source environment
         self.logger.debug("Fetching users from the source environment.")
         source_response = self.source_client.get("/api/v1/users", params=params)
         if not source_response or source_response.status_code != 200:
             self.logger.error("Failed to retrieve users from the source environment.")
-            return [{
-                "message": (
-                    "Failed to retrieve users from the source environment. "
-                    "Please check the logs for more details."
-                )
-            }]
+            return [{"message": ("Failed to retrieve users from the source environment. Please check the logs for more details.")}]
         self.logger.debug(f"Source environment response status code: {source_response.status_code}")
         self.logger.debug(f"Source environment response body: {source_response.text}")
 
@@ -724,21 +718,11 @@ class Migration:
 
         if not target_roles_response or target_roles_response.status_code != 200:
             self.logger.error("Failed to retrieve roles from the target environment.")
-            return [{
-                "message": (
-                    "Failed to retrieve roles from the target environment. "
-                    "Please check the logs for details."
-                )
-            }]
+            return [{"message": ("Failed to retrieve roles from the target environment. Please check the logs for details.")}]
 
         if not target_groups_response or target_groups_response.status_code != 200:
             self.logger.error("Failed to retrieve groups from the target environment.")
-            return [{
-                "message": (
-                    "Failed to retrieve groups from the target environment. "
-                    "Please check the logs for details."
-                )
-            }]
+            return [{"message": ("Failed to retrieve groups from the target environment. Please check the logs for details.")}]
 
         target_roles = target_roles_response.json()
         target_groups = target_groups_response.json()
@@ -756,15 +740,9 @@ class Migration:
                     "email": user["email"],
                     "firstName": user["firstName"],
                     "lastName": user.get("lastName", ""),  # Optional field
-                    "roleId": next(
-                        (role["_id"] for role in target_roles if role["name"] == user["role"]["name"]),
-                        None
-                    ),
-                    "groups": [
-                        group["_id"] for group in target_groups
-                        if group["name"] in [g["name"] for g in user["groups"]] and group["name"] not in EXCLUDED_GROUPS
-                    ],
-                    "preferences": user.get("preferences", {"localeId": "en-US"})  # Default to English language.
+                    "roleId": next((role["_id"] for role in target_roles if role["name"] == user["role"]["name"]), None),
+                    "groups": [group["_id"] for group in target_groups if group["name"] in [g["name"] for g in user["groups"]] and group["name"] not in EXCLUDED_GROUPS],
+                    "preferences": user.get("preferences", {"localeId": "en-US"}),  # Default to English language.
                 }
 
                 # Append user data to the bulk list
@@ -782,23 +760,17 @@ class Migration:
         response = self.target_client.post("/api/v1/users/bulk", data=bulk_user_data)
 
         # Log the full response for debugging
-        status_code = response.status_code if response else 'No response'
+        status_code = response.status_code if response else "No response"
         self.logger.debug(f"Target environment response status code: {status_code}")
         self.logger.debug(f"Target environment response body: {response.text if response else 'No response body'}")
 
         # Step 5: Early exit if response is missing or empty
         if response is None:
             self.logger.error("No response received from the migration API.")
-            return {
-                "results": [{"name": user["email"], "status": "Failed"} for user in bulk_user_data],
-                "raw_error": "No response received from the migration API."
-            }
+            return {"results": [{"name": user["email"], "status": "Failed"} for user in bulk_user_data], "raw_error": "No response received from the migration API."}
         elif not response.text.strip():
             self.logger.error(f"Empty response body received. Status code: {response.status_code}")
-            return {
-                "results": [{"name": user["email"], "status": "Failed"} for user in bulk_user_data],
-                "raw_error": f"Empty response body. Status code: {response.status_code}"
-            }
+            return {"results": [{"name": user["email"], "status": "Failed"} for user in bulk_user_data], "raw_error": f"Empty response body. Status code: {response.status_code}"}
 
         # Step 6: Handle the response
         migration_results = []
@@ -827,22 +799,15 @@ class Migration:
 
         # Step 7: Final summary
         success_count = sum(1 for r in migration_results if r["status"] == "Success")
-        self.logger.info(
-            f"Finished migrating users. Successfully migrated {success_count} "
-            f"out of {len(bulk_user_data)} users."
-        )
+        self.logger.info(f"Finished migrating users. Successfully migrated {success_count} out of {len(bulk_user_data)} users.")
 
         # Step 8: Return structured result
-        return {
-            "results": migration_results,
-            "total_count": len(bulk_user_data),
-            "raw_error": raw_error
-        }
+        return {"results": migration_results, "total_count": len(bulk_user_data), "raw_error": raw_error}
 
     def migrate_all_users(
         self,
-        emit: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Migrate all eligible users from the source environment to the target environment using the bulk endpoint.
 
@@ -886,15 +851,15 @@ class Migration:
             - ``raw_error``: Any error payload if the bulk request fails, else None
             - ``warnings``: List[str]
         """
-        warnings: List[str] = []
-        migration_results: List[Dict[str, str]] = []
+        warnings: list[str] = []
+        migration_results: list[dict[str, str]] = []
         raw_error: Any = None
 
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting full user migration from source to target."})
         self.logger.info("Starting full user migration from source to target.")
 
         # Query parameters to expand group and role information
-        params: Dict[str, str] = {"expand": "groups,role"}
+        params: dict[str, str] = {"expand": "groups,role"}
 
         # Step 1: Get all users from the source environment
         self._emit(emit, {"type": "progress", "step": "fetch_source_users", "message": "Fetching users from the source environment."})
@@ -1016,7 +981,7 @@ class Migration:
             }
 
         tenants = tenants_response.json() or []
-        system_tenant_id: Optional[str] = None
+        system_tenant_id: str | None = None
         for t in tenants:
             if isinstance(t, dict) and t.get("name") == "system":
                 system_tenant_id = t.get("_id")
@@ -1143,14 +1108,14 @@ class Migration:
         self.logger.debug("Retrieved %s groups from the target environment.", len(target_groups))
 
         # Build mapping dicts for faster lookups (and deterministic behavior)
-        role_name_to_id: Dict[str, Any] = {}
+        role_name_to_id: dict[str, Any] = {}
         for r in target_roles:
             name = r.get("name")
             rid = r.get("_id")
             if name and rid:
                 role_name_to_id[name] = rid
 
-        group_name_to_id: Dict[str, Any] = {}
+        group_name_to_id: dict[str, Any] = {}
         for g in target_groups:
             name = g.get("name")
             gid = g.get("_id")
@@ -1170,7 +1135,7 @@ class Migration:
 
         # Step 3: Build payload
         EXCLUDED_GROUPS = {"Everyone", "All users in system"}
-        bulk_user_data: List[Dict[str, Any]] = []
+        bulk_user_data: list[dict[str, Any]] = []
 
         skipped_super_count = 0
         skipped_multi_tenant_count = 0
@@ -1204,13 +1169,13 @@ class Migration:
             if not role_id:
                 missing_role_mappings_count += 1
 
-            user_group_names: List[str] = []
+            user_group_names: list[str] = []
             try:
                 user_group_names = [g.get("name") for g in (user.get("groups") or []) if g and g.get("name")]
             except Exception:
                 user_group_names = []
 
-            mapped_group_ids: List[Any] = []
+            mapped_group_ids: list[Any] = []
             for gname in user_group_names:
                 if gname in EXCLUDED_GROUPS:
                     continue
@@ -1402,7 +1367,7 @@ class Migration:
         self.logger.debug(f"Source Dashboard IDs: {source_dashboard_ids}")
         self.logger.debug(f"Target Dashboard IDs: {target_dashboard_ids}")
 
-        share_migration_summary = {'new_share_success_count': 0, 'share_fail_count': 0, 'failed_dashboards': []}
+        share_migration_summary = {"new_share_success_count": 0, "share_fail_count": 0, "failed_dashboards": []}
 
         # Step 1: Fetch users and groups once
         self.logger.info("Fetching users and groups from source and target environments.")
@@ -1427,20 +1392,16 @@ class Migration:
             return share_migration_summary
 
         # Step 2: Process each dashboard pair
-        for source_id, target_id in zip(source_dashboard_ids, target_dashboard_ids):
+        for source_id, target_id in zip(source_dashboard_ids, target_dashboard_ids, strict=False):
             self.logger.info(f"Processing shares for dashboard: Source ID {source_id}, Target ID {target_id}")
 
             # Fetch shares from the source environment
             dashboard_shares_response = self.source_client.get(f"/api/shares/dashboard/{source_id}?adminAccess=true")
-            response_text = dashboard_shares_response.text if dashboard_shares_response else 'No response'
-            self.logger.debug(
-                f"Response for shares of source dashboard ID {source_id}: {response_text}"
-            )
+            response_text = dashboard_shares_response.text if dashboard_shares_response else "No response"
+            self.logger.debug(f"Response for shares of source dashboard ID {source_id}: {response_text}")
             if not dashboard_shares_response or dashboard_shares_response.status_code != 200:
                 self.logger.error(f"Failed to fetch shares for source dashboard ID: {source_id}.")
-                share_migration_summary['failed_dashboards'].append(
-                    {"source_id": source_id, "target_id": target_id}
-                )
+                share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
                 continue
 
             response_json = dashboard_shares_response.json()
@@ -1470,85 +1431,59 @@ class Migration:
                     user_email = source_user_map.get(share["shareId"], "Unknown User")
                     if new_share_user_id:
                         rule = share.get("rule", "edit")
-                        new_shares.append({
-                            "shareId": new_share_user_id,
-                            "type": "user",
-                            "rule": rule,
-                            "subscribe": share.get("subscribe", False),
-                            "userName": user_email  # Add email for later duplicate check
-                        })
+                        new_shares.append(
+                            {
+                                "shareId": new_share_user_id,
+                                "type": "user",
+                                "rule": rule,
+                                "subscribe": share.get("subscribe", False),
+                                "userName": user_email,  # Add email for later duplicate check
+                            }
+                        )
                         self.logger.debug(f"Prepared user share for migration: {user_email} (Rule: {rule})")
                 elif share["type"] == "group":
                     new_share_group_id = group_mapping.get(share["shareId"])
                     group_name = source_group_map.get(share["shareId"], "Unknown Group")
                     if new_share_group_id:
-                        new_shares.append({
-                            "shareId": new_share_group_id,
-                            "type": "group",
-                            "rule": share.get("rule", "viewer"),
-                            "subscribe": share.get("subscribe", False),
-                            "name": group_name  # Add group name for later duplicate check
-                        })
-                        self.logger.debug(
-                            f"Prepared group share for migration: {group_name} "
-                            f"(Rule: {share.get('rule', 'viewer')})"
+                        new_shares.append(
+                            {
+                                "shareId": new_share_group_id,
+                                "type": "group",
+                                "rule": share.get("rule", "viewer"),
+                                "subscribe": share.get("subscribe", False),
+                                "name": group_name,  # Add group name for later duplicate check
+                            }
                         )
+                        self.logger.debug(f"Prepared group share for migration: {group_name} (Rule: {share.get('rule', 'viewer')})")
 
             # Combine new shares with existing ones
             self.logger.debug(f"Fetching shares for target dashboard ID {target_id} with adminAccess=true.")
-            target_dashboard_shares_url = (
-                f"/api/shares/dashboard/{target_id}?adminAccess=true"
-            )
+            target_dashboard_shares_url = f"/api/shares/dashboard/{target_id}?adminAccess=true"
             target_dashboard_shares_response = self.target_client.get(target_dashboard_shares_url)
 
             if target_dashboard_shares_response is not None:
                 if target_dashboard_shares_response.status_code == 403:
-                    self.logger.warning(
-                        f"Access denied for target dashboard ID {target_id} with adminAccess. "
-                        f"Retrying without adminAccess."
-                    )
+                    self.logger.warning(f"Access denied for target dashboard ID {target_id} with adminAccess. Retrying without adminAccess.")
                     target_dashboard_shares_response = self.target_client.get(f"/api/shares/dashboard/{target_id}")
                     if target_dashboard_shares_response and target_dashboard_shares_response.status_code == 200:
-                        self.logger.debug(
-                            f"Successfully fetched shares for target dashboard ID {target_id} "
-                            "without adminAccess."
-                        )
+                        self.logger.debug(f"Successfully fetched shares for target dashboard ID {target_id} without adminAccess.")
                     else:
-                        self.logger.error(
-                            f"Retry without adminAccess also failed for target dashboard ID {target_id}. "
-                            "Ending processing for this dashboard."
-                        )
-                        share_migration_summary['failed_dashboards'].append(
-                            {"source_id": source_id, "target_id": target_id}
-                        )
-                        share_migration_summary['share_fail_count'] += len(new_shares)
-                        dashboard_results.append({
-                            "source_id": source_id,
-                            "target_id": target_id,
-                            "shares_added": 0,
-                            "status": "Skipped",
-                            "reason": "Target dashboard not found or inaccessible"
-                        })
+                        self.logger.error(f"Retry without adminAccess also failed for target dashboard ID {target_id}. Ending processing for this dashboard.")
+                        share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
+                        share_migration_summary["share_fail_count"] += len(new_shares)
+                        dashboard_results.append({"source_id": source_id, "target_id": target_id, "shares_added": 0, "status": "Skipped", "reason": "Target dashboard not found or inaccessible"})
                         continue
                 elif target_dashboard_shares_response.status_code == 200:
                     self.logger.debug(f"Shares fetched with adminAccess for target dashboard ID {target_id}.")
                 else:
-                    self.logger.error(
-                        f"Unexpected status code when accessing target dashboard ID {target_id}: "
-                        f"{target_dashboard_shares_response.status_code}"
-                    )
-                    share_migration_summary['failed_dashboards'].append(
-                        {"source_id": source_id, "target_id": target_id}
-                    )
-                    share_migration_summary['share_fail_count'] += len(new_shares)
+                    self.logger.error(f"Unexpected status code when accessing target dashboard ID {target_id}: {target_dashboard_shares_response.status_code}")
+                    share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
+                    share_migration_summary["share_fail_count"] += len(new_shares)
                     continue
             else:
-                self.logger.error(
-                    f"Failed to fetch shares for target dashboard ID {target_id}. "
-                    "Response is None. Ending processing for this dashboard."
-                )
-                share_migration_summary['failed_dashboards'].append({"source_id": source_id, "target_id": target_id})
-                share_migration_summary['share_fail_count'] += len(new_shares)
+                self.logger.error(f"Failed to fetch shares for target dashboard ID {target_id}. Response is None. Ending processing for this dashboard.")
+                share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
+                share_migration_summary["share_fail_count"] += len(new_shares)
                 continue
 
             existing_shares = target_dashboard_shares_response.json().get("sharesTo", [])
@@ -1556,15 +1491,9 @@ class Migration:
             simplified_existing = []
             for share in existing_shares:
                 if share.get("type") == "user":
-                    simplified_existing.append({
-                        "type": "user",
-                        "userName": share.get("userName", "Unknown")
-                    })
+                    simplified_existing.append({"type": "user", "userName": share.get("userName", "Unknown")})
                 elif share.get("type") == "group":
-                    simplified_existing.append({
-                        "type": "group",
-                        "name": share.get("name", "Unknown Group")
-                    })
+                    simplified_existing.append({"type": "group", "name": share.get("name", "Unknown Group")})
 
             self.logger.debug(f"Existing shares for target dashboard ID {target_id}: {simplified_existing}")
 
@@ -1592,26 +1521,13 @@ class Migration:
             all_shares = existing_shares + filtered_new_shares
 
             # Log concise summary of filtered shares
-            simplified_filtered = [
-                {
-                    "type": share.get("type"),
-                    "shareId": share.get("shareId"),
-                    "rule": share.get("rule"),
-                    "subscribe": share.get("subscribe", False)
-                }
-                for share in filtered_new_shares
-            ]
+            simplified_filtered = [{"type": share.get("type"), "shareId": share.get("shareId"), "rule": share.get("rule"), "subscribe": share.get("subscribe", False)} for share in filtered_new_shares]
             self.logger.debug(f"Filtered new shares to be added: {simplified_filtered}")
 
             # Prepare filtered_new_shares for API by removing comparison-only keys
             final_new_shares = []
             for share in filtered_new_shares:
-                final_new_shares.append({
-                    "shareId": share["shareId"],
-                    "type": share["type"],
-                    "rule": share["rule"],
-                    "subscribe": share.get("subscribe", False)
-                })
+                final_new_shares.append({"shareId": share["shareId"], "type": share["type"], "rule": share["rule"], "subscribe": share.get("subscribe", False)})
 
             # Combine with existing shares
             all_shares = existing_shares + final_new_shares
@@ -1619,10 +1535,7 @@ class Migration:
             self.logger.debug(f"Final shares payload: {all_shares}")
 
             if not all_shares:
-                self.logger.warning(
-                    f"No valid shares found for source dashboard ID {source_id}. "
-                    "Ensure users and groups exist in the target environment."
-                )
+                self.logger.warning(f"No valid shares found for source dashboard ID {source_id}. Ensure users and groups exist in the target environment.")
                 continue
 
             # Post the shares to the target environment
@@ -1642,10 +1555,7 @@ class Migration:
                     if response and response.status_code in [200, 201]:
                         self.logger.debug(f"POST request successful without adminAccess for dashboard ID {target_id}.")
                     else:
-                        self.logger.error(
-                            f"Retry without adminAccess also failed for POST request to dashboard ID {target_id}. "
-                            f"Status Code: {response.status_code if response else 'No response'}"
-                        )
+                        self.logger.error(f"Retry without adminAccess also failed for POST request to dashboard ID {target_id}. Status Code: {response.status_code if response else 'No response'}")
                 elif response.status_code not in [200, 201]:
                     self.logger.error(f"Unexpected status code for POST request to {post_url}: {response.status_code}.")
             else:
@@ -1654,23 +1564,17 @@ class Migration:
             # Handle the response or fallback logic
             if response and response.status_code in [200, 201]:
                 self.logger.info(f"Shares migrated successfully to target dashboard ID {target_id}.")
-                share_migration_summary['new_share_success_count'] += len(filtered_new_shares)
+                share_migration_summary["new_share_success_count"] += len(filtered_new_shares)
             else:
-                self.logger.error(
-                    f"Failed to migrate shares for target dashboard ID {target_id}. "
-                    f"Status Code: {response.status_code if response else 'No response'}"
-                )
-                share_migration_summary['share_fail_count'] += len(filtered_new_shares)
-                share_migration_summary['failed_dashboards'].append({"source_id": source_id, "target_id": target_id})
-            dashboard_results.append({
-                "source_id": source_id,
-                "target_id": target_id,
-                "shares_added": len(filtered_new_shares),
-                "status": "Success" if response and response.status_code in [200, 201] else "Failed"
-            })
+                self.logger.error(f"Failed to migrate shares for target dashboard ID {target_id}. Status Code: {response.status_code if response else 'No response'}")
+                share_migration_summary["share_fail_count"] += len(filtered_new_shares)
+                share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
+            dashboard_results.append(
+                {"source_id": source_id, "target_id": target_id, "shares_added": len(filtered_new_shares), "status": "Success" if response and response.status_code in [200, 201] else "Failed"}
+            )
 
             # Step 3: Handle ownership change if requested
-            self.logger.debug('Starting ownership change process.')
+            self.logger.debug("Starting ownership change process.")
 
             # Handle ownership change if required
             if change_ownership and potential_owner_id:
@@ -1686,68 +1590,49 @@ class Migration:
 
                 # Proceed only if the owner is different
                 if current_target_owner_id and current_target_owner_id == potential_owner_id:
-                    self.logger.info(
-                        f"Target dashboard ID {target_id} already owned by user ID {potential_owner_id}. "
-                        "Skipping ownership change."
-                    )
+                    self.logger.info(f"Target dashboard ID {target_id} already owned by user ID {potential_owner_id}. Skipping ownership change.")
                 else:
-                    self.logger.info(
-                        f"Changing ownership of target dashboard ID {target_id} to user: "
-                        f"{potential_owner_name} (ID: {potential_owner_id})."
-                    )
+                    self.logger.info(f"Changing ownership of target dashboard ID {target_id} to user: {potential_owner_name} (ID: {potential_owner_id}).")
 
                     ownership_url = f"/api/v1/dashboards/{target_id}/change_owner?adminAccess=true"
                     self.logger.debug(f"Making POST request to {ownership_url} for ownership change.")
 
-                    owner_change_response = self.target_client.post(
-                        ownership_url,
-                        data={"ownerId": potential_owner_id, "originalOwnerRule": "edit"}
-                    )
+                    owner_change_response = self.target_client.post(ownership_url, data={"ownerId": potential_owner_id, "originalOwnerRule": "edit"})
 
                     # Check for 403 and retry without adminAccess
                     if owner_change_response is None or owner_change_response.status_code == 403:
-                        self.logger.warning(
-                            f"Access denied for ownership change at {ownership_url}. "
-                            "Retrying without adminAccess."
-                        )
+                        self.logger.warning(f"Access denied for ownership change at {ownership_url}. Retrying without adminAccess.")
                         ownership_url_without_admin = f"/api/v1/dashboards/{target_id}/change_owner"
                         self.logger.debug(f"Retrying ownership change POST request to {ownership_url_without_admin}.")
-                        owner_change_response = self.target_client.post(
-                            ownership_url_without_admin,
-                            data={"ownerId": potential_owner_id, "originalOwnerRule": "edit"}
-                        )
+                        owner_change_response = self.target_client.post(ownership_url_without_admin, data={"ownerId": potential_owner_id, "originalOwnerRule": "edit"})
 
                     # Handle the response after retry logic
                     if owner_change_response and owner_change_response.status_code in [200, 201]:
                         self.logger.info(f"Ownership changed successfully for dashboard ID {target_id}.")
                     else:
-                        self.logger.error(
-                            f"Failed to change ownership for dashboard ID {target_id}. "
-                            f"Status Code: "
-                            f"{owner_change_response.status_code if owner_change_response else 'No response'}."
-                        )
+                        self.logger.error(f"Failed to change ownership for dashboard ID {target_id}. Status Code: {owner_change_response.status_code if owner_change_response else 'No response'}.")
 
         self.logger.info("Finished share migration.")
         self.logger.info(share_migration_summary)
         return {
             "summary": {
                 "total_dashboard_count": len(source_dashboard_ids),
-                "total_share_success_count": share_migration_summary['new_share_success_count'],
-                "total_share_fail_count": share_migration_summary['share_fail_count']
+                "total_share_success_count": share_migration_summary["new_share_success_count"],
+                "total_share_fail_count": share_migration_summary["share_fail_count"],
             },
-            "dashboard_results": dashboard_results
+            "dashboard_results": dashboard_results,
         }
 
     def migrate_dashboards(
         self,
-        dashboard_ids: Optional[List[str]] = None,
-        dashboard_names: Optional[List[str]] = None,
-        action: Optional[Literal["skip", "overwrite", "duplicate"]] = None,
+        dashboard_ids: list[str] | None = None,
+        dashboard_names: list[str] | None = None,
+        action: Literal["skip", "overwrite", "duplicate"] | None = None,
         republish: bool = False,
         migrate_share: bool = False,
         change_ownership: bool = False,
-        emit: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Migrate dashboards from the source to the target environment using Sisense bulk import.
 
@@ -1846,7 +1731,7 @@ class Migration:
 
         self.logger.info("Starting dashboard migration from source to target.")
 
-        summary: Dict[str, Any] = {
+        summary: dict[str, Any] = {
             "succeeded": [],
             "skipped": [],
             "failed": [],
@@ -1863,8 +1748,8 @@ class Migration:
         # -------------------------
         # Step 1: Resolve + export dashboards from source
         # -------------------------
-        bulk_dashboard_data: List[Dict[str, Any]] = []
-        source_id_to_title: Dict[str, str] = {}
+        bulk_dashboard_data: list[dict[str, Any]] = []
+        source_id_to_title: dict[str, str] = {}
 
         if dashboard_ids:
             self.logger.info("Processing dashboard migration by IDs.")
@@ -1924,7 +1809,7 @@ class Migration:
             self.logger.info("Processing dashboard migration by names.")
             limit = 50
             skip = 0
-            dashboards: List[Dict[str, Any]] = []
+            dashboards: list[dict[str, Any]] = []
 
             # Use admin endpoint instead of searches (smaller payload via fields)
             dashboard_columns = ["oid", "title"]
@@ -1969,7 +1854,7 @@ class Migration:
 
                 payload, _ = self._safe_json(resp)
 
-                items: List[Dict[str, Any]] = []
+                items: list[dict[str, Any]] = []
                 if isinstance(payload, list):
                     items = payload
                 elif isinstance(payload, dict):
@@ -2121,7 +2006,7 @@ class Migration:
 
         # Old failsafe signals (request-level error payloads)
         # Examples: {"message": "..."} or {"error": {"message": "..."}} etc.
-        message_from_payload: Optional[str] = None
+        message_from_payload: str | None = None
         if isinstance(resp_json, dict):
             if isinstance(resp_json.get("message"), str):
                 message_from_payload = resp_json["message"]
@@ -2131,10 +2016,7 @@ class Migration:
         if not request_success:
             # Request-level failure: mark everything as failed (but keep export failures already captured)
             reason = (
-                message_from_payload
-                or (json_err if json_err else None)
-                or self._truncate(getattr(resp, "text", "") or "")
-                or f"Bulk import failed (status_code={summary['meta']['bulk_status_code']})"
+                message_from_payload or (json_err if json_err else None) or self._truncate(getattr(resp, "text", "") or "") or f"Bulk import failed (status_code={summary['meta']['bulk_status_code']})"
             )
             summary["meta"]["bulk_request_failed"] = True
             summary["meta"]["bulk_request_reason"] = reason
@@ -2227,11 +2109,11 @@ class Migration:
 
         # Build a target-title map to support share/ownership migration
         # Note: we still match by title because the bulk response does not reliably include a source id.
-        target_id_to_title: Dict[str, str] = {}
+        target_id_to_title: dict[str, str] = {}
 
         # Build a title -> [source_id, ...] lookup from what we exported (best effort).
         # This lets us attach source_id to succeeded/skipped items
-        source_ids_by_title: Dict[str, List[str]] = {}
+        source_ids_by_title: dict[str, list[str]] = {}
         for exported in bulk_dashboard_data:
             if not isinstance(exported, dict):
                 continue
@@ -2248,7 +2130,7 @@ class Migration:
             title = item.get("title")
             target_id = item.get("oid")
 
-            source_id: Optional[str] = None
+            source_id: str | None = None
             if isinstance(title, str):
                 ids = source_ids_by_title.get(title) or []
                 if ids:
@@ -2273,7 +2155,7 @@ class Migration:
             title = item.get("title")
             target_id = item.get("oid")
 
-            source_id: Optional[str] = None
+            source_id: str | None = None
             if isinstance(title, str):
                 ids = source_ids_by_title.get(title) or []
                 if ids:
@@ -2318,10 +2200,7 @@ class Migration:
                         }
                     )
 
-        self.logger.info(
-            f"Bulk import parsed results: "
-            f"succeeded={len(summary['succeeded'])}, skipped={len(summary['skipped'])}, failed={len(summary['failed'])}."
-        )
+        self.logger.info(f"Bulk import parsed results: succeeded={len(summary['succeeded'])}, skipped={len(summary['skipped'])}, failed={len(summary['failed'])}.")
 
         self._emit(
             emit,
@@ -2387,29 +2266,22 @@ class Migration:
 
         # Build source->target mapping by matching titles (best effort).
         # Warn on collisions.
-        source_to_target: Dict[str, str] = {}
-        title_to_targets: Dict[str, List[str]] = {}
+        source_to_target: dict[str, str] = {}
+        title_to_targets: dict[str, list[str]] = {}
         for tid, ttitle in target_id_to_title.items():
             title_to_targets.setdefault(ttitle, []).append(tid)
 
         for src_id, src_title in source_id_to_title.items():
             targets = title_to_targets.get(src_title, [])
             if not targets:
-                self.logger.warning(
-                    f"Source dashboard '{src_title}' (source_id={src_id}) not found among succeeded target dashboards."
-                )
+                self.logger.warning(f"Source dashboard '{src_title}' (source_id={src_id}) not found among succeeded target dashboards.")
                 continue
             if len(targets) > 1:
-                self.logger.warning(
-                    f"Multiple target dashboards share the same title '{src_title}'. "
-                    f"Using the first one for shares/ownership migration. target_ids={targets}"
-                )
+                self.logger.warning(f"Multiple target dashboards share the same title '{src_title}'. Using the first one for shares/ownership migration. target_ids={targets}")
             source_to_target[src_id] = targets[0]
 
         if not source_to_target:
-            self.logger.info(
-                "No dashboards eligible for shares/ownership migration (no source->target mapping could be formed)."
-            )
+            self.logger.info("No dashboards eligible for shares/ownership migration (no source->target mapping could be formed).")
 
             self._emit(
                 emit,
@@ -2461,14 +2333,14 @@ class Migration:
 
     def migrate_all_dashboards(
         self,
-        action: Optional[str] = None,
+        action: str | None = None,
         republish: bool = False,
         migrate_share: bool = False,
         change_ownership: bool = False,
         batch_size: int = 10,
         sleep_time: int = 10,
-        emit: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Migrates all dashboards from the source to the target environment in batches.
 
@@ -2544,7 +2416,7 @@ class Migration:
         total_items_seen = 0
         total_missing_oid = 0
         total_duplicate_oid = 0
-        duplicate_oids_sample_global: List[str] = []
+        duplicate_oids_sample_global: list[str] = []
 
         while True:
             self._emit(
@@ -2626,7 +2498,7 @@ class Migration:
 
             body = dashboard_response.json()
 
-            items: List[Dict[str, Any]] = []
+            items: list[dict[str, Any]] = []
             if isinstance(body, list):
                 items = body
             elif isinstance(body, dict):
@@ -2647,7 +2519,7 @@ class Migration:
             added_this_page = 0
             missing_oid_count = 0
             duplicate_oid_count = 0
-            duplicate_oids_sample_page: List[str] = []
+            duplicate_oids_sample_page: list[str] = []
 
             for dash in items:
                 oid = None
@@ -2738,12 +2610,12 @@ class Migration:
         )
 
         # Step 2: Migrate dashboards in batches
-        all_dashboard_ids_list: List[Any] = sorted(list(all_dashboard_ids))
-        migration_summary: Dict[str, Any] = {"succeeded": [], "skipped": [], "failed": []}
+        all_dashboard_ids_list: list[Any] = sorted(list(all_dashboard_ids))
+        migration_summary: dict[str, Any] = {"succeeded": [], "skipped": [], "failed": []}
 
         total_count = len(all_dashboard_ids_list)
         batches_total = (total_count + batch_size - 1) // batch_size if batch_size > 0 else 0
-        batch_errors: List[Dict[str, Any]] = []
+        batch_errors: list[dict[str, Any]] = []
 
         if total_count == 0:
             self._emit(
@@ -2884,9 +2756,7 @@ class Migration:
                         migration_summary["failed"].extend(single_summary.get("failed", []))
                     except Exception as e2:
                         self.logger.error("Salvage retry failed for dashboard %s in batch %s: %s", did, batch_number, e2)
-                        migration_summary["failed"].append(
-                            {"title": None, "source_id": did, "reason": f"Salvage retry failed: {str(e2)}"}
-                        )
+                        migration_summary["failed"].append({"title": None, "source_id": did, "reason": f"Salvage retry failed: {str(e2)}"})
 
                 self._emit(
                     emit,
@@ -2968,15 +2838,15 @@ class Migration:
 
     def migrate_datamodels(
         self,
-        datamodel_ids: Optional[List[str]] = None,
-        datamodel_names: Optional[List[str]] = None,
-        provider_connection_map: Optional[Dict[str, str]] = None,
-        dependencies: Optional[Union[List[str], str]] = None,
+        datamodel_ids: list[str] | None = None,
+        datamodel_names: list[str] | None = None,
+        provider_connection_map: dict[str, str] | None = None,
+        dependencies: list[str] | str | None = None,
         shares: bool = False,
-        action: Optional[str] = None,
-        new_title: Optional[str] = None,
-        emit: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        action: str | None = None,
+        new_title: str | None = None,
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Migrates specific data models from the source environment to the target environment.
 
@@ -3038,7 +2908,7 @@ class Migration:
         )
 
         # Mapping user-friendly terms to API parameters
-        dependency_mapping: Dict[str, List[str]] = {
+        dependency_mapping: dict[str, list[str]] = {
             "dataSecurity": ["dataContext", "scopeConfiguration"],
             "formulas": ["formulaManagement"],
             "hierarchies": ["drillHierarchies"],
@@ -3071,7 +2941,7 @@ class Migration:
         )
 
         # Initialize migration summary in a dashboard-consistent shape
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "succeeded": [],
             "skipped": [],
             "failed": [],
@@ -3096,8 +2966,8 @@ class Migration:
         # -------------------------
         # Step 1: Resolve datamodel IDs (if names provided)
         # -------------------------
-        resolved_ids: List[str] = []
-        id_to_title: Dict[str, str] = {}
+        resolved_ids: list[str] = []
+        id_to_title: dict[str, str] = {}
 
         requested_items = datamodel_ids or datamodel_names or []
         result["meta"]["requested_count"] = len(requested_items)
@@ -3119,9 +2989,9 @@ class Migration:
             self.logger.debug("Fetching all data models to filter by names.")
 
             wanted = set(datamodel_names or [])
-            found_title_to_oid: Dict[str, str] = {}
-            found_title_to_type: Dict[str, Any] = {}
-            duplicate_titles: Dict[str, int] = {}
+            found_title_to_oid: dict[str, str] = {}
+            found_title_to_type: dict[str, Any] = {}
+            duplicate_titles: dict[str, int] = {}
 
             limit = 100
             skip = 0
@@ -3180,9 +3050,7 @@ class Migration:
                         )
                         return result
 
-                    self.logger.warning(
-                        "Stopping pagination due to non-200 response. Status=%s Error=%s", status_code, reason
-                    )
+                    self.logger.warning("Stopping pagination due to non-200 response. Status=%s Error=%s", status_code, reason)
                     self._emit(
                         emit,
                         {
@@ -3199,7 +3067,7 @@ class Migration:
 
                 payload, _ = self._safe_json(response)
 
-                items: List[Dict[str, Any]] = []
+                items: list[dict[str, Any]] = []
                 if isinstance(payload, list):
                     items = payload
                 elif isinstance(payload, dict):
@@ -3258,7 +3126,7 @@ class Migration:
                 total_items_seen,
             )
 
-            for name in (datamodel_names or []):
+            for name in datamodel_names or []:
                 if name not in found_title_to_oid:
                     reason = f"Datamodel '{name}' not found in source."
                     result["failed"].append({"title": name, "source_id": None, "reason": reason})
@@ -3308,7 +3176,7 @@ class Migration:
         # -------------------------
         # Step 2: Export schemas from source
         # -------------------------
-        all_datamodel_data: List[Dict[str, Any]] = []
+        all_datamodel_data: list[dict[str, Any]] = []
 
         self._emit(
             emit,
@@ -3403,8 +3271,8 @@ class Migration:
         # -------------------------
         self.logger.info("Migrating '%s' datamodels one by one to the target environment.", len(all_datamodel_data))
 
-        successfully_migrated_datamodels: List[Dict[str, Any]] = []
-        source_to_target_id: Dict[str, str] = {}
+        successfully_migrated_datamodels: list[dict[str, Any]] = []
+        source_to_target_id: dict[str, str] = {}
 
         import_url = "/api/v2/datamodel-imports/schema"
 
@@ -3466,7 +3334,7 @@ class Migration:
             try:
                 response = self.target_client.post(f"{import_url}{query_string}", data=data_model)
 
-                target_id: Optional[str] = None
+                target_id: str | None = None
                 resp_payload, _ = self._safe_json(response)
                 if isinstance(resp_payload, dict):
                     for k in ("oid", "id", "datamodelId"):
@@ -3478,9 +3346,7 @@ class Migration:
                 # Keep existing behavior, but cover edge-case where Response is falsy for 4xx/5xx.
                 if response is not None and response.status_code == 201:
                     self.logger.info("Successfully migrated data model: %s", data_model.get("title"))
-                    result["succeeded"].append(
-                        {"title": title_str, "source_id": src_id_str, "target_id": target_id, "reason": None}
-                    )
+                    result["succeeded"].append({"title": title_str, "source_id": src_id_str, "target_id": target_id, "reason": None})
                     successfully_migrated_datamodels.append(data_model)
                     result["meta"]["import_succeeded"] += 1
                     if src_id_str and target_id:
@@ -3499,10 +3365,7 @@ class Migration:
                     )
 
                 elif response is not None and response.status_code == 404 and action == "overwrite":
-                    fallback_reason = (
-                        f"Data model '{data_model.get('title')}' not found in target for overwrite. "
-                        f"Retrying without overwrite option."
-                    )
+                    fallback_reason = f"Data model '{data_model.get('title')}' not found in target for overwrite. Retrying without overwrite option."
                     self.logger.warning(fallback_reason)
 
                     self._emit(
@@ -3518,7 +3381,7 @@ class Migration:
 
                     fallback_response = self.target_client.post(import_url, data=data_model)
 
-                    fb_target_id: Optional[str] = None
+                    fb_target_id: str | None = None
                     fb_payload, _ = self._safe_json(fallback_response)
                     if isinstance(fb_payload, dict):
                         for k in ("oid", "id", "datamodelId"):
@@ -3529,20 +3392,13 @@ class Migration:
 
                     if fallback_response is not None and fallback_response.status_code == 201:
                         self.logger.info("Successfully migrated datamodel without overwrite: %s", data_model.get("title"))
-                        result["succeeded"].append(
-                            {"title": title_str, "source_id": src_id_str, "target_id": fb_target_id, "reason": None}
-                        )
+                        result["succeeded"].append({"title": title_str, "source_id": src_id_str, "target_id": fb_target_id, "reason": None})
                         successfully_migrated_datamodels.append(data_model)
                         result["meta"]["import_succeeded"] += 1
                         if src_id_str and fb_target_id:
                             source_to_target_id[src_id_str] = fb_target_id
 
-                    elif (
-                        fallback_response is not None
-                        and fallback_response.status_code == 400
-                        and isinstance(fb_payload, dict)
-                        and fb_payload.get("title") == "ElasticubeAlreadyExists"
-                    ):
+                    elif fallback_response is not None and fallback_response.status_code == 400 and isinstance(fb_payload, dict) and fb_payload.get("title") == "ElasticubeAlreadyExists":
                         final_reason = (
                             f"Datamodel '{data_model.get('title')}' already exists on the target with a different ID. "
                             "Consider using action='duplicate' with a new title, or delete the existing model manually."
@@ -3565,9 +3421,7 @@ class Migration:
 
                 else:
                     error_message = self._extract_error_detail(response)
-                    self.logger.error(
-                        "Failed to migrate data model: %s. Error: %s", data_model.get("title"), error_message
-                    )
+                    self.logger.error("Failed to migrate data model: %s. Error: %s", data_model.get("title"), error_message)
                     result["failed"].append({"title": title_str, "source_id": src_id_str, "reason": error_message})
                     result["meta"]["failure_reasons"][title_str or (src_id_str or "unknown")] = error_message
                     result["meta"]["import_failed"] += 1
@@ -3610,29 +3464,21 @@ class Migration:
 
             self.logger.debug("Fetching userIds from source system")
             source_user_resp = self.source_client.get("/api/v1/users")
-            source_user_ids: Dict[str, str] = {}
+            source_user_ids: dict[str, str] = {}
             if source_user_resp is not None and source_user_resp.status_code == 200:
                 payload, _ = self._safe_json(source_user_resp)
                 if isinstance(payload, list):
-                    source_user_ids = {
-                        user.get("email"): user.get("_id")
-                        for user in payload
-                        if isinstance(user, dict) and user.get("email")
-                    }
+                    source_user_ids = {user.get("email"): user.get("_id") for user in payload if isinstance(user, dict) and user.get("email")}
             else:
                 self.logger.error("Failed to retrieve user IDs from the source environment.")
 
             self.logger.debug("Fetching userIds from target system")
             target_user_resp = self.target_client.get("/api/v1/users")
-            target_user_ids: Dict[str, str] = {}
+            target_user_ids: dict[str, str] = {}
             if target_user_resp is not None and target_user_resp.status_code == 200:
                 payload, _ = self._safe_json(target_user_resp)
                 if isinstance(payload, list):
-                    target_user_ids = {
-                        user.get("email"): user.get("_id")
-                        for user in payload
-                        if isinstance(user, dict) and user.get("email")
-                    }
+                    target_user_ids = {user.get("email"): user.get("_id") for user in payload if isinstance(user, dict) and user.get("email")}
             else:
                 self.logger.error("Failed to retrieve user IDs from the target environment.")
 
@@ -3640,39 +3486,31 @@ class Migration:
 
             self.logger.debug("Fetching groups from source system")
             source_group_resp = self.source_client.get("/api/v1/groups")
-            source_group_ids: Dict[str, str] = {}
+            source_group_ids: dict[str, str] = {}
             if source_group_resp is not None and source_group_resp.status_code == 200:
                 payload, _ = self._safe_json(source_group_resp)
                 if isinstance(payload, list):
                     source_group_ids = {
-                        group.get("name"): group.get("_id")
-                        for group in payload
-                        if isinstance(group, dict)
-                        and group.get("name") not in ["Everyone", "All users in system"]
-                        and group.get("_id")
+                        group.get("name"): group.get("_id") for group in payload if isinstance(group, dict) and group.get("name") not in ["Everyone", "All users in system"] and group.get("_id")
                     }
             else:
                 self.logger.error("Failed to retrieve group IDs from the source environment.")
 
             self.logger.debug("Fetching groups from target system")
             target_group_resp = self.target_client.get("/api/v1/groups")
-            target_group_ids: Dict[str, str] = {}
+            target_group_ids: dict[str, str] = {}
             if target_group_resp is not None and target_group_resp.status_code == 200:
                 payload, _ = self._safe_json(target_group_resp)
                 if isinstance(payload, list):
                     target_group_ids = {
-                        group.get("name"): group.get("_id")
-                        for group in payload
-                        if isinstance(group, dict)
-                        and group.get("name") not in ["Everyone", "All users in system"]
-                        and group.get("_id")
+                        group.get("name"): group.get("_id") for group in payload if isinstance(group, dict) and group.get("name") not in ["Everyone", "All users in system"] and group.get("_id")
                     }
             else:
                 self.logger.error("Failed to retrieve group IDs from the target environment.")
 
             group_mapping = {source_group_ids[name]: target_group_ids.get(name) for name in source_group_ids}
 
-            target_models_by_title: Dict[str, Dict[str, Any]] = {}
+            target_models_by_title: dict[str, dict[str, Any]] = {}
             try:
                 t_limit = 100
                 t_skip = 0
@@ -3686,7 +3524,7 @@ class Migration:
 
                     payload, _ = self._safe_json(target_list_resp)
 
-                    items: List[Dict[str, Any]] = []
+                    items: list[dict[str, Any]] = []
                     if isinstance(payload, list):
                         items = payload
                     elif isinstance(payload, dict):
@@ -3722,7 +3560,7 @@ class Migration:
                     src_id_str = src_id if isinstance(src_id, str) else None
                     title_str = title if isinstance(title, str) else None
 
-                    target_id: Optional[str] = None
+                    target_id: str | None = None
                     if src_id_str and src_id_str in source_to_target_id:
                         target_id = source_to_target_id[src_id_str]
                     elif title_str and title_str in target_models_by_title:
@@ -3731,19 +3569,11 @@ class Migration:
                             target_id = oid
 
                     if dm_type == "extract":
-                        datamodel_shares_response = self.source_client.get(
-                            f"/api/elasticubes/localhost/{title_str}/permissions"
-                        )
+                        datamodel_shares_response = self.source_client.get(f"/api/elasticubes/localhost/{title_str}/permissions")
                         shares_payload, _ = self._safe_json(datamodel_shares_response)
-                        datamodel_shares = (
-                            shares_payload.get("shares", [])
-                            if isinstance(shares_payload, dict) and isinstance(shares_payload.get("shares"), list)
-                            else []
-                        )
+                        datamodel_shares = shares_payload.get("shares", []) if isinstance(shares_payload, dict) and isinstance(shares_payload.get("shares"), list) else []
                     elif dm_type == "live" and src_id_str:
-                        datamodel_shares_response = self.source_client.get(
-                            f"/api/v1/elasticubes/live/{src_id_str}/permissions"
-                        )
+                        datamodel_shares_response = self.source_client.get(f"/api/v1/elasticubes/live/{src_id_str}/permissions")
                         shares_payload, _ = self._safe_json(datamodel_shares_response)
                         datamodel_shares = shares_payload if isinstance(shares_payload, list) else []
                     else:
@@ -3762,7 +3592,7 @@ class Migration:
                         continue
 
                     if datamodel_shares:
-                        new_shares: List[Dict[str, Any]] = []
+                        new_shares: list[dict[str, Any]] = []
                         for share in datamodel_shares:
                             if not isinstance(share, dict):
                                 continue
@@ -3793,9 +3623,7 @@ class Migration:
                             response = None
 
                             if dm_type == "extract":
-                                response = self.target_client.put(
-                                    f"/api/elasticubes/localhost/{title_str}/permissions", data=new_shares
-                                )
+                                response = self.target_client.put(f"/api/elasticubes/localhost/{title_str}/permissions", data=new_shares)
 
                             elif dm_type == "live":
                                 if not target_id:
@@ -3807,17 +3635,11 @@ class Migration:
                                     continue
 
                                 self.logger.info("Publishing datamodel '%s' to update shares.", title_str)
-                                publish_response = self.target_client.post(
-                                    "/api/v2/builds", data={"datamodelId": target_id, "buildType": "publish"}
-                                )
+                                publish_response = self.target_client.post("/api/v2/builds", data={"datamodelId": target_id, "buildType": "publish"})
 
                                 if publish_response is not None and publish_response.status_code == 201:
-                                    self.logger.info(
-                                        "Datamodel '%s' published successfully. Now updating shares.", title_str
-                                    )
-                                    response = self.target_client.patch(
-                                        f"/api/v1/elasticubes/live/{target_id}/permissions", data=new_shares
-                                    )
+                                    self.logger.info("Datamodel '%s' published successfully. Now updating shares.", title_str)
+                                    response = self.target_client.patch(f"/api/v1/elasticubes/live/{target_id}/permissions", data=new_shares)
                                 else:
                                     self.logger.error(
                                         "Failed to publish datamodel '%s'. Error: %s",
@@ -3863,7 +3685,7 @@ class Migration:
             ok = True
             status = "noop"
         else:
-            ok = (failed_count == 0)
+            ok = failed_count == 0
             status = "success" if ok else "failed"
 
         self.logger.info("Finished data model migration.")
@@ -3900,13 +3722,13 @@ class Migration:
 
     def migrate_all_datamodels(
         self,
-        dependencies: Optional[Union[List[str], str]] = None,
+        dependencies: list[str] | str | None = None,
         shares: bool = False,
         batch_size: int = 10,
         sleep_time: int = 5,
-        action: Optional[str] = None,
-        emit: Optional[Callable[[Dict[str, Any]], None]] = None,
-    ) -> Dict[str, Any]:
+        action: str | None = None,
+        emit: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
         """
         Migrates all data models from the source environment to the target environment in batches.
 
@@ -3984,14 +3806,14 @@ class Migration:
             },
         )
 
-        all_datamodel_ids: List[str] = []
+        all_datamodel_ids: list[str] = []
         limit = 100
         skip = 0
         pages_fetched = 0
         total_items_seen = 0
         missing_oid_count = 0
         duplicate_oid_count = 0
-        duplicate_oids_sample: List[str] = []
+        duplicate_oids_sample: list[str] = []
         seen_ids: set = set()
 
         while True:
@@ -4056,7 +3878,7 @@ class Migration:
 
             payload, _ = self._safe_json(response)
 
-            items: List[Dict[str, Any]] = []
+            items: list[dict[str, Any]] = []
             if isinstance(payload, list):
                 items = payload
             elif isinstance(payload, dict):
@@ -4151,8 +3973,8 @@ class Migration:
             }
 
         # Step 2: Migrate datamodels in batches
-        migration_summary: Dict[str, Any] = {"succeeded": [], "skipped": [], "failed": []}
-        batch_errors: List[Dict[str, Any]] = []
+        migration_summary: dict[str, Any] = {"succeeded": [], "skipped": [], "failed": []}
+        batch_errors: list[dict[str, Any]] = []
 
         batches_total = (total_count + batch_size - 1) // batch_size if batch_size > 0 else 0
 
@@ -4269,9 +4091,7 @@ class Migration:
                             batch_number,
                             e2,
                         )
-                        migration_summary["failed"].append(
-                            {"title": None, "source_id": dm_id, "reason": f"Salvage retry failed: {str(e2)}"}
-                        )
+                        migration_summary["failed"].append({"title": None, "source_id": dm_id, "reason": f"Salvage retry failed: {str(e2)}"})
 
                 self._emit(
                     emit,

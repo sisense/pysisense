@@ -1,6 +1,7 @@
+from datetime import datetime
+
 import pandas as pd
 from pandas import json_normalize
-from datetime import datetime
 
 
 def convert_to_dataframe(data, logger=None):
@@ -21,10 +22,7 @@ def convert_to_dataframe(data, logger=None):
             df = json_normalize(data)
         elif isinstance(data, list):
             if all(isinstance(item, dict) for item in data):
-                if any(any(isinstance(value, dict) for value in item.values()) for item in data):
-                    df = json_normalize(data)
-                else:
-                    df = pd.DataFrame(data)
+                df = json_normalize(data) if any(any(isinstance(value, dict) for value in item.values()) for item in data) else pd.DataFrame(data)
             elif all(not isinstance(item, dict) for item in data):
                 df = pd.DataFrame(data, columns=["Column_A"])
             else:

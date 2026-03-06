@@ -1,9 +1,9 @@
-from typing import Any, Dict, List
+from typing import Any
+
 from .sisenseclient import SisenseClient
 
 
 class DataModel:
-
     def __init__(self, api_client=None, debug=False):
         """
         Initializes the DataModel class.
@@ -42,10 +42,7 @@ class DataModel:
             return {"error": "No response from API while retrieving DataModel"}
 
         if not response.ok:
-            self.logger.error(
-                f"Failed to retrieve DataModel '{datamodel_name}'. "
-                f"Status Code: {response.status_code}, Error: {response.text}"
-            )
+            self.logger.error(f"Failed to retrieve DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve DataModel. Status Code: {response.status_code}"}
 
         datamodels = response.json()
@@ -90,10 +87,7 @@ class DataModel:
             return {"error": "No response from API while retrieving datamodel metadata."}
 
         if not response.ok:
-            self.logger.error(
-                f"Failed to retrieve datamodel metadata. "
-                f"Status Code: {response.status_code}, Error: {response.text}"
-            )
+            self.logger.error(f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}"}
 
         data = response.json()
@@ -106,7 +100,7 @@ class DataModel:
                 status_list = dm.get("status", [])
                 dm["status"] = status_list[0] if isinstance(status_list, list) and status_list else "unknown"
 
-            if isinstance(dm.get("sizeInMb"), (int, float)):
+            if isinstance(dm.get("sizeInMb"), int | float):
                 dm["sizeInMb"] = round(dm["sizeInMb"], 2)
             new_data.append(dm)
 
@@ -135,10 +129,7 @@ class DataModel:
             return {"error": "No response from API while retrieving connections"}
 
         if not response.ok:
-            self.logger.error(
-                f"Failed to retrieve connections. Status Code: {response.status_code}, "
-                f"Error: {response.text}"
-            )
+            self.logger.error(f"Failed to retrieve connections. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve connections. Status Code: {response.status_code}"}
 
         connections = response.json()
@@ -180,14 +171,7 @@ class DataModel:
 
         # Step 2: Prepare payload and send request
         endpoint = f"/api/v1/connection/{connection_id}/table_schema_details"
-        payload = {
-            "provider": connection_provider,
-            "connectionData": {
-                "connection": {"Database": database_name},
-                "schema": schema_name,
-                "table": table_name
-            }
-        }
+        payload = {"provider": connection_provider, "connectionData": {"connection": {"Database": database_name}, "schema": schema_name, "table": table_name}}
 
         response = self.api_client.post(endpoint, data=payload)
 
@@ -197,10 +181,7 @@ class DataModel:
             return {"error": "No response from API while retrieving table schema"}
 
         if not response.ok:
-            self.logger.error(
-                f"Failed to retrieve schema for table '{table_name}'. "
-                f"Status Code: {response.status_code}, Error: {response.text}"
-            )
+            self.logger.error(f"Failed to retrieve schema for table '{table_name}'. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to retrieve table schema. Status Code: {response.status_code}"}
 
         schema = response.json()
@@ -232,10 +213,7 @@ class DataModel:
             self.logger.error(f"Invalid DataModel type: '{datamodel_type}'. Must be 'live' or 'extract'.")
             return {"error": "Invalid datamodel_type. Must be 'live' or 'extract'."}
 
-        payload = {
-            "title": datamodel_name,
-            "type": datamodel_type
-        }
+        payload = {"title": datamodel_name, "type": datamodel_type}
 
         endpoint = "/api/v2/datamodels"
         self.logger.debug(f"Sending request to create DataModel with payload: {payload}")
@@ -246,10 +224,7 @@ class DataModel:
             return {"error": "No response from API while creating DataModel"}
 
         if not response.ok:
-            self.logger.error(
-                f"Failed to create DataModel '{datamodel_name}'. "
-                f"Status Code: {response.status_code}, Error: {response.text}"
-            )
+            self.logger.error(f"Failed to create DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
             return {"error": f"Failed to create DataModel. Status Code: {response.status_code}"}
 
         datamodel_id = response.json().get("oid")
@@ -289,9 +264,9 @@ class DataModel:
                         "SchemaName": connection_params.get("schema", ""),
                         "AdditionalParameters": connection_params.get("additional_parameters", ""),
                         "advance": False,
-                        "EC2Instance": False
+                        "EC2Instance": False,
                     },
-                    "supportedModelTypes": ["LIVE", "EXTRACT"]
+                    "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
                 self.logger.debug(f"Generated Athena connection payload: {payload}")
                 return payload
@@ -315,10 +290,7 @@ class DataModel:
                         "UseDynamicSchema": connection_params.get("use_dynamic_schema", False),
                         "Schema": connection_params.get("schema", ""),
                     },
-                    "supportedModelTypes": [
-                        "LIVE",
-                        "EXTRACT"
-                    ]
+                    "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
                 self.logger.debug(f"Generated Databricks connection payload: {payload}")
                 return payload
@@ -347,12 +319,9 @@ class DataModel:
                         "allowLargeResults": connection_params.get("allow_large_results", False),
                         "useStorageApi": connection_params.get("use_storage_api", False),
                         "AdditionalParameters": connection_params.get("additional_parameters", ""),
-                        "DB": connection_params.get("database", "")
+                        "DB": connection_params.get("database", ""),
                     },
-                    "supportedModelTypes": [
-                        "LIVE",
-                        "EXTRACT"
-                    ]
+                    "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
                 self.logger.debug(f"Generated BigQuery connection payload: {payload}")
                 return payload
@@ -379,7 +348,7 @@ class DataModel:
                         "EncryptConnection": False,
                         "AdditionalParameters": connection_params.get("additional_parameters", ""),
                     },
-                    "supportedModelTypes": ["LIVE", "EXTRACT"]
+                    "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
                 self.logger.debug(f"Generated Redshift connection payload: {payload}")
                 return payload
@@ -430,10 +399,7 @@ class DataModel:
         Returns:
             dict: A dictionary containing the full dataset object on success, or an error message on failure.
         """
-        self.logger.debug(
-            f"Creating dataset in DataModel '{datamodel_name}' with connection '{connection_name}', "
-            f"database '{database_name}', and schema '{schema_name}'"
-        )
+        self.logger.debug(f"Creating dataset in DataModel '{datamodel_name}' with connection '{connection_name}', database '{database_name}', and schema '{schema_name}'")
 
         # Step 1: Get DataModel ID
         self.logger.debug(f"Retrieving DataModel ID for '{datamodel_name}'")
@@ -468,13 +434,7 @@ class DataModel:
             self.logger.debug(f"Using provided dataset name: '{dataset_name}'")
 
         # Step 4: Build request payload
-        payload = {
-            "name": dataset_name,
-            "type": datamodel_type,
-            "connection": {"oid": connection_id},
-            "database": database_name,
-            "schemaName": schema_name
-        }
+        payload = {"name": dataset_name, "type": datamodel_type, "connection": {"oid": connection_id}, "database": database_name, "schemaName": schema_name}
         self.logger.debug(f"Dataset creation payload: {payload}")
 
         # Step 5: Send request
@@ -492,14 +452,11 @@ class DataModel:
         except Exception:
             error_detail = response.text or "Unable to parse error details from response."
 
-        self.logger.error(
-            f"Failed to create dataset '{dataset_name}' in DataModel '{datamodel_name}'. Error: {error_detail}"
-        )
+        self.logger.error(f"Failed to create dataset '{dataset_name}' in DataModel '{datamodel_name}'. Error: {error_detail}")
 
         return {"error": f"Failed to create dataset: {error_detail}"}
 
-    def create_table(self, datamodel_name, table_name, database_name=None, schema_name=None, dataset_id=None,
-                     import_query=None, description="", tags=None, build_behavior_config=None):
+    def create_table(self, datamodel_name, table_name, database_name=None, schema_name=None, dataset_id=None, import_query=None, description="", tags=None, build_behavior_config=None):
         """
         Create a new table in the specified DataModel.
 
@@ -537,16 +494,8 @@ class DataModel:
             self.logger.debug(f"Retrieving Dataset ID from DataModel '{datamodel_name}'")
             datasets = datamodel.get("datasets")
             if datasets and len(datasets) > 1:
-                self.logger.warning(
-                    f"Multiple datasets found in DataModel '{datamodel_name}'. "
-                    f"Provide a dataset_id to specify which one to use."
-                )
-                return {
-                    "error": (
-                        f"Multiple datasets found in DataModel '{datamodel_name}'. "
-                        f"Provide a dataset_id to specify which one to use."
-                    )
-                }
+                self.logger.warning(f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")
+                return {"error": (f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")}
 
             dataset_info = datasets[0]
             dataset_id = dataset_info.get("oid")
@@ -562,12 +511,7 @@ class DataModel:
                 self.logger.debug(f"Using provided schema name: {schema_name}")
             connection_name = dataset_info.get("connection", {}).get("name")
 
-            self.logger.debug(
-                f"Resolved Dataset ID: {dataset_id}, "
-                f"Database Name: {database_name}, "
-                f"Schema Name: {schema_name}, "
-                f"Connection Name: {connection_name}"
-            )
+            self.logger.debug(f"Resolved Dataset ID: {dataset_id}, Database Name: {database_name}, Schema Name: {schema_name}, Connection Name: {connection_name}")
 
             if not dataset_id:
                 self.logger.error(f"No dataset ID found in DataModel '{datamodel_name}'. Aborting table creation.")
@@ -598,17 +542,9 @@ class DataModel:
                 else:
                     self.logger.debug(f"Using provided schema name: {schema_name}")
                 connection_name = dataset_details.get("connection", {}).get("name")
-                self.logger.debug(
-                    f"Resolved Dataset ID: {dataset_id}, "
-                    f"Database Name: {database_name}, "
-                    f"Schema Name: {schema_name}, "
-                    f"Connection Name: {connection_name}"
-                )
+                self.logger.debug(f"Resolved Dataset ID: {dataset_id}, Database Name: {database_name}, Schema Name: {schema_name}, Connection Name: {connection_name}")
             else:
-                self.logger.error(
-                    f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'. "
-                    f"Status Code: {dataset.status_code}, Error: {dataset.text}"
-                )
+                self.logger.error(f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'. Status Code: {dataset.status_code}, Error: {dataset.text}")
                 return {"error": f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'"}
 
         # Step 3: Fetch schema of the table to be created
@@ -620,10 +556,7 @@ class DataModel:
             self.logger.error(f"Missing database or schema name for table '{table_name}'.")
             return {"error": f"Missing database or schema name for table '{table_name}'."}
 
-        self.logger.debug(
-            f"Fetching schema for table '{table_name}' in database '{db_name_to_use}' "
-            f"and schema '{schema_name_to_use}' under connection '{connection_name}'"
-        )
+        self.logger.debug(f"Fetching schema for table '{table_name}' in database '{db_name_to_use}' and schema '{schema_name_to_use}' under connection '{connection_name}'")
         table_schema = self.get_table_schema(connection_name, db_name_to_use, schema_name_to_use, table_name)
 
         if "error" in table_schema:
@@ -640,21 +573,23 @@ class DataModel:
         for column in columns:
             column_name = column.get("columnName", "UnknownColumn")
 
-            formatted_columns.append({
-                "id": column_name,
-                "name": column_name,
-                "type": column.get("dbType", 0),
-                "size": column.get("size", 0),
-                "precision": column.get("precision", 0),
-                "scale": column.get("scale", 0),
-                "hidden": False,
-                "indexed": True,
-                "isUpsertBy": False,
-                "description": None,
-                "expression": None,
-                "import": None,
-                "isCustom": None
-            })
+            formatted_columns.append(
+                {
+                    "id": column_name,
+                    "name": column_name,
+                    "type": column.get("dbType", 0),
+                    "size": column.get("size", 0),
+                    "precision": column.get("precision", 0),
+                    "scale": column.get("scale", 0),
+                    "hidden": False,
+                    "indexed": True,
+                    "isUpsertBy": False,
+                    "description": None,
+                    "expression": None,
+                    "import": None,
+                    "isCustom": None,
+                }
+            )
 
         payload = {
             "id": table_name,
@@ -666,7 +601,7 @@ class DataModel:
             "description": description,
             "tags": tags,
             "expression": None,
-            "type": "base"
+            "type": "base",
         }
 
         self.logger.debug(f"Table creation payload: {payload}")
@@ -702,20 +637,9 @@ class DataModel:
                         self.logger.error("Increment mode requires 'column_name' in build_behavior_config.")
                         return {"error": "Missing 'column_id' for increment mode."}
                     if not column_id:
-                        self.logger.error(
-                            f"Couldn't resolve column id matching. Column '{column_name}' "
-                            f"not found in table '{table_name}'."
-                        )
+                        self.logger.error(f"Couldn't resolve column id matching. Column '{column_name}' not found in table '{table_name}'.")
                         return {"error": f"Column '{column_name}' not found in table '{table_name}'"}
-                    build_behavior = {
-                        "type": "accumulativeSync",
-                        "accumulativeConfig": {
-                            "column": column_id,
-                            "type": "lastStored",
-                            "lastDays": None,
-                            "keepOnlyDays": None
-                        }
-                    }
+                    build_behavior = {"type": "accumulativeSync", "accumulativeConfig": {"column": column_id, "type": "lastStored", "lastDays": None, "keepOnlyDays": None}}
                 else:
                     self.logger.warning(f"Unknown build mode '{mode}'. Defaulting to 'replace'.")
                     build_behavior = {"type": "sync", "accumulativeConfig": None}
@@ -728,10 +652,7 @@ class DataModel:
                     self.logger.info(f"Table '{table_name}' build behavior updated successfully.")
                     return patch_response.json()
                 else:
-                    self.logger.error(
-                        f"Failed to update table '{table_name}' build behavior. "
-                        f"Status Code: {patch_response.status_code}, Error: {patch_response.text}"
-                    )
+                    self.logger.error(f"Failed to update table '{table_name}' build behavior. Status Code: {patch_response.status_code}, Error: {patch_response.text}")
                     return {"error": "Failed to update table build behavior"}
 
             return table
@@ -740,8 +661,7 @@ class DataModel:
         self.logger.error(f"Failed to create table '{table_name}' in DataModel '{datamodel_name}'. Error: {error_msg}")
         return {"error": "Failed to create table"}
 
-    def setup_datamodel(self, datamodel_name, datamodel_type, connection_name, database_name, schema_name, tables,
-                        dataset_name=None):
+    def setup_datamodel(self, datamodel_name, datamodel_type, connection_name, database_name, schema_name, tables, dataset_name=None):
         """
         Setup a DataModel using existing connection and by creating a datamodel, dataset, and table.
 
@@ -776,13 +696,7 @@ class DataModel:
 
         # Step 2: Create Dataset
         self.logger.debug(f"Creating dataset in DataModel '{datamodel_name}'")
-        dataset_response = self.create_dataset(
-            datamodel_name=datamodel_name,
-            connection_name=connection_name,
-            database_name=database_name,
-            schema_name=schema_name,
-            dataset_name=dataset_name
-        )
+        dataset_response = self.create_dataset(datamodel_name=datamodel_name, connection_name=connection_name, database_name=database_name, schema_name=schema_name, dataset_name=dataset_name)
         if "error" in dataset_response:
             self.logger.error(f"Failed to create dataset in DataModel '{datamodel_name}'. Aborting setup.")
             return {"error": f"Failed to create dataset in DataModel '{datamodel_name}'."}
@@ -812,7 +726,7 @@ class DataModel:
                 import_query=table.get("import_query"),
                 description=table.get("description", ""),
                 tags=table.get("tags", []),
-                build_behavior_config=table.get("build_behavior_config")
+                build_behavior_config=table.get("build_behavior_config"),
             )
 
             if "error" in table_response:
@@ -824,11 +738,7 @@ class DataModel:
 
         self.logger.info(f"DataModel '{datamodel_name}' setup successfully with tables: {created_tables}")
         self.logger.debug(f"[END] Setup DataModel '{datamodel_name}'")
-        return {
-            "datamodel_id": datamodel_id,
-            "dataset_id": dataset_id,
-            "tables": created_tables
-        }
+        return {"datamodel_id": datamodel_id, "dataset_id": dataset_id, "tables": created_tables}
 
     def deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest"):
         """
@@ -875,18 +785,10 @@ class DataModel:
         # Step 2: Prepare deployment payload based on model type
         if datamodel_type.upper() == "EXTRACT":
             self.logger.debug(f"Preparing Elasticube build for '{datamodel_name}'")
-            payload = {
-                "datamodelId": datamodel_id,
-                "buildType": build_type,
-                "rowLimit": row_limit,
-                "schemaOrigin": schema_origin
-            }
+            payload = {"datamodelId": datamodel_id, "buildType": build_type, "rowLimit": row_limit, "schemaOrigin": schema_origin}
         elif datamodel_type.upper() == "LIVE":
             self.logger.debug(f"Preparing Live model publish for '{datamodel_name}'")
-            payload = {
-                "datamodelId": datamodel_id,
-                "buildType": "publish"
-            }
+            payload = {"datamodelId": datamodel_id, "buildType": "publish"}
         else:
             self.logger.error(f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'.")
             return {"error": f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'."}
@@ -927,10 +829,7 @@ class DataModel:
         datamodel_name = datamodel.get("title")
 
         # Step 3: Resolve last build/publish time
-        if datamodel_type.upper() == "EXTRACT":
-            last_build_publish = datamodel.get("lastBuildTime")
-        else:
-            last_build_publish = datamodel.get("lastPublishTime")
+        last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
 
         # Step 4: Resolve Dataset and Connections
         datasets = datamodel.get("datasets", [])
@@ -956,18 +855,9 @@ class DataModel:
                 self.logger.debug(table)
                 table_name = table.get("name", "Unknown Table")
                 table_type = dataset.get("type", "Unknown Type")
-                table_info.append({
-                    "table_name": table_name,
-                    "table_type": table_type
-                })
+                table_info.append({"table_name": table_name, "table_type": table_type})
 
-            dataset_info.append({
-                "dataset_id": dataset_id,
-                "dataset_name": dataset_name,
-                "provider": provider,
-                "connection_name": connection_name,
-                "tables": table_info
-            })
+            dataset_info.append({"dataset_id": dataset_id, "dataset_name": dataset_name, "provider": provider, "connection_name": connection_name, "tables": table_info})
 
         self.logger.debug(f"Resolved datasets: {dataset_info}")
         self.logger.info(f"Total datasets resolved: {len(dataset_info)}")
@@ -1007,10 +897,7 @@ class DataModel:
         datamodel_name = datamodel.get("title")
 
         # Step 2: Resolve last build/publish time
-        if datamodel_type.upper() == "EXTRACT":
-            last_build_publish = datamodel.get("lastBuildTime")
-        else:
-            last_build_publish = datamodel.get("lastPublishTime")
+        last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
 
         last_updated = datamodel.get("lastUpdated", "")
 
@@ -1040,7 +927,7 @@ class DataModel:
                     "provider": provider,
                     "connection_name": connection_name,
                     "table_name": table.get("name", "Unknown Table"),
-                    "table_type": dataset.get("type", "Unknown Type")
+                    "table_type": dataset.get("type", "Unknown Type"),
                 }
                 rows.append(row)
 
@@ -1069,7 +956,7 @@ class DataModel:
 
         # Step 2: Fetch all users
         self.logger.debug("Fetching all users for share resolution.")
-        users_response = self.api_client.get('/api/v1/users')
+        users_response = self.api_client.get("/api/v1/users")
         users_detail = []
         if users_response and users_response.status_code == 200:
             users_data = users_response.json()
@@ -1079,7 +966,7 @@ class DataModel:
 
         # Step 3: Fetch all groups
         self.logger.debug("Fetching all groups for share resolution.")
-        groups_response = self.api_client.get('/api/v1/groups')
+        groups_response = self.api_client.get("/api/v1/groups")
         groups_detail = []
         if groups_response and groups_response.status_code == 200:
             groups_data = groups_response.json()
@@ -1106,13 +993,7 @@ class DataModel:
                 group = next((g for g in groups_detail if g["id"] == party_id), None)
                 name = group["name"] if group else f"[Unknown group: {party_id}]"
 
-            resolved_shares.append({
-                "datamodel_name": datamodel_name,
-                "datamodel_id": datamodel_id,
-                "party_name": name,
-                "party_type": party_type,
-                "permission": permission
-            })
+            resolved_shares.append({"datamodel_name": datamodel_name, "datamodel_id": datamodel_id, "party_name": name, "party_type": party_type, "permission": permission})
 
         self.logger.info(f"Resolved {len(resolved_shares)} share entries for DataModel '{datamodel_name}'")
         return resolved_shares
@@ -1151,12 +1032,7 @@ class DataModel:
         datasecurity_response = self.api_client.get(url)
         if not datasecurity_response or datasecurity_response.status_code != 200:
             self.logger.warning(f"Could not fetch datasecurity for DataModel '{datamodel_name}'.")
-            return [{
-                "datamodel_name": datamodel_name,
-                "table_name": "",
-                "column_name": "",
-                "data_type": ""
-            }]
+            return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
 
         datasecurity_data = datasecurity_response.json()
         self.logger.debug(f"Datasecurity data: {datasecurity_data}")
@@ -1172,22 +1048,12 @@ class DataModel:
 
             key = (table_name, column_name)
             if key not in seen:
-                datasecurity_info.append({
-                    "datamodel_name": datamodel_name,
-                    "table_name": table_name,
-                    "column_name": column_name,
-                    "data_type": data_type
-                })
+                datasecurity_info.append({"datamodel_name": datamodel_name, "table_name": table_name, "column_name": column_name, "data_type": data_type})
                 seen.add(key)
 
         if not datasecurity_info:
             self.logger.info(f"No datasecurity rules found for DataModel '{datamodel_name}'")
-            return [{
-                "datamodel_name": datamodel_name,
-                "table_name": "",
-                "column_name": "",
-                "data_type": ""
-            }]
+            return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
 
         self.logger.info(f"Resolved {len(datasecurity_info)} datasecurity entries for DataModel '{datamodel_name}'")
         return datasecurity_info
@@ -1231,17 +1097,9 @@ class DataModel:
         datasecurity_response = self.api_client.get(url)
         if not datasecurity_response or datasecurity_response.status_code != 200:
             self.logger.warning(f"Could not fetch datasecurity for DataModel '{datamodel_name}'.")
-            return [{
-                "datamodel_name": datamodel_name,
-                "table_name": "",
-                "column_name": "",
-                "data_type": "",
-                "value": "",
-                "exclusionary": "",
-                "share_type": "",
-                "share_name": "",
-                "rule_description": ""
-            }]
+            return [
+                {"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": "", "value": "", "exclusionary": "", "share_type": "", "share_name": "", "rule_description": ""}
+            ]
 
         datasecurity_data = datasecurity_response.json()
         self.logger.debug(f"Datasecurity data: {datasecurity_data}")
@@ -1251,17 +1109,9 @@ class DataModel:
 
         if not datasecurity_data:
             self.logger.info(f"No datasecurity rules found for DataModel '{datamodel_name}'. Returning default row.")
-            return [{
-                "datamodel_name": datamodel_name,
-                "table_name": "",
-                "column_name": "",
-                "data_type": "",
-                "value": "",
-                "exclusionary": "",
-                "share_type": "",
-                "share_name": "",
-                "rule_description": ""
-            }]
+            return [
+                {"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": "", "value": "", "exclusionary": "", "share_type": "", "share_name": "", "rule_description": ""}
+            ]
 
         for rule in datasecurity_data:
             table_name = rule.get("table", "Unknown Table")
@@ -1296,17 +1146,19 @@ class DataModel:
 
             if not shares:
                 self.logger.warning(f"No shares found for datasecurity rule: {rule}")
-                detailed_rows.append({
-                    "datamodel_name": datamodel_name,
-                    "table_name": table_name,
-                    "column_name": column_name,
-                    "data_type": data_type,
-                    "value": value,
-                    "exclusionary": exclusionary,
-                    "share_type": "None",
-                    "share_name": "None",
-                    "rule_description": rule_description
-                })
+                detailed_rows.append(
+                    {
+                        "datamodel_name": datamodel_name,
+                        "table_name": table_name,
+                        "column_name": column_name,
+                        "data_type": data_type,
+                        "value": value,
+                        "exclusionary": exclusionary,
+                        "share_type": "None",
+                        "share_name": "None",
+                        "rule_description": rule_description,
+                    }
+                )
             else:
                 for share in shares:
                     share_type = share.get("type", "Unknown Type")
@@ -1316,22 +1168,22 @@ class DataModel:
                         share_type = "Everyone"
                         share_name = "Everyone"
 
-                    detailed_rows.append({
-                        "datamodel_name": datamodel_name,
-                        "table_name": table_name,
-                        "column_name": column_name,
-                        "data_type": data_type,
-                        "value": value,
-                        "exclusionary": exclusionary,
-                        "share_type": share_type,
-                        "share_name": share_name,
-                        "rule_description": rule_description
-                    })
+                    detailed_rows.append(
+                        {
+                            "datamodel_name": datamodel_name,
+                            "table_name": table_name,
+                            "column_name": column_name,
+                            "data_type": data_type,
+                            "value": value,
+                            "exclusionary": exclusionary,
+                            "share_type": share_type,
+                            "share_name": share_name,
+                            "rule_description": rule_description,
+                        }
+                    )
 
         detailed_rows.sort(key=lambda x: (x["table_name"], x["column_name"]))
-        self.logger.info(
-            f"Resolved {len(detailed_rows)} datasecurity share-level entries for DataModel '{datamodel_name}'"
-        )
+        self.logger.info(f"Resolved {len(detailed_rows)} datasecurity share-level entries for DataModel '{datamodel_name}'")
 
         return detailed_rows
 
@@ -1431,7 +1283,7 @@ class DataModel:
 
         # Step 3: Fetch users
         self.logger.debug("Fetching all users for share resolution.")
-        users_response = self.api_client.get('/api/v1/users')
+        users_response = self.api_client.get("/api/v1/users")
         users_detail = []
         if users_response and users_response.status_code == 200:
             users_data = users_response.json()
@@ -1441,7 +1293,7 @@ class DataModel:
 
         # Step 4: Fetch groups
         self.logger.debug("Fetching all groups for share resolution.")
-        groups_response = self.api_client.get('/api/v1/groups')
+        groups_response = self.api_client.get("/api/v1/groups")
         groups_detail = []
         if groups_response and groups_response.status_code == 200:
             groups_data = groups_response.json()
@@ -1462,21 +1314,13 @@ class DataModel:
             if share_type == "user":
                 user = next((u for u in users_detail if u["email"] == name), None)
                 if user:
-                    new_shares.append({
-                        "partyId": user["id"],
-                        "type": "user",
-                        "permission": permission_short
-                    })
+                    new_shares.append({"partyId": user["id"], "type": "user", "permission": permission_short})
                 else:
                     self.logger.warning(f"User '{name}' not found. Skipping share addition.")
             elif share_type == "group":
                 group = next((g for g in groups_detail if g["name"] == name), None)
                 if group:
-                    new_shares.append({
-                        "partyId": group["id"],
-                        "type": "group",
-                        "permission": permission_short
-                    })
+                    new_shares.append({"partyId": group["id"], "type": "group", "permission": permission_short})
                 else:
                     self.logger.warning(f"Group '{name}' not found. Skipping share addition.")
             else:
@@ -1545,17 +1389,14 @@ class DataModel:
                 return []
 
             # Convert to list of dicts
-            rows = [dict(zip(headers, row)) for row in values]
+            rows = [dict(zip(headers, row, strict=False)) for row in values]
 
             self.logger.info(f"Retrieved {len(rows)} rows from DataModel '{datamodel_name}', Table '{table_name}'")
             return rows
 
         else:
             error_text = response.text if response else "No response from API."
-            self.logger.error(
-                f"Failed to retrieve data from DataModel '{datamodel_name}', "
-                f"Table '{table_name}'. Error: {error_text}"
-            )
+            self.logger.error(f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'. Error: {error_text}")
             return []
 
     def get_row_count(self, datamodel_name):
@@ -1612,13 +1453,10 @@ class DataModel:
 
         # Step 3: Add total row count as a final row
         row_info.append({"table_name": "total_row_count", "row_count": total_row_count})
-        self.logger.info(
-            f"Completed row count collection for DataModel '{datamodel_name}'. "
-            f"Total rows: {total_row_count}"
-        )
+        self.logger.info(f"Completed row count collection for DataModel '{datamodel_name}'. Total rows: {total_row_count}")
         return row_info
 
-    def resolve_datamodel_reference(self, datamodel_ref: str) -> Dict[str, Any]:
+    def resolve_datamodel_reference(self, datamodel_ref: str) -> dict[str, Any]:
         """
         Resolve a data model reference (ID or title) to a concrete data model ID and title.
 
@@ -1661,7 +1499,7 @@ class DataModel:
 
         if id_response is not None and id_response.status_code == 200:
             try:
-                payload: Dict[str, Any] = id_response.json()
+                payload: dict[str, Any] = id_response.json()
                 datamodel_id = payload.get("oid")
                 datamodel_title = payload.get("title")
 
@@ -1701,9 +1539,7 @@ class DataModel:
         title_response = self.api_client.get(title_endpoint, params=title_params)
 
         if title_response is None:
-            error_msg = (
-                "No response received while resolving data model by title."
-            )
+            error_msg = "No response received while resolving data model by title."
             self.logger.error(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref},
@@ -1721,10 +1557,7 @@ class DataModel:
                 error_body = title_response.json()
             except Exception:
                 error_body = getattr(title_response, "text", "No response text")
-            error_msg = (
-                "Failed to resolve data model by title. "
-                f"Status: {title_response.status_code}, Error: {error_body}"
-            )
+            error_msg = f"Failed to resolve data model by title. Status: {title_response.status_code}, Error: {error_body}"
             self.logger.error(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref},
@@ -1740,9 +1573,7 @@ class DataModel:
         try:
             payload = title_response.json()
         except Exception as exc:
-            error_msg = (
-                "Failed to parse data model JSON when resolving by title."
-            )
+            error_msg = "Failed to parse data model JSON when resolving by title."
             self.logger.exception(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref, "error": str(exc)},
@@ -1756,7 +1587,7 @@ class DataModel:
             }
 
         # The API might return a single object or a list; handle both.
-        candidates: List[Dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
         if isinstance(payload, list):
             candidates = payload
         elif isinstance(payload, dict):
@@ -1789,9 +1620,7 @@ class DataModel:
         datamodel_title = chosen.get("title")
 
         if not datamodel_id:
-            error_msg = (
-                "Resolved data model payload is missing 'oid' field."
-            )
+            error_msg = "Resolved data model payload is missing 'oid' field."
             self.logger.error(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref, "payload": chosen},
