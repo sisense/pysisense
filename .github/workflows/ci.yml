@@ -22,7 +22,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --all-extras
 
       - name: Run Ruff
         run: ruff check .
@@ -44,7 +44,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --all-extras
 
       - name: Run tests
         run: python -m pytest tests/unit/
