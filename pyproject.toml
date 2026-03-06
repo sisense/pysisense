@@ -106,3 +106,8 @@ upload_to_pypi = false
 upload_to_release = true
 commit_message = "chore(release): {version}"
 tag_format = "v{version}"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]

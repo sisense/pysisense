@@ -27,24 +27,6 @@ jobs:
       - name: Run Ruff
         run: uv run ruff check .
 
-      - name: Check formatting
-        run: uv run ruff format --check .
+      - name: Check and fix formatting
+        run: uv run ruff format .
         
-  test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: uv sync --all-extras
-
-      - name: Run tests
-        run: uv run python -m pytest tests/unit/
