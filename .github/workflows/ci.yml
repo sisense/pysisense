@@ -25,10 +25,10 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run Ruff
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Check formatting
-        run: ruff format --check .
+        run: uv run ruff format --check .
         
   test:
     runs-on: ubuntu-latest
@@ -47,4 +47,4 @@ jobs:
         run: uv sync --all-extras
 
       - name: Run tests
-        run: python -m pytest tests/unit/
+        run: uv run python -m pytest tests/unit/
