@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, dict
 
 from .datamodel import DataModel
 from .sisenseclient import SisenseClient
@@ -510,7 +510,7 @@ class AccessManagement:
             self.logger.error(f"Failed to create user. Error: {error_message}")
             return {"error": error_message}
 
-    def update_user(self, user_email: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
+    def update_user(self, user_email: str, user_data: dict[str, Any]) -> dict[str, Any]:
         """
         Update an existing Sisense user identified by their email address.
 
@@ -538,8 +538,6 @@ class AccessManagement:
             - role : str
                 Role name (e.g., "viewer", "designer"). This is resolved to ``roleId`` before
                 sending the API request.
-            - roleId : str
-                Role ID to apply directly (if provided, no role-name resolution is performed).
             - groups : list[str]
                 List of group names to apply. Group names are resolved to group IDs before
                 sending the API request. If ``groups`` is explicitly provided as an empty
@@ -550,41 +548,18 @@ class AccessManagement:
         dict[str, Any]
             The updated user payload when successful. If the operation fails, returns a
             dictionary with an ``error`` key.
-
-        Examples
-        --------
-        Update username and first name::
-
-            access_mgmt.update_user(
-                user_email="b@test.com",
-                user_data={"userName": "newb@test.com", "firstName": "Mikey"}
-            )
-
-        Update email::
-
-            access_mgmt.update_user(
-                user_email="b@test.com",
-                user_data={"email": "newb@test.com"}
-            )
-
-        Update role by name::
-
-            access_mgmt.update_user(
-                user_email="b@test.com",
-                user_data={"role": "designer"}
-            )
         """
         self.logger.debug("Updating user with email: %s", user_email)
 
-        # Reuse the get_user method to fetch user details (email-based lookup)
         user = self.get_user(user_email)
-
         if not user:
             self.logger.error("User with email '%s' not found.", user_email)
             return {"error": f"User with email '{user_email}' not found."}
 
-        # Custom role mapping
-        role_alias_mapping = {"VIEWER": "CONSUMER", "DESIGNER": "CONTRIBUTOR"}
+        role_alias_mapping = {
+            "VIEWER": "CONSUMER",
+            "DESIGNER": "CONTRIBUTOR",
+        }
 
         # Step 1: Resolve role if provided
         if "role" in user_data:
@@ -592,25 +567,22 @@ class AccessManagement:
             mapped_role = role_alias_mapping.get(user_role, user_role)
 
             role_response = self.api_client.get("/api/roles")
-            role_response = self.api_client.get("/api/roles")
             if not role_response or not role_response.ok:
                 status = role_response.status_code if role_response else "No response"
-
                 self.logger.error(
                     "Failed to fetch roles from API. Status Code: %s",
                     status,
                 )
                 return {"error": "Failed to fetch roles from API."}
 
-            roles_mapping = [{"id": role["_id"], "name": role["name"].upper()} for role in role_response.json()]
-            self.logger.debug(f"Roles mapping: {roles_mapping}")
+            roles_mapping = [{"id": role["_id"], "name": str(role["name"]).upper()} for role in role_response.json()]
+            self.logger.debug("Roles mapping: %s", roles_mapping)
 
             for role in roles_mapping:
                 if role["name"] == mapped_role:
                     user_data["roleId"] = role["id"]
                     break
             else:
-                error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
                 error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
                 self.logger.error(error_msg)
                 return {"error": error_msg}
@@ -627,44 +599,45 @@ class AccessManagement:
             else:
                 normalized_group_names = [str(g).upper() for g in group_names]
 
-            group_response = self.api_client.get("/api/v1/groups")
-            if not group_response or not group_response.ok:
-                status = group_response.status_code if group_response else "No response"
-                self.logger.error(
-                    "Failed to fetch groups from API. Status Code: %s",
-                    status,
-                )
-                return {"error": "Failed to fetch groups from API."}
+                group_response = self.api_client.get("/api/v1/groups")
+                if not group_response or not group_response.ok:
+                    status = group_response.status_code if group_response else "No response"
+                    self.logger.error(
+                        "Failed to fetch groups from API. Status Code: %s",
+                        status,
+                    )
+                    return {"error": "Failed to fetch groups from API."}
 
-            groups_mapping = [{"id": group["_id"], "name": group["name"].upper()} for group in group_response.json()]
-            self.logger.debug(f"Groups mapping: {groups_mapping}")
+                groups_mapping = [{"id": group["_id"], "name": str(group["name"]).upper()} for group in group_response.json()]
+                self.logger.debug("Groups mapping: %s", groups_mapping)
 
-            updated_groups = []
-            for group_name in user_data["groups"]:
-                for group in groups_mapping:
-                    if group["name"] == group_name:
-                        updated_groups.append(group["id"])
-                        break
-                else:
-                    error_msg = f"Group '{group_name}' not found in groups_mapping"
-                    self.logger.error(error_msg)
-                    return {"error": error_msg}
+                updated_groups = []
+                for group_name in normalized_group_names:
+                    for group in groups_mapping:
+                        if group["name"] == group_name:
+                            updated_groups.append(group["id"])
+                            break
+                    else:
+                        error_msg = f"Group '{group_name}' not found in groups_mapping"
+                        self.logger.error(error_msg)
+                        return {"error": error_msg}
 
                 user_data["groups"] = updated_groups
-        # No else here on purpose: if groups isn't provided, do not touch it.
 
-        # Step 3: Send the PATCH request to update the user
-        self.logger.debug(f"Final updated user data for API call: {user_data}")
-        response = self.api_client.patch(f"/api/v1/users/{user['USER_ID']}", data=user_data)
+        self.logger.debug("Final updated user data for API call: %s", user_data)
+        response = self.api_client.patch(
+            f"/api/v1/users/{user['USER_ID']}",
+            data=user_data,
+        )
 
         if response and response.ok:
             response_data = response.json()
             self.logger.info("User updated successfully: %s", response_data)
             return response_data
-        else:
-            error_message = response.json().get("error", "Unknown error") if response else "No response received"
-            self.logger.error(f"Failed to update user. Error: {error_message}")
-            return {"error": error_message}
+
+        error_message = response.json().get("error", "Unknown error") if response else "No response received"
+        self.logger.error("Failed to update user. Error: %s", error_message)
+        return {"error": error_message}
 
     def delete_user(self, user_name):
         """
