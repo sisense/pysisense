@@ -1,0 +1,66 @@
+---
+description: Coding conventions for pysisense Python modules
+globs: pysisense/**/*.py
+alwaysApply: false
+---
+
+# pysisense Coding Conventions
+
+## Shared `api_client` injection
+
+Every class accepts an optional `api_client` parameter. If not supplied, create a `SisenseClient` internally. This allows all classes to share the same HTTP session and logger.
+
+```python
+def __init__(self, api_client=None):
+    self.api_client = api_client or SisenseClient()
+    self.logger = self.api_client.logger
+```
+
+## Error handling — return dicts, don't raise
+
+Methods return `{"error": "..."}` dicts on failure and log with `logger.error(...)`. Do not raise exceptions from public methods.
+
+```python
+# ✅ GOOD
+response = self.api_client.get(url)
+if "error" in response:
+    self.logger.error(f"Failed to get dashboard: {response['error']}")
+    return {"error": response["error"]}
+
+# ❌ BAD
+raise ValueError("Dashboard not found")
+```
+
+## Smart reference resolvers
+
+Methods that accept a dashboard or data model reference should handle either a 24-char ID or a title string:
+
+```python
+ref = self.resolve_dashboard_reference(dashboard)
+dashboard_id = ref["dashboard_id"]
+dashboard_title = ref["dashboard_title"]
+```
+
+## Input normalization
+
+Methods accepting `list[str]` should also tolerate a bare `str`:
+
+```python
+if isinstance(dashboards, str):
+    dashboards = [dashboards]
+```
+
+## Role name mapping
+
+Sisense internal names → user-facing names:
+- `consumer` → `viewer`
+- `super` → `sysAdmin`
+- `contributor` → `dashboardDesigner`
+
+## SSL
+
+SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845`.
+
+## Logging
+
+Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`.

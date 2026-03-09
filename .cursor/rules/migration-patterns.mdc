@@ -1,0 +1,45 @@
+---
+description: Patterns for working with the Migration module — cross-environment migrations
+globs: pysisense/migration.py
+alwaysApply: false
+---
+
+# Migration Module Patterns
+
+## Two initialization modes
+
+The `Migration` class supports two ways to connect to source and target environments:
+
+```python
+# YAML config files
+m = Migration(source_yaml="source.yaml", target_yaml="target.yaml", debug=False)
+
+# Agent-friendly: pass SisenseClient instances directly
+m = Migration(source_client=src, target_client=tgt)
+```
+
+## Progress reporting via `_emit`
+
+Use the `_emit(message)` callback for progress reporting. Set it at init or as an attribute. Defaults to `print`.
+
+```python
+m = Migration(source_client=src, target_client=tgt)
+m._emit = my_progress_callback
+```
+
+## Migration order matters
+
+Dependencies must be migrated before the objects that reference them:
+1. Groups first
+2. Users (reference groups)
+3. Data models (referenced by dashboards)
+4. Dashboards last (reference users, groups, data models)
+
+## YAML config format
+
+```yaml
+# source.yaml / target.yaml
+domain: your-sisense-instance.com
+token: your-api-token
+is_ssl: true
+```
