@@ -24,17 +24,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-extras
 
-      - name: Run Ruff
+      - name: Ruff lint
         run: uv run ruff check .
 
-      - name: Check and fix formatting
-        run: uv run ruff format .
-
-      - name: Commit and push formatting fixes
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add -A
-          git commit -m "chore: auto-format with ruff" || echo "No formatting changes"
-          git push
-        
+      - name: Ruff format check
+        run: uv run ruff format --check .
