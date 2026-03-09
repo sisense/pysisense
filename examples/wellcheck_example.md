@@ -201,7 +201,6 @@ print(df)
 Run the full suite of WellCheck checks for dashboards and data models, and then parse individual sections from the nested report.
 
 ```python
-import json
 
 dashboards = [
     "6893741265c9f5484dc999d7",   # dashboard ID
@@ -231,28 +230,28 @@ print(json.dumps(report, indent=2))
 structure_rows = report.get("dashboards", {}).get("structure", [])
 if structure_rows:
     df_structure = api_client.to_dataframe(structure_rows)
-    print("
-Dashboard structure:")
-    print(df_structure)
-    api_client.export_to_csv(structure_rows, file_name="dashboard_structure_report.csv")
+file_name = os.path.join(result_path, "dashboard_structure_report.csv")
+api_client.export_to_csv(structure_rows, file_name="dashboard_structure_report.csv")
+print("\nDashboard structure summary:")
+print(df_structure)
 
 # 2) Widget counts per dashboard
 widget_count_rows = report.get("dashboards", {}).get("widget_counts", [])
 if widget_count_rows:
     df_widget_counts = api_client.to_dataframe(widget_count_rows)
-    print("
-Widget counts per dashboard:")
-    print(df_widget_counts)
-    api_client.export_to_csv(widget_count_rows, file_name="widget_counts_report.csv")
+file_name = os.path.join(result_path, "widget_counts_report.csv")
+api_client.export_to_csv(widget_count_rows, file_name=file_name)
+print("\nWidget counts per dashboard:")
+print(df_widget_counts)
 
 # 3) Pivot widgets with many fields
 pivot_field_rows = report.get("dashboards", {}).get("pivot_widget_fields", [])
 if pivot_field_rows:
     df_pivot_fields = api_client.to_dataframe(pivot_field_rows)
-    print("
-Pivot widgets with more than 20 fields:")
-    print(df_pivot_fields)
-    api_client.export_to_csv(pivot_field_rows, file_name="pivot_widgets_report.csv")
+file_name = os.path.join(result_path, "pivot_widgets_report.csv")
+api_client.export_to_csv(pivot_field_rows, file_name=file_name)
+print("\nPivot widgets with many fields:")
+print(df_pivot_fields)
 
 # --------------------------------------------------------------
 # Parsing individual checks (data models)
@@ -264,55 +263,57 @@ datamodel_section = report.get("datamodels", {})
 custom_table_rows = datamodel_section.get("custom_tables", [])
 if custom_table_rows:
     df_custom_tables = api_client.to_dataframe(custom_table_rows)
-    print("
-Custom tables (with/without UNION):")
-    print(df_custom_tables)
-    api_client.export_to_csv(custom_table_rows, file_name="custom_tables_report.csv")
+file_name = os.path.join(result_path, "custom_tables_report.csv")
+api_client.export_to_csv(custom_table_rows, file_name=file_name)
+print("\nCustom tables and UNION usage:")
+print(df_custom_tables)
 
 # 5) Island tables (no relationships)
 island_table_rows = datamodel_section.get("island_tables", [])
 if island_table_rows:
     df_island_tables = api_client.to_dataframe(island_table_rows)
-    print("
-Island tables (no relations):")
-    print(df_island_tables)
-    api_client.export_to_csv(island_table_rows, file_name="island_tables_report.csv")
+file_name = os.path.join(result_path, "island_tables_report.csv")
+api_client.export_to_csv(island_table_rows, file_name=file_name)
+print("\nIsland tables (no relations):")
+print(df_island_tables)
 
 # 6) RLS datatypes
 rls_rows = datamodel_section.get("rls_datatypes", [])
 if rls_rows:
     df_rls = api_client.to_dataframe(rls_rows)
-    print("
-RLS columns and datatypes:")
-    print(df_rls)
-    api_client.export_to_csv(rls_rows, file_name="rls_datatypes_report.csv")
+file_name = os.path.join(result_path, "rls_datatypes_report.csv")
+api_client.export_to_csv(rls_rows, file_name=file_name)
+print("\nRLS columns and datatypes:")
+print(df_rls)
 
 # 7) Import queries on tables
 import_query_rows = datamodel_section.get("import_queries", [])
 if import_query_rows:
     df_import_queries = api_client.to_dataframe(import_query_rows)
-    print("
-Tables with import queries:")
-    print(df_import_queries)
-    api_client.export_to_csv(import_query_rows, file_name="import_queries_report.csv")
+file_name = os.path.join(result_path, "import_queries_report.csv")
+api_client.export_to_csv(import_query_rows, file_name=file_name)
+print("\nTables with import queries:")
+print(df_import_queries)
 
 # 8) Many-to-many relationships
 m2m_rows = datamodel_section.get("m2m_relationships", [])
 if m2m_rows:
     df_m2m = api_client.to_dataframe(m2m_rows)
-    print("
-Many-to-many relationships:")
-    print(df_m2m)
-    api_client.export_to_csv(m2m_rows, file_name="m2m_relationships_report.csv")
+file_name = os.path.join(result_path, "m2m_relationships_report.csv")
+api_client.export_to_csv(m2m_rows, file_name=file_name)
+print("\nMany-to-many relationships:")
+print(df_m2m)
 
 # 9) Unused columns across all data models
 unused_column_rows = datamodel_section.get("unused_columns", [])
 if unused_column_rows:
     df_unused = api_client.to_dataframe(unused_column_rows)
-    print("
-Unused columns across all data models:")
-    print(df_unused)
-    api_client.export_to_csv(unused_column_rows, file_name="unused_columns_report.csv")
+file_name = os.path.join(result_path, "unused_columns_report.csv")
+api_client.export_to_csv(unused_column_rows, file_name=file_name)
+print("\nUnused columns across all data models:")
+print(df_unused)
+
+print(f"\nAll reports have been saved to: {result_path}")
 ```
 
 ---

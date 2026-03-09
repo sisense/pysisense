@@ -18,13 +18,13 @@ Initializes the AccessManagement class.
 
 * * * * *
 
-### `get_user(self, user_name)`
+### `get_user(self, user_email)`
 
-Retrieves user details by their email (username) and expands the response to include group and role information.
+Retrieves user details by email address and expands the response to include group and role information.
 
 **Parameters:**
 
--   `user_name` (str): The email or username of the user to be retrieved.
+-   `user_email` (str): Email address of the user to be retrieved.
 
 **Returns:**
 
@@ -136,19 +136,19 @@ Creates a new user by converting group and role names into IDs.
 
 * * * * *
 
-### `update_user(self, user_name, user_data)`
+### `update_user(self, user_email, user_data)`
 
-Updates a user's attributes by username.
+Updates a user’s attributes by email address (email-based lookup via get_user). All update fields must be provided inside user_data.
 
 **Parameters:**
 
--   `user_name` (str): Username or email.
+-   `user_name` (str): Email address of the user to update (used to find the user).
 
--   `user_data` (dict): Fields to update (e.g., groups, role).
+-   `user_data` (dict): Fields to update as a dictionary (for example: firstName, lastName, email, userName, role, groups).
 
 **Returns:**
 
--   `dict`: API response or error message.
+-   `dict`: API response or a dictionary with an error key if the operation fails.
 
 * * * * *
 
