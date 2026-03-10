@@ -1,0 +1,60 @@
+---
+description: Pydantic v2 patterns for structured payload validation in pysisense
+globs: pysisense/**/*.py
+alwaysApply: false
+---
+
+# Pydantic Patterns
+
+Use Pydantic for structured payload validation whenever a method accepts a request body — especially for create, update/patch, and migration operations where invalid payloads can cause unintended changes.
+
+## When to use Pydantic
+
+- `create` / `update` / `patch` operations
+- Migration operations (cross-environment payloads)
+- Any operation where an invalid or partial payload can silently corrupt state
+
+## Model style — Pydantic v2
+
+```python
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Any
+
+class UpdateUserPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    user_name: str | None = Field(None, alias="userName")
+    email: str | None = None
+    first_name: str | None = Field(None, alias="firstName")
+    last_name: str | None = Field(None, alias="lastName")
+    role: str | None = None
+    groups: list[str] | None = None
+```
+
+## Key rules
+
+**Forbid unknown fields** on update models — use `extra="forbid"` unless explicitly instructed otherwise. This surfaces typos and wrong field names immediately.
+
+**Safe aliases** — support common variants while always emitting canonical API keys:
+- `username` / `user_name` → `userName`
+- `firstname` / `first_name` → `firstName`
+
+**Normalize types** — ensure fields like `groups` are always a list when applicable:
+```python
+@model_validator(mode="before")
+@classmethod
+def normalize_groups(cls, values: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(values.get("groups"), str):
+        values["groups"] = [values["groups"]]
+    return values
+```
+
+## PATCH payloads — dump only set fields
+
+When building a PATCH body, exclude fields that were not explicitly provided to avoid overwriting existing state:
+
+```python
+payload = user_model.model_dump(by_alias=True, exclude_unset=True, exclude_none=True)
+```
+
+Never inject defaults into a PATCH payload. If the caller didn't set a field, it must not appear in the request body.
