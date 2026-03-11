@@ -1,6 +1,9 @@
 import json
 import re
+from pathlib import Path
 from typing import Any
+
+import jsbeautifier as beautifier
 
 from .access_management import AccessManagement
 from .sisenseclient import SisenseClient
@@ -844,3 +847,219 @@ class Dashboard:
             "dashboard_title": None,
             "error": error_msg,
         }
+
+    # Configs for extract script method
+    _DASHBOARD_SCRIPT_TEMPLATE = """\
+    /*
+    Welcome to your Dashboard's Script.
+
+    To learn how you can access the Widget and Dashboard objects, see the online documentation at https://sisense.dev/guides/js/extensions
+    */"""
+
+    _WIDGET_TEMPLATE_REGEX = r"/\*.*?see the online documentation at.*?\*/"
+
+    _JS_INDENT_SIZE = 4
+
+    def extract_scripts(
+        self,
+        dashboard: str,
+        output_dir: str | Path | None = None,
+    ) -> list[dict[str, Any]]:
+        """Extract and save JavaScript scripts from a Sisense dashboard via the API.
+
+        Fetches the full dashboard export from Sisense, pulls the dashboard-level
+        ``script`` field and every widget-level ``script`` field, removes default
+        Sisense template boilerplate, beautifies the code with a 4-space indent,
+        and writes each script to a structured output directory.
+
+        Output layout::
+
+            <output_dir>/<title>_<oid>/dashboard_script_1.js
+            <output_dir>/<title>_<oid>/widgets/<widget_oid>_WidgetScript.js
+
+        A JS footer comment is appended to every file with the dashboard's
+        ``lastOpened`` timestamp and the Sisense URL path for that dashboard or
+        widget.
+
+        Parameters
+        ----------
+        dashboard : str
+            Dashboard reference: either a 24-character dashboard ID or a
+            dashboard title. Resolved automatically via
+            :meth:`resolve_dashboard_reference`.
+        output_dir : str or Path, optional
+            Root directory where output folders are created. Defaults to
+            a ``results/`` folder inside the current working directory
+            (i.e. wherever the calling script is run from).
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            One entry per written file. Each entry contains:
+
+            - ``type`` (``"dashboard"`` or ``"widget"``): script source
+            - ``oid``: dashboard OID
+            - ``title``: dashboard title
+            - ``widget_oid``: widget OID (``"widget"`` entries only)
+            - ``widget_type``: Sisense widget type (``"widget"`` entries only)
+            - ``path``: absolute path of the written ``.js`` file as a string
+
+            Returns ``[{"error": "..."}]`` on failure.
+        """
+        output_dir = Path(output_dir) if output_dir is not None else Path.cwd() / "results"
+
+        ref = self.resolve_dashboard_reference(dashboard)
+        if not ref["success"]:
+            self.logger.error(f"Could not resolve dashboard reference '{dashboard}': {ref['error']}")
+            return [{"error": ref["error"]}]
+
+        dashboard_id = ref["dashboard_id"]
+        self.logger.debug(f"Fetching full export for dashboard '{dashboard_id}'")
+
+        response = self.api_client.get(f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true")
+        if response is None or response.status_code != 200:
+            error_msg = f"Failed to export dashboard '{dashboard_id}'"
+            self.logger.error(error_msg)
+            return [{"error": error_msg}]
+
+        try:
+            data = response.json()
+        except Exception:
+            error_msg = f"Failed to parse export response for dashboard '{dashboard_id}'"
+            self.logger.error(error_msg)
+            return [{"error": error_msg}]
+
+        if not data or not isinstance(data, list):
+            error_msg = f"Unexpected export response structure for dashboard '{dashboard_id}'"
+            self.logger.error(error_msg)
+            return [{"error": error_msg}]
+
+        dashboard_data = data[0]
+        title_safe = dashboard_data.get("title", "dashboard").strip().replace(" ", "_")
+        oid = dashboard_data.get("oid", dashboard_id)
+        dash_output_dir = output_dir / f"{title_safe}_{oid}"
+        dash_output_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.debug(f"Output directory: {dash_output_dir}")
+
+        results: list[dict[str, Any]] = []
+        results.extend(self._extract_dashboard_level_script(dashboard_data, dash_output_dir))
+        results.extend(self._extract_widget_level_scripts(dashboard_data, dash_output_dir))
+
+        self.logger.info(f"Extracted {len(results)} script(s) from dashboard '{oid}'")
+        return results
+
+    def extract_scripts_from_all_dashboards(
+        self,
+        output_dir: str | Path | None = None,
+    ) -> list[dict[str, Any]]:
+        """Extract and save JavaScript scripts from every dashboard in the environment.
+
+        Fetches the full list of dashboards via :meth:`get_all_dashboards` and
+        calls :meth:`extract_scripts` on each one. Dashboards that have no
+        scripts are silently skipped. Output is written under ``output_dir``
+        with one sub-folder per dashboard.
+
+        Parameters
+        ----------
+        output_dir : str or Path, optional
+            Root directory where output folders are created. Defaults to
+            a ``results/`` folder inside the current working directory
+            (i.e. wherever the calling script is run from).
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            Combined list of written-file entries from all processed dashboards.
+            Returns ``[{"error": "..."}]`` if the dashboard list cannot be retrieved.
+        """
+        output_dir = Path(output_dir) if output_dir is not None else Path.cwd() / "results"
+
+        all_dashboards = self.get_all_dashboards()
+        if isinstance(all_dashboards, dict) and "error" in all_dashboards:
+            self.logger.error(f"Failed to retrieve dashboard list: {all_dashboards['error']}")
+            return [{"error": all_dashboards["error"]}]
+
+        self.logger.info(f"Processing scripts for {len(all_dashboards)} dashboard(s)")
+
+        all_results: list[dict[str, Any]] = []
+        for dash in all_dashboards:
+            oid = dash.get("oid")
+            if not oid:
+                continue
+            all_results.extend(self.extract_scripts(oid, output_dir))
+
+        self.logger.info(f"Total scripts extracted: {len(all_results)}")
+        return all_results
+
+    def _beautify_js_code(self, js_code: str) -> str:
+        """Return ``js_code`` formatted with jsbeautifier using a 4-space indent."""
+        opts = beautifier.default_options()
+        opts.indent_size = self._JS_INDENT_SIZE
+        return beautifier.beautify(js_code, opts)
+
+    def _write_script_file(self, js_code: str, output_path: Path, footer_comment: str) -> dict[str, Any]:
+        """Beautify ``js_code``, append ``footer_comment``, and write to ``output_path``."""
+        try:
+            content = self._beautify_js_code(js_code) + "\n\n" + footer_comment
+            output_path.write_text(content, encoding="utf-8")
+            self.logger.debug(f"Wrote script: {output_path}")
+            return {"path": str(output_path)}
+        except OSError as exc:
+            error_msg = f"Failed to write '{output_path}': {exc}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+    def _extract_dashboard_level_script(self, dashboard: dict[str, Any], output_dir: Path) -> list[dict[str, Any]]:
+        """Extract, clean, and write the dashboard-level script if present and non-empty."""
+        script = dashboard.get("script")
+        if not isinstance(script, str):
+            return []
+
+        cleaned = script.replace(self._DASHBOARD_SCRIPT_TEMPLATE, "").strip()
+        if not cleaned:
+            return []
+
+        oid = dashboard.get("oid", "unknown")
+        title = dashboard.get("title", "unknown")
+        last_opened = dashboard.get("lastOpened", "unknown")
+        footer = f"// Dashboard last opened on {last_opened}\n// To view dashboard URL Path is /app/main/dashboards/{oid}"
+
+        result = self._write_script_file(cleaned, output_dir / "dashboard_script_1.js", footer)
+        if "error" in result:
+            return [result]
+
+        return [{"type": "dashboard", "oid": oid, "title": title, "path": result["path"]}]
+
+    def _extract_widget_level_scripts(self, dashboard: dict[str, Any], output_dir: Path) -> list[dict[str, Any]]:
+        """Extract, clean, and write scripts for all widgets that carry one."""
+        widgets = dashboard.get("widgets", [])
+        if not isinstance(widgets, list) or not widgets:
+            return []
+
+        oid = dashboard.get("oid", "unknown")
+        title = dashboard.get("title", "unknown")
+        last_opened = dashboard.get("lastOpened", "unknown")
+        widgets_dir = output_dir / "widgets"
+        widgets_dir.mkdir(exist_ok=True)
+
+        results: list[dict[str, Any]] = []
+        for widget in widgets:
+            script = widget.get("script")
+            if not isinstance(script, str):
+                continue
+
+            cleaned = re.sub(self._WIDGET_TEMPLATE_REGEX, "", script, flags=re.DOTALL).strip()
+            if not cleaned:
+                continue
+
+            widget_oid = widget.get("oid", "unknown")
+            widget_type = widget.get("type", "unknown")
+            footer = f"// Dashboard last opened on {last_opened}\n" f"// Script is for widget type of {widget_type}\n" f"// To view widget URL Path is /app/main/dashboards/{oid}/widgets/{widget_oid}"
+            result = self._write_script_file(cleaned, widgets_dir / f"{widget_oid}_WidgetScript.js", footer)
+            if "error" in result:
+                results.append(result)
+                continue
+
+            results.append({"type": "widget", "oid": oid, "title": title, "widget_oid": widget_oid, "widget_type": widget_type, "path": result["path"]})
+
+        return results

@@ -166,3 +166,51 @@ If that fails or the reference does not look like an ID, it falls back to `get_d
   - `dashboard_id` (str or None): Resolved dashboard ID (`oid`) if found, otherwise `None`.
   - `dashboard_title` (str or None): Resolved dashboard title if found, otherwise `None`.
   - `error` (str or None): Error message if `success` is `False`, otherwise `None`.
+
+* * * * *
+
+### `extract_scripts(dashboard, output_dir="results")`
+
+Fetches a dashboard from the Sisense API and saves its JavaScript scripts to disk.
+
+Exports the full dashboard JSON, strips default Sisense boilerplate comments, beautifies each script with a 4-space indent, and writes the results to a structured output directory. A JS footer comment is appended to every file with the dashboard's `lastOpened` timestamp and its Sisense URL path.
+
+Output layout:
+
+```
+<output_dir>/<title>_<oid>/dashboard_script_1.js
+<output_dir>/<title>_<oid>/widgets/<widget_oid>_WidgetScript.js
+```
+
+**Parameters:**
+
+- `dashboard` (str): Dashboard reference — either a 24-character ID or a dashboard title. Resolved automatically.
+- `output_dir` (str or Path, optional): Root directory for output folders. Defaults to `"results"`.
+
+**Returns:**
+
+- `list[dict]`: One entry per written file. Each entry contains:
+  - `type` (`"dashboard"` or `"widget"`) — script source
+  - `oid` — dashboard OID
+  - `title` — dashboard title
+  - `widget_oid` — widget OID (`"widget"` entries only)
+  - `widget_type` — Sisense widget type (`"widget"` entries only)
+  - `path` — absolute path of the written `.js` file
+
+  Returns `[{"error": "..."}]` on failure.
+
+* * * * *
+
+### `extract_scripts_from_all_dashboards(output_dir="results")`
+
+Fetches all dashboards from the Sisense API and saves their JavaScript scripts to disk.
+
+Calls `get_all_dashboards` and runs `extract_scripts` on each one. Dashboards with no scripts are silently skipped. All output is written under `output_dir`, with one sub-folder per dashboard.
+
+**Parameters:**
+
+- `output_dir` (str or Path, optional): Root directory for output folders. Defaults to `"results"`.
+
+**Returns:**
+
+- `list[dict]`: Combined list of written-file entries from all processed dashboards. Returns `[{"error": "..."}]` if the dashboard list cannot be retrieved.
