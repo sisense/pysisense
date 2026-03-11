@@ -1,0 +1,47 @@
+---
+description: Testing patterns for pysisense — unit and integration test conventions
+globs: tests/**/*.py
+alwaysApply: false
+---
+
+# pysisense Testing Conventions
+
+## Test structure
+
+```
+tests/
+  unit/               # No real HTTP calls — use fakes/stubs
+  integration/        # Require a live Sisense instance
+```
+
+Integration tests are marked with `@pytest.mark.integration` and can be excluded:
+```bash
+pytest -m "not integration"
+```
+
+## Unit test approach — fake injection
+
+Do **not** mock `SisenseClient`. Instead, create a fake `api_client` and inject it directly:
+
+```python
+class FakeApiClient:
+    def get(self, url, **kwargs):
+        return self._fixture_data.get(url, {})
+
+class WellCheckTestHarness(WellCheck):
+    def __init__(self, fake_client):
+        self.api_client = fake_client
+        self.dashboard = FakeDashboard(fake_client)
+        self.datamodel = FakeDatamodel(fake_client)
+```
+
+## What to test in WellCheck
+
+Each check method should be tested against fixture data that exercises:
+- The normal/happy path
+- Edge cases (empty lists, zero counts, thresholds)
+- `run_full_wellcheck` should be tested end-to-end with combined fixtures
+
+## Fixture data
+
+Keep fixture dicts inline in the test file rather than loading from external JSON files, for readability and self-containment.

@@ -1,0 +1,104 @@
+---
+description: Coding conventions for pysisense Python modules
+globs: pysisense/**/*.py
+alwaysApply: false
+---
+
+# pysisense Coding Conventions
+
+## Shared `api_client` injection
+
+Every class accepts an optional `api_client` parameter. If not supplied, create a `SisenseClient` internally. This allows all classes to share the same HTTP session and logger.
+
+```python
+def __init__(self, api_client=None):
+    self.api_client = api_client or SisenseClient()
+    self.logger = self.api_client.logger
+```
+
+## Type hints (required)
+
+All public methods must have type hints on parameters and return values. Target Python 3.9+ — use builtin generics:
+
+```python
+# ✅ GOOD
+def get_user(self, user_id: str) -> dict[str, Any]: ...
+def list_groups(self) -> list[dict[str, Any]]: ...
+
+# ❌ BAD
+def get_user(self, user_id): ...
+from typing import Dict, List  # don't use deprecated aliases
+```
+
+Keep types accurate and practical. Avoid overly complex typing that reduces readability.
+
+## Error handling — return dicts, don't raise
+
+Methods return `{"error": "..."}` dicts on failure and log with `logger.error(...)`. Do not raise exceptions from public methods unless the module already uses exceptions consistently. Prefer early returns on failure; avoid deep nesting.
+
+```python
+# ✅ GOOD
+response = self.api_client.get(url)
+if "error" in response:
+    self.logger.error(f"Failed to get dashboard: {response['error']}")
+    return {"error": response["error"]}
+return response
+
+# ❌ BAD
+raise ValueError("Dashboard not found")
+```
+
+## Logging — levels and secrets policy
+
+Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`. **Never use `print`.**
+
+| Level | When to use |
+|---|---|
+| `debug` | Step-by-step decisions, endpoints, counts, mapping sizes, normalized keys |
+| `info` | Success summaries — what changed, counts, completion messages |
+| `error` | Failures with status code (if available) and a safe error summary |
+
+**Never log secrets:** tokens, passwords, auth headers, raw cookies, or sensitive payload fields.
+Avoid logging large full payloads. Prefer safe summaries (keys, counts, redacted snippets).
+
+```python
+# ✅ GOOD
+self.logger.debug(f"Resolving {len(group_names)} group names to IDs")
+self.logger.info(f"Updated user '{user_id}' — fields: {list(payload.keys())}")
+self.logger.error(f"Failed to update user {user_id}: HTTP {response.status_code}")
+
+# ❌ BAD
+print("Done")
+self.logger.debug(f"Sending payload: {full_payload}")   # may contain secrets
+self.logger.info(f"Token used: {self.api_client.token}")
+```
+
+## Smart reference resolvers
+
+Methods that accept a dashboard or data model reference should handle either a 24-char ID or a title string:
+
+```python
+ref = self.resolve_dashboard_reference(dashboard)
+dashboard_id = ref["dashboard_id"]
+dashboard_title = ref["dashboard_title"]
+```
+
+## Input normalization
+
+Methods accepting `list[str]` should also tolerate a bare `str`:
+
+```python
+if isinstance(dashboards, str):
+    dashboards = [dashboards]
+```
+
+## Role name mapping
+
+Sisense internal names → user-facing names:
+- `consumer` → `viewer`
+- `super` → `sysAdmin`
+- `contributor` → `dashboardDesigner`
+
+## SSL
+
+SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845`.

@@ -1,0 +1,108 @@
+---
+description: Contribution standards — commits, branches, PRs, docstrings, type hints, naming
+alwaysApply: true
+---
+
+# Contributing Standards
+
+## Git workflow
+
+- Branch from **`dev`**, never from `main`
+- Branch name: `your-name/short-description` (lowercase, hyphens)
+  - e.g. `alice/add-user-migration`, `bob/fix-dashboard-loading`
+
+## Commit messages — Conventional Commits
+
+```
+<type>(<scope>): <description>
+```
+
+| Type | When to use |
+|---|---|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `refactor` | No feature/fix change |
+| `docs` | Documentation only |
+| `test` | Tests only |
+| `chore` | Build, deps, config |
+| `perf` | Performance improvement |
+
+Use present-tense imperative: `add user validation`, not `added user validation`.
+
+## Naming conventions
+
+| Thing | Style | Example |
+|---|---|---|
+| Files/modules | snake_case | `access_management.py` |
+| Classes | PascalCase | `SisenseClient` |
+| Functions/methods | snake_case | `get_user()` |
+| Constants | UPPER_SNAKE | `MAX_RETRIES` |
+| Private | `_` prefix | `_make_request()` |
+
+## Docstrings — NumPy style (required)
+
+Every public method must have a NumPy-style docstring. Include these sections as applicable: summary line, short description (2–6 lines), `Parameters`, `Returns`, optionally `Raises` and `Notes`.
+
+```python
+def create_user(self, name: str, email: str, role: str = "viewer") -> dict[str, Any]:
+    """Create a new user in Sisense.
+
+    Sends a POST request to create a user account. The role name is resolved
+    to its internal Sisense role ID before submission.
+
+    Parameters
+    ----------
+    name : str
+        The full name of the user.
+    email : str
+        The email address of the user.
+    role : str, optional
+        Role to assign. One of ``"viewer"``, ``"dashboardDesigner"``, ``"sysAdmin"``.
+
+    Returns
+    -------
+    dict[str, Any]
+        The created user object returned by the API, or ``{"error": "..."}`` on failure.
+    """
+```
+
+- Always include **type hints** on parameters and return values.
+- Avoid restating what the code already says.
+- **Never** mention MCP, tools, LLMs, agents, orchestration, or any external system in docstrings.
+- Do **not** include `Example:` or `Examples` blocks in docstrings.
+
+## Update payload docstrings
+
+For methods that accept an update/patch payload, the docstring must:
+- State that updates must be provided inside the payload parameter (e.g., `user_data`).
+- List supported fields using **canonical Sisense payload field names**.
+- Clearly state: only fields provided are updated; omitted fields are not modified.
+- If role or group names are resolved to IDs, briefly describe the resolution behavior.
+
+```python
+def update_user(self, user_id: str, user_data: dict[str, Any]) -> dict[str, Any]:
+    """Update an existing user's properties.
+
+    Only fields present in ``user_data`` are modified; omitted fields retain
+    their current values. If ``role`` is provided as a name, it is resolved to
+    its internal ``roleId`` before the request is sent.
+
+    Parameters
+    ----------
+    user_id : str
+        The unique identifier of the user to update.
+    user_data : dict[str, Any]
+        Payload containing fields to update. Supported fields:
+
+        - ``userName`` – login username
+        - ``email`` – email address
+        - ``firstName`` / ``lastName`` – display name parts
+        - ``role`` – role name (resolved to ``roleId`` automatically)
+        - ``groups`` – list of group names (resolved to group IDs)
+
+    Returns
+    -------
+    dict[str, Any]
+        The updated user object, or ``{"error": "..."}`` on failure.
+    """
+```
