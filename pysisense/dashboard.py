@@ -1054,7 +1054,7 @@ class Dashboard:
 
             widget_oid = widget.get("oid", "unknown")
             widget_type = widget.get("type", "unknown")
-            footer = f"// Dashboard last opened on {last_opened}\n" f"// Script is for widget type of {widget_type}\n" f"// To view widget URL Path is /app/main/dashboards/{oid}/widgets/{widget_oid}"
+            footer = f"// Dashboard last opened on {last_opened}\n// Script is for widget type of {widget_type}\n// To view widget URL Path is /app/main/dashboards/{oid}/widgets/{widget_oid}"
             result = self._write_script_file(cleaned, widgets_dir / f"{widget_oid}_WidgetScript.js", footer)
             if "error" in result:
                 results.append(result)
