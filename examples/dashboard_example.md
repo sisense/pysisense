@@ -208,6 +208,69 @@ if resolved.get("success"):
 
 ---
 
+## Example 10: Extract Scripts from a Single Dashboard
+
+Export all JavaScript scripts (dashboard-level and widget-level) from a specific dashboard to disk. The method accepts either a dashboard ID or a dashboard title.
+
+```python
+# By dashboard ID
+results = dashboard.extract_scripts("65d62c9574851800339cf49e", output_dir="results")
+print(json.dumps(results, indent=4))
+
+# By dashboard title
+results = dashboard.extract_scripts("Sample ECommerce", output_dir="results")
+print(json.dumps(results, indent=4))
+```
+
+Each entry in the returned list describes one written file:
+
+```json
+[
+    {
+        "type": "dashboard",
+        "oid": "65d62c9574851800339cf49e",
+        "title": "Sample ECommerce",
+        "path": "/path/to/results/Sample ECommerce_65d62c9574851800339cf49e/dashboard_script_1.js"
+    },
+    {
+        "type": "widget",
+        "oid": "65d62c9574851800339cf49e",
+        "title": "Sample ECommerce",
+        "widget_oid": "67dc929be72ce30033bc6682",
+        "widget_type": "chart/line",
+        "path": "/path/to/results/Sample ECommerce_65d62c9574851800339cf49e/widgets/67dc929be72ce30033bc6682_WidgetScript.js"
+    }
+]
+```
+
+Output is written to:
+
+```
+results/<title>_<oid>/dashboard_script_1.js
+results/<title>_<oid>/widgets/<widget_oid>_WidgetScript.js
+```
+
+---
+
+## Example 11: Extract Scripts from All Dashboards
+
+Export JavaScript scripts from every dashboard in the environment in one call. Dashboards with no scripts are silently skipped.
+
+```python
+results = dashboard.extract_scripts_from_all_dashboards(output_dir="results")
+print(f"Total script files written: {len(results)}")
+print(json.dumps(results, indent=4))
+
+# Optional: convert to a DataFrame for inspection
+df = api_client.to_dataframe(results)
+print(df)
+
+# Optional: export the summary to CSV
+api_client.export_to_csv(results, "extracted_scripts_summary.csv")
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
