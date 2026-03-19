@@ -16,6 +16,7 @@ dependencies = [
   "requests>=2.32.3",
   "PyYAML>=6.0.2",
   "pandas>=2.2.3",
+  "jsbeautifier>=1.15.4",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
