@@ -1,4 +1,41 @@
-# CLAUDE.md — pysisense Guidelines
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Development Commands
+
+```bash
+# Install dev dependencies
+uv sync --dev
+
+# Run all unit tests (no integration)
+uv run pytest -m "not integration"
+
+# Run a single test file
+uv run pytest tests/unit/unit_test_wellcheck.py
+
+# Run a single test by name
+uv run pytest tests/unit/unit_test_wellcheck.py -k "test_name"
+
+# Run integration tests (requires live Sisense instance)
+uv run pytest -m integration
+
+# Lint (check only)
+uv run ruff check .
+
+# Lint with auto-fix
+uv run ruff check --fix .
+
+# Format
+uv run ruff format .
+
+# Install pre-commit hooks
+uv run pre-commit install --hook-type commit-msg
+```
+
+---
+
+## pysisense Guidelines
 
 ## Project Overview
 

@@ -1,4 +1,4 @@
-from typing import Any, dict
+from typing import Any
 
 from .datamodel import DataModel
 from .sisenseclient import SisenseClient

@@ -70,6 +70,7 @@ exclude = [
 dev = [
     "commitizen>=4.10.1",
     "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
     "ruff>=0.15.4",
 ]
 
@@ -112,3 +113,4 @@ tag_format = "v{version}"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
 ]
+pythonpath = ["tests/unit"]
