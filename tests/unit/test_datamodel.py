@@ -1,7 +1,8 @@
 """Unit tests for pysisense.datamodel.DataModel."""
-import pytest
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
+
 from pysisense.datamodel import DataModel
 
 # ---------------------------------------------------------------------------
@@ -62,16 +63,12 @@ class TestDataModelInit:
 
 class TestGetDatamodel:
     def test_returns_datamodel_on_success(self):
-        dm = _make_dm(
-            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)}
-        )
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
         result = dm.get_datamodel("SalesModel")
         assert result["oid"] == "dm123"
 
     def test_returns_error_when_not_found(self):
-        dm = _make_dm(
-            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)}
-        )
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datamodel("NoSuchModel")
         assert "error" in result
 
@@ -88,13 +85,7 @@ class TestGetDatamodel:
 
 class TestGetAllDatamodel:
     def test_returns_datamodel_list_on_success(self):
-        graphql_response = {
-            "data": {
-                "elasticubesMetadata": [
-                    {"oid": "dm123", "title": "SalesModel", "type": "EXTRACT", "status": ["ready"], "sizeInMb": 100}
-                ]
-            }
-        }
+        graphql_response = {"data": {"elasticubesMetadata": [{"oid": "dm123", "title": "SalesModel", "type": "EXTRACT", "status": ["ready"], "sizeInMb": 100}]}}
         dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(200, graphql_response)})
         result = dm.get_all_datamodel()
         assert isinstance(result, list)
@@ -113,17 +104,13 @@ class TestGetAllDatamodel:
 
 class TestGetConnection:
     def test_returns_connection_list_on_success(self):
-        dm = _make_dm(
-            get_responses={"/api/v2/connections": FakeResponse(200, [_CONNECTION])}
-        )
+        dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(200, [_CONNECTION])})
         result = dm.get_connection("MyConnection")
         assert isinstance(result, list)
         assert result[0]["name"] == "MyConnection"
 
     def test_returns_error_when_not_found(self):
-        dm = _make_dm(
-            get_responses={"/api/v2/connections": FakeResponse(200, [])}
-        )
+        dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(200, [])})
         result = dm.get_connection("NoSuchConnection")
         assert "error" in result
 
@@ -141,9 +128,7 @@ class TestGetConnection:
 class TestGetTableSchema:
     def test_returns_schema_on_success(self):
         schema = {"tableName": "orders", "columns": [{"name": "id"}]}
-        dm = _make_dm(
-            get_responses={"/api/v2/connections/": FakeResponse(200, schema)}
-        )
+        dm = _make_dm(get_responses={"/api/v2/connections/": FakeResponse(200, schema)})
         result = dm.get_table_schema("conn1", "mydb", "public", "orders")
         assert result is not None
 
@@ -318,9 +303,7 @@ class TestDescribeDatamodelRaw:
         assert "error" in result
 
     def test_returns_description_dict_on_success(self):
-        dm = _make_dm(
-            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)}
-        )
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
         result = dm.describe_datamodel_raw("SalesModel")
         # Returns a structured dict even with no shares/datasets
         assert isinstance(result, dict)

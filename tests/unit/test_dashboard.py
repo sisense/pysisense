@@ -1,9 +1,7 @@
 """Unit tests for pysisense.dashboard.Dashboard."""
-from pathlib import Path
-
-import pytest
 
 from helpers import FakeApiClient, FakeLogger, FakeResponse
+
 from pysisense.dashboard import Dashboard
 
 # ---------------------------------------------------------------------------
@@ -66,9 +64,7 @@ class TestDashboardInit:
 
 class TestGetAllDashboards:
     def test_returns_list_on_success(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
         result = dash.get_all_dashboards()
         assert isinstance(result, list)
         assert result[0]["oid"] == "dash123"
@@ -79,9 +75,7 @@ class TestGetAllDashboards:
         assert "error" in result
 
     def test_returns_error_dict_on_non_200(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(403, {"message": "forbidden"})}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(403, {"message": "forbidden"})})
         result = dash.get_all_dashboards()
         assert "error" in result
 
@@ -93,9 +87,7 @@ class TestGetAllDashboards:
 
 class TestGetDashboardById:
     def test_returns_dashboard_on_success(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
         result = dash.get_dashboard_by_id("dash123")
         assert isinstance(result, list)
         assert result[0]["oid"] == "dash123"
@@ -106,9 +98,7 @@ class TestGetDashboardById:
         assert "error" in result
 
     def test_returns_error_when_empty_result(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_by_id("dash123")
         assert "error" in result
 
@@ -120,17 +110,13 @@ class TestGetDashboardById:
 
 class TestGetDashboardByName:
     def test_returns_dashboard_on_success(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
         result = dash.get_dashboard_by_name("Sales Report")
         assert isinstance(result, list)
         assert result[0]["title"] == "Sales Report"
 
     def test_returns_error_when_empty_result(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_by_name("NoSuchDash")
         assert "error" in result
 
@@ -148,17 +134,13 @@ class TestGetDashboardByName:
 class TestAddDashboardScript:
     def test_returns_success_string_on_put_200(self):
         script = '{"script": "console.log(1);"}'
-        dash = _make_dash(
-            put_responses={"/api/dashboards/dash123": FakeResponse(200, {})}
-        )
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(200, {})})
         result = dash.add_dashboard_script("dash123", script)
         assert "successfully" in result.lower()
 
     def test_returns_error_string_on_put_failure(self):
         script = '{"script": "console.log(1);"}'
-        dash = _make_dash(
-            put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})}
-        )
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.add_dashboard_script("dash123", script)
         assert result.startswith("Error:")
 
@@ -188,9 +170,7 @@ class TestAddWidgetScript:
     def test_returns_error_string_on_500_put_response(self):
         # Use a 500 response (not None) to avoid a source-code NPE on status_code
         script = '{"script": "console.log(widget);"}'
-        dash = _make_dash(
-            put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})}
-        )
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.add_widget_script("dash123", "widget456", script)
         assert result.startswith("Error:")
 
@@ -202,9 +182,7 @@ class TestAddWidgetScript:
 
 class TestAddDashboardShares:
     def test_returns_no_new_shares_message_when_already_shared(self):
-        existing_shares = {
-            "sharesTo": [{"shareId": "user123", "type": "user", "rule": "EDIT"}]
-        }
+        existing_shares = {"sharesTo": [{"shareId": "user123", "type": "user", "rule": "EDIT"}]}
         dash = _make_dash(
             get_responses={
                 # For get_user lookup inside access_mgmt
@@ -240,9 +218,7 @@ class TestAddDashboardShares:
 
 class TestGetDashboardColumns:
     def test_returns_empty_list_when_dashboard_not_found(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_columns("NoSuchDash")
         assert result == []
 
@@ -254,15 +230,7 @@ class TestGetDashboardColumns:
                 "widgets": [
                     {
                         "title": "Revenue",
-                        "metadata": {
-                            "panels": [
-                                {
-                                    "items": [
-                                        {"jaql": {"dim": "[orders].[amount]"}}
-                                    ]
-                                }
-                            ]
-                        },
+                        "metadata": {"panels": [{"items": [{"jaql": {"dim": "[orders].[amount]"}}]}]},
                     }
                 ],
                 "layout": {},
@@ -285,16 +253,12 @@ class TestGetDashboardColumns:
 
 class TestGetDashboardShare:
     def test_returns_empty_list_when_dashboard_has_no_shares(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
         result = dash.get_dashboard_share("Sales Report")
         assert result == []
 
     def test_returns_empty_list_when_dashboard_not_found(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_share("NoSuchDash")
         assert result == []
 
@@ -306,17 +270,13 @@ class TestGetDashboardShare:
 
 class TestResolveDashboardReference:
     def test_resolves_by_name_when_not_a_24_char_id(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
         result = dash.resolve_dashboard_reference("Sales Report")
         assert result["success"] is True
         assert result["dashboard_id"] == "dash123"
 
     def test_returns_failure_when_not_found(self):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.resolve_dashboard_reference("NoSuchDash")
         assert result["success"] is False
         assert result["dashboard_id"] is None
@@ -324,9 +284,7 @@ class TestResolveDashboardReference:
     def test_resolves_by_id_when_24_char_hex(self):
         dash_id = "a" * 24
         dash_with_id = {**_DASHBOARD, "oid": dash_id}
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [dash_with_id])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [dash_with_id])})
         result = dash.resolve_dashboard_reference(dash_id)
         assert result["success"] is True
         assert result["dashboard_id"] == dash_id
@@ -339,9 +297,7 @@ class TestResolveDashboardReference:
 
 class TestExtractScripts:
     def test_returns_error_entry_when_dashboard_not_found(self, tmp_path):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.extract_scripts("NoSuchDash", output_dir=tmp_path)
         # Returns [{"error": "..."}] on resolve failure
         assert isinstance(result, list)
@@ -376,9 +332,7 @@ class TestExtractScripts:
 
 class TestExtractScriptsFromAllDashboards:
     def test_returns_empty_list_when_no_dashboards(self, tmp_path):
-        dash = _make_dash(
-            get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])}
-        )
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.extract_scripts_from_all_dashboards(output_dir=tmp_path)
         assert result == []
 

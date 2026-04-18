@@ -15,9 +15,8 @@ def sisense_client() -> SisenseClient:
     A lightweight connectivity check is performed; if the instance is not
     reachable or dashboards cannot be fetched, integration tests are skipped.
     """
-    client = SisenseClient(debug=False)
-
     try:
+        client = SisenseClient(debug=False)
         response = client.get("/api/v1/dashboards/admin?dashboardType=owner")
     except Exception as exc:
         pytest.skip(f"Sisense instance not reachable for integration tests: {exc}")
@@ -66,6 +65,7 @@ def wellcheck(sisense_client: SisenseClient) -> WellCheck:
     return WellCheck(api_client=sisense_client, debug=False)
 
 
+@pytest.mark.integration
 def test_check_dashboard_structure_with_dashboard_id(
     wellcheck: WellCheck,
     example_dashboard: dict[str, Any],
@@ -92,6 +92,7 @@ def test_check_dashboard_structure_with_dashboard_id(
         assert row[field] >= 0
 
 
+@pytest.mark.integration
 def test_check_dashboard_structure_with_dashboard_title(
     wellcheck: WellCheck,
     example_dashboard: dict[str, Any],

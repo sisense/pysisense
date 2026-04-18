@@ -1,7 +1,6 @@
 """Unit tests for pysisense.utils."""
-import os
 
-import pytest
+import os
 
 from pysisense.utils import convert_to_dataframe, convert_utc_to_local, export_to_csv
 

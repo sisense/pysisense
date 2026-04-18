@@ -3,6 +3,7 @@
 Intended usage in test files:
     from helpers import FakeLogger, FakeResponse, FakeApiClient
 """
+
 from __future__ import annotations
 
 from typing import Any

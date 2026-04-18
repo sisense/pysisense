@@ -1,7 +1,8 @@
 """Unit tests for pysisense.migration.Migration."""
-import pytest
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
+
 from pysisense.migration import Migration
 
 # ---------------------------------------------------------------------------

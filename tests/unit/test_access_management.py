@@ -1,7 +1,8 @@
 """Unit tests for pysisense.access_management.AccessManagement."""
-import pytest
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
+
 from pysisense.access_management import AccessManagement
 
 # ---------------------------------------------------------------------------
@@ -215,9 +216,7 @@ class TestGetUsersAll:
 
 class TestGetGroup:
     def test_returns_group_dict_on_success(self):
-        am = _make_am(
-            get_responses={"/api/v1/groups": FakeResponse(200, [_GROUPS[0]])}
-        )
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [_GROUPS[0]])})
         result = am.get_group("Engineers")
         assert result["GROUP_ID"] == "grp_engineers"
         assert result["GROUP_NAME"] == "Engineers"
@@ -248,9 +247,7 @@ class TestCreateUser:
             },
             post_responses={"/api/v1/users": FakeResponse(200, new_user)},
         )
-        result = am.create_user(
-            {"email": "newbie@example.com", "firstName": "New", "lastName": "Bie", "role": "consumer", "groups": ["Engineers"]}
-        )
+        result = am.create_user({"email": "newbie@example.com", "firstName": "New", "lastName": "Bie", "role": "consumer", "groups": ["Engineers"]})
         assert result.get("_id") == "newuser1"
 
     def test_returns_error_when_role_not_found(self):
@@ -375,9 +372,7 @@ class TestChangeFolderAndDashboardOwnership:
     def test_returns_error_when_executing_user_not_found(self):
         # get_user for the executing user returns not-found
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
-        result = am.change_folder_and_dashboard_ownership(
-            "executor@example.com", "MyFolder", "newowner@example.com"
-        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "MyFolder", "newowner@example.com")
         assert "error" in result
 
 
@@ -481,9 +476,7 @@ class TestGetUnusedColumnsBulk:
 class TestGetAllDashboardShares:
     def test_returns_empty_list_when_no_dashboards(self):
         am = _make_am(
-            post_responses={
-                "/api/v1/dashboards/searches": FakeResponse(200, {"items": []})
-            },
+            post_responses={"/api/v1/dashboards/searches": FakeResponse(200, {"items": []})},
             get_responses={
                 "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "a@b.com"}]),
                 "/api/v1/groups": FakeResponse(200, _GROUPS),

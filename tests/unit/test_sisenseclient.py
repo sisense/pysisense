@@ -1,4 +1,5 @@
 """Unit tests for pysisense.sisenseclient.SisenseClient."""
+
 import pytest
 
 from pysisense.sisenseclient import SisenseClient
@@ -16,7 +17,7 @@ class TestSisenseClientInit:
 
     def test_domain_with_protocol_prefix_is_stripped(self):
         client = SisenseClient(domain="https://myserver.com", token="tok", is_ssl=True)
-        assert "https://myserver.com" == client.base_url
+        assert client.base_url == "https://myserver.com"
 
     def test_domain_with_port_strips_port(self):
         client = SisenseClient(domain="myserver.com:8080", token="tok", is_ssl=True)
