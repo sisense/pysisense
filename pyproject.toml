@@ -7,10 +7,13 @@ name = "pysisense"
 version = "0.2.2"
 description = "A Python SDK for interacting with Sisense API"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Sisense Ltd." }]
-maintainers = [{ name = "Himanshu Negi", email = "himanshu.negi@sisense.com" }]
+maintainers = [
+  { name = "Himanshu Negi", email = "himanshu.negi@sisense.com" },
+  { name = "Jeremy Friedel", email = "jeremy.friedel@sisense.com" },
+]
 keywords = ["Sisense", "API", "SDK", "analytics", "BI"]
 dependencies = [
   "requests>=2.32.3",
@@ -24,10 +27,11 @@ classifiers = [
   "Topic :: Software Development :: Libraries",
   "License :: Other/Proprietary License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Operating System :: OS Independent",
 ]
 
@@ -70,12 +74,13 @@ exclude = [
 dev = [
     "commitizen>=4.10.1",
     "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
     "ruff>=0.15.4",
 ]
 
 [tool.ruff]
 line-length = 200
-target-version = "py311"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -111,4 +116,8 @@ tag_format = "v{version}"
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+]
+pythonpath = ["tests/unit"]
+filterwarnings = [
+    "ignore::urllib3.exceptions.InsecureRequestWarning",
 ]
