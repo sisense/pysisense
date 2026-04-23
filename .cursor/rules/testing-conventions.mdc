@@ -14,33 +14,21 @@ tests/
   integration/        # Require a live Sisense instance
 ```
 
-Integration tests are marked with `@pytest.mark.integration` and can be excluded:
+Integration tests are marked with `@pytest.mark.integration`:
+
 ```bash
-pytest -m "not integration"
+uv run pytest -m "not integration"
 ```
 
 ## Unit test approach — fake injection
 
-Do **not** mock `SisenseClient`. Instead, create a fake `api_client` and inject it directly:
+Do **not** mock `SisenseClient`. Create a fake `api_client` and inject it into the class under test:
 
 ```python
 class FakeApiClient:
     def get(self, url, **kwargs):
         return self._fixture_data.get(url, {})
-
-class WellCheckTestHarness(WellCheck):
-    def __init__(self, fake_client):
-        self.api_client = fake_client
-        self.dashboard = FakeDashboard(fake_client)
-        self.datamodel = FakeDatamodel(fake_client)
 ```
-
-## What to test in WellCheck
-
-Each check method should be tested against fixture data that exercises:
-- The normal/happy path
-- Edge cases (empty lists, zero counts, thresholds)
-- `run_full_wellcheck` should be tested end-to-end with combined fixtures
 
 ## Fixture data
 

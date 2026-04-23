@@ -1,6 +1,6 @@
 ---
 description: Patterns for working with the Migration module — cross-environment migrations
-globs: pysisense/migration.py
+globs: pysisense/migration/**/*.py
 alwaysApply: false
 ---
 
@@ -14,17 +14,15 @@ The `Migration` class supports two ways to connect to source and target environm
 # YAML config files
 m = Migration(source_yaml="source.yaml", target_yaml="target.yaml", debug=False)
 
-# Agent-friendly: pass SisenseClient instances directly
+# Pass SisenseClient instances directly
 m = Migration(source_client=src, target_client=tgt)
 ```
 
 ## Progress reporting via `_emit`
 
-Use the `_emit(message)` callback for progress reporting. Set it at init or as an attribute. Defaults to `print`.
-
 ```python
 m = Migration(source_client=src, target_client=tgt)
-m._emit = my_progress_callback
+m._emit = my_progress_callback  # defaults to print
 ```
 
 ## Migration order matters

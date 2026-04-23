@@ -67,17 +67,16 @@ def create_user(self, name: str, email: str, role: str = "viewer") -> dict[str, 
 ```
 
 - Always include **type hints** on parameters and return values.
-- Avoid restating what the code already says.
-- **Never** mention MCP, tools, LLMs, agents, orchestration, or any external system in docstrings.
+- **Never** mention MCP, tools, LLMs, agents, or any external system in docstrings.
 - Do **not** include `Example:` or `Examples` blocks in docstrings.
 
 ## Update payload docstrings
 
 For methods that accept an update/patch payload, the docstring must:
-- State that updates must be provided inside the payload parameter (e.g., `user_data`).
+- State updates must be provided inside the payload parameter.
 - List supported fields using **canonical Sisense payload field names**.
-- Clearly state: only fields provided are updated; omitted fields are not modified.
-- If role or group names are resolved to IDs, briefly describe the resolution behavior.
+- State: only fields provided are updated; omitted fields are not modified.
+- Describe any role/group name-to-ID resolution behavior.
 
 ```python
 def update_user(self, user_id: str, user_data: dict[str, Any]) -> dict[str, Any]:
