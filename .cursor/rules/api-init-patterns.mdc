@@ -7,11 +7,9 @@ alwaysApply: true
 
 ## Admin token required
 
-The SDK **must** use a Sisense admin user's API token. Scoped or restricted users will break ownership changes, permission grants, and system-wide migrations.
+The SDK **must** use a Sisense admin user's API token.
 
 ## Canonical init pattern
-
-All classes share the same initialization approach — create one `SisenseClient` and pass it to every class:
 
 ```python
 import os
@@ -26,8 +24,6 @@ datamodel   = DataModel(api_client=api_client)
 wellcheck   = WellCheck(api_client=api_client)
 ```
 
-Sharing one `api_client` keeps the HTTP session and logger consistent across all classes.
-
 ## Config file format (`config.yaml`)
 
 ```yaml
@@ -36,12 +32,12 @@ is_ssl: false   # true for HTTPS, false uses port 30845
 token: ""       # Sisense Admin API token
 ```
 
-> Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens. Add them to `.gitignore`.
+> Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
 
 ## Security rules
 
 - **Never hardcode tokens or credentials** in source code. Always load from a YAML config or environment variable.
-- **Debug logs must not expose secrets.** Ensure `token`, passwords, auth headers, and raw cookies are never written to `logs/pysisense.log`. Log only safe summaries (keys present, counts, redacted snippets).
+- **Debug logs must not expose secrets.** Never write tokens, passwords, auth headers, or raw cookies to `logs/pysisense.log`.
 
 ## Logs
 

@@ -8,8 +8,6 @@ alwaysApply: false
 
 ## Only send explicitly provided fields
 
-For any PATCH or update operation, the request body must contain **only** the fields the caller explicitly passed. Do not inject defaults or carry forward assumed values.
-
 ```python
 # ✅ GOOD — only what the caller set
 payload = model.model_dump(by_alias=True, exclude_unset=True, exclude_none=True)
@@ -20,29 +18,17 @@ payload = {"userName": user_data.get("userName", ""), "groups": user_data.get("g
 
 ## Never set `groups` to `[]` unless explicitly requested
 
-An empty list clears all group memberships. Only send `groups: []` when the caller explicitly passed an empty list. If `groups` was not provided, omit it entirely from the payload.
+An empty list clears all group memberships. If `groups` was not provided, omit it entirely.
 
 ## ID resolution — only when provided
 
-Resolve names to IDs only when the caller explicitly provided the name field:
-
 | Field | Resolution rule |
 |---|---|
-| `role` (name) → `roleId` | Resolve **only** when `role` is explicitly provided. If `roleId` is already given, use it (or follow the method's documented precedence). |
-| `groups` (names) → group IDs | Resolve **only** when `groups` is explicitly provided. |
+| `role` (name) → `roleId` | Resolve **only** when `role` is explicitly provided |
+| `groups` (names) → group IDs | Resolve **only** when `groups` is explicitly provided |
 
 **Fail fast** if a referenced role or group cannot be resolved — return `{"error": "..."}` with a clear message. Do not silently skip or substitute.
 
-```python
-# ✅ GOOD
-if "role" in payload:
-    role_id = self._resolve_role_id(payload.pop("role"))
-    if role_id is None:
-        self.logger.error(f"Role '{payload['role']}' could not be resolved")
-        return {"error": f"Unknown role: {payload['role']}"}
-    payload["roleId"] = role_id
-```
-
 ## Validate inputs before calling the API
 
-Run Pydantic validation (or equivalent checks) before any HTTP call. Return a structured error immediately if validation fails — do not let an invalid payload reach the API.
+Run Pydantic validation before any HTTP call. Return a structured error immediately if validation fails.

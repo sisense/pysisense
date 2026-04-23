@@ -4,17 +4,9 @@ globs: pysisense/**/*.py
 alwaysApply: false
 ---
 
-# Pydantic Patterns
+# Pydantic Patterns (v2)
 
-Use Pydantic for structured payload validation whenever a method accepts a request body — especially for create, update/patch, and migration operations where invalid payloads can cause unintended changes.
-
-## When to use Pydantic
-
-- `create` / `update` / `patch` operations
-- Migration operations (cross-environment payloads)
-- Any operation where an invalid or partial payload can silently corrupt state
-
-## Model style — Pydantic v2
+Use Pydantic for structured payload validation on `create`, `update`/`patch`, and migration operations.
 
 ```python
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -33,28 +25,7 @@ class UpdateUserPayload(BaseModel):
 
 ## Key rules
 
-**Forbid unknown fields** on update models — use `extra="forbid"` unless explicitly instructed otherwise. This surfaces typos and wrong field names immediately.
-
-**Safe aliases** — support common variants while always emitting canonical API keys:
-- `username` / `user_name` → `userName`
-- `firstname` / `first_name` → `firstName`
-
-**Normalize types** — ensure fields like `groups` are always a list when applicable:
-```python
-@model_validator(mode="before")
-@classmethod
-def normalize_groups(cls, values: dict[str, Any]) -> dict[str, Any]:
-    if isinstance(values.get("groups"), str):
-        values["groups"] = [values["groups"]]
-    return values
-```
-
-## PATCH payloads — dump only set fields
-
-When building a PATCH body, exclude fields that were not explicitly provided to avoid overwriting existing state:
-
-```python
-payload = user_model.model_dump(by_alias=True, exclude_unset=True, exclude_none=True)
-```
-
-Never inject defaults into a PATCH payload. If the caller didn't set a field, it must not appear in the request body.
+- **Forbid unknown fields** on update models — use `extra="forbid"`.
+- **Safe aliases** — support common variants while emitting canonical API keys.
+- **Normalize types** — ensure `groups` is always a list when applicable using `@model_validator`.
+- **PATCH payloads** — always use `exclude_unset=True, exclude_none=True`.

@@ -1,6 +1,6 @@
 ---
 description: DataModel-specific conventions — build behaviors, deploy params, connection types, live vs extract differences
-globs: pysisense/datamodel.py
+globs: pysisense/datamodel/**/*.py
 alwaysApply: false
 ---
 
@@ -11,7 +11,7 @@ alwaysApply: false
 | Type | String | Notes |
 |---|---|---|
 | Elasticube | `"extract"` | Supports all build behaviors |
-| Live | `"live"` | `build_behavior_config` is ignored; deploy returns `{"publishElasticube": true}` |
+| Live | `"live"` | `build_behavior_config` is ignored |
 
 ## `build_behavior_config` modes (extract only)
 

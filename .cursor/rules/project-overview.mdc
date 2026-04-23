@@ -7,32 +7,94 @@ alwaysApply: true
 
 `pysisense` is an official Python SDK for the **Sisense BI platform**. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
 
+## Development commands
+
+```bash
+# Install dev dependencies
+uv sync --dev
+
+# Run all unit tests (no integration)
+uv run pytest -m "not integration"
+
+# Run a single test file
+uv run pytest tests/unit/unit_test_wellcheck.py
+
+# Run a single test by name
+uv run pytest tests/unit/unit_test_wellcheck.py -k "test_name"
+
+# Run integration tests (requires live Sisense instance)
+uv run pytest -m integration
+
+# Lint (check only)
+uv run ruff check .
+
+# Lint with auto-fix
+uv run ruff check --fix .
+
+# Format
+uv run ruff format .
+
+# Install pre-commit hooks
+uv run pre-commit install --hook-type commit-msg
+```
+
 ## Modules
 
 | Module | Class | Responsibility |
 |---|---|---|
 | `sisenseclient.py` | `SisenseClient` | Base HTTP client, auth, logging, shared session |
-| `access_management.py` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
-| `dashboard.py` | `Dashboard` | Dashboard CRUD, share management, script injection |
-| `datamodel.py` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
-| `migration.py` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
-| `wellcheck.py` | `WellCheck` | Health/complexity checks across dashboards and data models |
+| `access_management/` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
+| `dashboard/` | `Dashboard` | Dashboard CRUD, share management, script injection |
+| `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
+| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
+| `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local` |
 
-## Config
+## Package structure — mixin pattern
 
-Authentication is configured via a YAML file:
-```yaml
-domain: your-sisense-instance.com
-token: your-api-token
-is_ssl: true
-```
+Each module (except `sisenseclient.py` and `utils.py`) is a **package directory**. The `__init__.py` assembles the public class from mixin files. Each mixin file holds a logical group of methods as `class XxxMixin:` with no `__init__`. Mixins access `self.api_client` and `self.logger` which are set by the assembler.
 
-Or inline: `SisenseClient(domain=..., token=..., is_ssl=True)`
+**To find or edit a method — look up its mixin file:**
+
+| Package | File | Public methods |
+|---|---|---|
+| `access_management/` | `users.py` | `get_user`, `get_users_all`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
+| | `groups.py` | `get_group`, `users_per_group`, `users_per_group_all` |
+| | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
+| | `ownership.py` | `change_folder_and_dashboard_ownership` |
+| | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `resolve_dashboard_reference` |
+| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share` |
+| | `columns.py` | `get_dashboard_columns` |
+| | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `extract_scripts`, `extract_scripts_from_all_dashboards` |
+| `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
+| | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
+| | `security.py` | `get_datasecurity`, `get_datasecurity_detail` |
+| | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares` |
+| | `data.py` | `get_data`, `get_row_count` |
+| `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
+| | `users.py` | `migrate_users`, `migrate_all_users` |
+| | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
+| | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
+| | `base.py` | `_emit` and internal helpers (private) |
+| `wellcheck/` | `dashboard_checks.py` | `check_dashboard_structure`, `check_dashboard_widget_counts`, `check_pivot_widget_fields` |
+| | `datamodel_checks.py` | `check_datamodel_custom_tables`, `check_datamodel_island_tables`, `check_datamodel_rls_datatypes`, `check_datamodel_import_queries`, `check_datamodel_m2m_relationships` |
+| | `__init__.py` | `run_full_wellcheck` (orchestrates all checks) |
+
+**Mixin rules:**
+
+- No `__init__` in mixin files — initialization is in `package/__init__.py` only
+- No `SisenseClient` import in mixin files — injected by the assembler
+- All mixin files start with `from __future__ import annotations`
+
+## Configuration
+
+Use a YAML config file or environment variables. See the API initialization rule for the canonical `config.yaml` shape and security rules.
 
 ## Examples and docs
 
-- `examples/*.md` — copy-paste workflow guides; **not meant to be executed end-to-end**. Copy relevant snippets into your own scripts, update YAML paths and IDs, then run.
+- `examples/*.md` — copy-paste workflow guides; **not meant to be executed end-to-end**.
 - `docs/*.md` — full module-level reference documentation.
 
 ## Tooling

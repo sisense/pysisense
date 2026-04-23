@@ -13,11 +13,9 @@ When a public method signature or documented behavior changes:
 1. Update the relevant `docs/<module>.md` page — parameters, return shape, and semantics.
 2. Update the relevant `examples/<module>_example.md` snippet if it references the changed behavior.
 
-Keep docs concise and consistent with the SDK method signature and parameter naming. Do not add background detail that isn't directly useful to a developer calling the method.
-
 ## Quality bar and minimal-change policy
 
-- **Preserve existing behavior** unless fixing a bug. If behavior changes, keep the change intentional and minimal.
+- **Preserve existing behavior** unless fixing a bug.
 - **Prefer small, safe refactors** over large rewrites.
 - **Match the existing code style, naming conventions, and logging patterns** in the module you are editing.
 - Do not introduce cross-module logic unless explicitly requested.
