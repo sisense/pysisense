@@ -344,14 +344,14 @@ class TestGetWidgetScript:
             "title": "Sales Report",
             "lastOpened": "2025-01-01T00:00:00.000Z",
             "script": "",
-            "widgets": {
-                "widget456": {
+            "widgets": [
+                {
                     "oid": "widget456",
                     "title": "Revenue by Region",
                     "type": "chart/column",
                     "script": "console.log('widget');",
                 }
-            },
+            ],
         }
         monkeypatch.setattr(scripts_module, "SisenseScript", DummyScript)
         dash = _make_dash()
@@ -370,7 +370,7 @@ class TestGetWidgetScript:
             "title": "Sales Report",
             "lastOpened": "2025-01-01T00:00:00.000Z",
             "script": "",
-            "widgets": {"widget456": None},
+            "widgets": [],
         }
         dash = _make_dash()
         dash.dashboard = dash
@@ -389,7 +389,6 @@ class TestScriptRendering:
             title="Sales Report",
             type=None,
             script="console.log('x');",
-            last_opened="2025-01-01T00:00:00.000Z",
             template=r"/\*unused\*/",
             footer="// Dashboard Title: {title}",
         )
@@ -406,7 +405,6 @@ class TestScriptRendering:
             title="Sales Report",
             type=None,
             script="console.log('x');",
-            last_opened="2025-01-01T00:00:00.000Z",
             template=r"/\*unused\*/",
             footer="// Dashboard Title: {title}",
         )
