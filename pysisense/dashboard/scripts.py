@@ -296,8 +296,6 @@ class ScriptsMixin:
 
         footer = "// Dashboard Title: {title}\n// To view dashboard URL Path is {url}"
 
-        print(dashboard_data)
-
         return SisenseScript(
             url=f"/app/main/dashboards/{dashboard_data.get('oid', 'unknown')}",
             title=dashboard_data.get("title", "unknown"),
