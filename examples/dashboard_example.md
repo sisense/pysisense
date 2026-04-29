@@ -77,6 +77,8 @@ print(dashboard_df)
 
 Add a custom JavaScript script to a dashboard for UI customization.
 
+The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Only the **dashboard owner** can save scripts; pass **`executing_user`** as the Sisense **username** of your API token user to temporarily take ownership (admin), apply the script, then restore the previous owner and shares.
+
 ```python
 dashboard_id = "65d62c9574851800339cf49e"
 script = """
@@ -109,7 +111,7 @@ print(response)
 
 ## Example 5: Add Widget Script
 
-Add a custom script to a specific widget in a dashboard.
+Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** often indicates an ownership issue.
 
 ```python
 dashboard_id = "67dc928ae72ce30033bc6680"
@@ -208,65 +210,43 @@ if resolved.get("success"):
 
 ---
 
-## Example 10: Extract Scripts from a Single Dashboard
+## Example 10: Get Dashboard Script
 
-Export all JavaScript scripts (dashboard-level and widget-level) from a specific dashboard to disk. The method accepts either a dashboard ID or a dashboard title.
+Retrieve the dashboard export, wrap the dashboard script in a **`SisenseScript`** helper, then render cleaned **jsbeautifier** output (Sisense boilerplate removed, metadata footer appended).
 
 ```python
-# By dashboard ID
-results = dashboard.extract_scripts("65d62c9574851800339cf49e", output_dir="results")
-print(json.dumps(results, indent=4))
+dashboard_id = "65d62c9574851800339cf49e"
+script_obj = dashboard.get_dashboard_script(dashboard_id)
 
-# By dashboard title
-results = dashboard.extract_scripts("Sample ECommerce", output_dir="results")
-print(json.dumps(results, indent=4))
-```
+if isinstance(script_obj, dict) and "error" in script_obj:
+    print(script_obj["error"])
+else:
+    # Formatted JavaScript (boilerplate stripped + footer)
+    print(script_obj.to_text())
 
-Each entry in the returned list describes one written file:
+    # Markdown title + fenced js block
+    print(script_obj.to_md())
 
-```json
-[
-    {
-        "type": "dashboard",
-        "oid": "65d62c9574851800339cf49e",
-        "title": "Sample ECommerce",
-        "path": "/path/to/results/Sample ECommerce_65d62c9574851800339cf49e/dashboard_script_1.js"
-    },
-    {
-        "type": "widget",
-        "oid": "65d62c9574851800339cf49e",
-        "title": "Sample ECommerce",
-        "widget_oid": "67dc929be72ce30033bc6682",
-        "widget_type": "chart/line",
-        "path": "/path/to/results/Sample ECommerce_65d62c9574851800339cf49e/widgets/67dc929be72ce30033bc6682_WidgetScript.js"
-    }
-]
-```
-
-Output is written to:
-
-```
-results/<title>_<oid>/dashboard_script_1.js
-results/<title>_<oid>/widgets/<widget_oid>_WidgetScript.js
+    # Write formatted script to disk
+    script_obj.to_file("results/dashboard_script.js")
 ```
 
 ---
 
-## Example 11: Extract Scripts from All Dashboards
+## Example 11: Get Widget Script and Save to File
 
-Export JavaScript scripts from every dashboard in the environment in one call. Dashboards with no scripts are silently skipped.
+`get_widget_script` uses the same export as Example 10; **`widget_id`** must match a key in the exported dashboard’s **`widgets`** map. The helper strips the standard Sisense widget header comment via regex, beautifies, and appends a widget-specific footer.
 
 ```python
-results = dashboard.extract_scripts_from_all_dashboards(output_dir="results")
-print(f"Total script files written: {len(results)}")
-print(json.dumps(results, indent=4))
+dashboard_id = "67dc928ae72ce30033bc6680"
+widget_id = "67dc929be72ce30033bc6682"
+widget_script_obj = dashboard.get_widget_script(dashboard_id, widget_id)
 
-# Optional: convert to a DataFrame for inspection
-df = api_client.to_dataframe(results)
-print(df)
-
-# Optional: export the summary to CSV
-api_client.export_to_csv(results, "extracted_scripts_summary.csv")
+if isinstance(widget_script_obj, dict) and "error" in widget_script_obj:
+    print(widget_script_obj["error"])
+else:
+    print(widget_script_obj.to_text())
+    widget_script_obj.to_file("results/widget_script.js")
 ```
 
 ---
