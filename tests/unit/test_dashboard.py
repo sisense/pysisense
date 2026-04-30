@@ -383,6 +383,23 @@ class TestGetWidgetScript:
 
 
 class TestScriptRendering:
+    def test_to_text_beautifies_javascript(self):
+        """``to_text`` runs jsbeautifier (4-space indent) on script + footer."""
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="function foo(){if(true){return 1;}}",
+            template=r"/\*no-such-banner\*/",
+            footer="// Dashboard Title: {title}",
+        )
+
+        text = script.to_text()
+
+        assert "function foo()" in text
+        assert "    return 1" in text
+        assert "// Dashboard Title: Sales Report" in text
+
     def test_to_md_includes_heading_and_code_block(self):
         script = SisenseScript(
             url="/app/main/dashboards/dash123",
