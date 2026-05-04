@@ -382,6 +382,20 @@ class TestGetWidgetScript:
         assert "error" in result
 
 
+class TestBeautifyJsCode:
+    def test_returns_string(self):
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="x",
+            template=r"/\*unused\*/",
+            footer="// Dashboard Title: {title}",
+        )
+        result = script._beautify_js_code("function foo(){return 1;}")
+        assert isinstance(result, str)
+
+
 class TestScriptRendering:
     def test_to_text_beautifies_javascript(self):
         """``to_text`` runs jsbeautifier (4-space indent) on script + footer."""
