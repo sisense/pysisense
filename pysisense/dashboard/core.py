@@ -200,3 +200,45 @@ class DashboardCoreMixin:
             "dashboard_title": None,
             "error": error_msg,
         }
+
+    def export_dashboard(self, dashboard_id: str) -> dict[str, Any]:
+        """Export a dashboard definition using the Sisense admin export endpoint.
+
+        Sends a GET request to ``/api/v1/dashboards/export`` with
+        ``dashboardIds`` and ``adminAccess=true``. The response is a JSON array;
+        this method returns the first dashboard object, which includes fields such
+        as ``title``, ``oid``, ``script``, ``widgets``, ``layout``, and ``filters``.
+        Other features (for example ``get_dashboard_script``) use this payload
+        internally.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard ``oid`` to export.
+
+        Returns
+        -------
+        dict[str, Any]
+            The exported dashboard object on success, or ``{"error": "<message>"}``
+            when the HTTP call fails, the body is not valid JSON, or the payload
+            is not a non-empty list as expected.
+        """
+        response = self.api_client.get(f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true")
+        if response is None or response.status_code != 200:
+            error_msg = f"Failed to export dashboard '{dashboard_id}'"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+        try:
+            data = response.json()
+        except Exception:
+            error_msg = f"Failed to parse export response for dashboard '{dashboard_id}'"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+        if not data or not isinstance(data, list):
+            error_msg = f"Unexpected export response structure for dashboard '{dashboard_id}'"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+        return data[0]

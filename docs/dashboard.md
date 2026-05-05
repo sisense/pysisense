@@ -58,41 +58,80 @@ Retrieves a specific dashboard by its name.
 
 * * * * *
 
-### `add_dashboard_script(dashboard_id, script, executing_user=None)`
+### `export_dashboard(dashboard_id)`
 
-Adds or updates a script at the dashboard level.
+Exports a full dashboard definition as JSON using the admin export API (`GET /api/v1/dashboards/export` with `dashboardIds` and `adminAccess=true`). Use this when you need the complete serialized dashboard (scripts, widgets map, layout, filters, metadata), not only the admin list row from `get_dashboard_by_id`.
 
 **Parameters:**
 
--   `dashboard_id` (str): Dashboard ID.
-
--   `script` (str or JSON): Script content.
-
--   `executing_user` (str, optional): Username to assume temporary ownership.
+-   `dashboard_id` (str): The dashboard `oid` to export.
 
 **Returns:**
 
--   `str`: Success or error message.
+-   `dict`: The first element of the export array on success (the dashboard object). On failure, a dict with an `"error"` key and a short message (HTTP failure, invalid JSON, or unexpected response shape).
+
+* * * * *
+
+### `add_dashboard_script(dashboard_id, script, executing_user=None)`
+
+Adds or overwrites the dashboard-level JavaScript script. Sisense only allows the **dashboard owner** to modify scripts.
+
+**Script input**
+
+-   A JSON string whose parsed object is sent to the API (for example a payload containing a `script` field), **or**
+-   A raw JavaScript string (multi-line). If the string does **not** start with `{`, it is wrapped automatically as `{"script": "<your code>"}` before the request.
+
+**`executing_user` (optional)**
+
+-   Sisense **username** (login) of the API token user. When provided, the method temporarily changes dashboard ownership to that user (using admin APIs), reapplies the script, then restores the previous owner and prior share rows.
+-   When omitted, the code assumes the token user is already the dashboard owner. If the PUT fails with **404** and no `executing_user` was passed, the returned message explains that the token may not be the owner and suggests passing `executing_user` or making the token user the owner.
+
+**Returns:**
+
+-   `str`: `"Dashboard Script added successfully."` on success, or an `"Error: ..."` string on failure.
 
 * * * * *
 
 ### `add_widget_script(dashboard_id, widget_id, script, executing_user=None)`
 
-Adds or updates a script to a specific widget.
+Adds or overwrites the JavaScript script for one widget. Same **owner** and **`executing_user`** semantics as `add_dashboard_script` (temporary ownership, share restore, owner restore when `executing_user` is set).
+
+**After a successful script update**, the dashboard is **republished** via `POST /api/v1/dashboards/{dashboard_id}/publish?force=true`. A **204** response is treated as success; otherwise an error string is returned (the script may already have been saved).
+
+If the PUT fails with **403** and `executing_user` was not provided, the error text suggests the token user is not the owner and recommends `executing_user` or changing ownership.
+
+**Returns:**
+
+-   `str`: `"Widget Script added successfully."` on success, or an `"Error: ..."` string on failure.
+
+* * * * *
+
+### `get_dashboard_script(dashboard_id)`
+
+Builds a **`SisenseScript`** helper from an admin export of the dashboard (`export_dashboard` / `/api/v1/dashboards/export`). Use it to read the current dashboard script in a cleaned, formatted form.
 
 **Parameters:**
 
 -   `dashboard_id` (str): Dashboard ID.
 
--   `widget_id` (str): Widget ID.
+**Returns:**
 
--   `script` (str or JSON): Script content.
+-   `SisenseScript` or `dict`: A `SisenseScript` instance on success, or `{"error": "..."}` if the export fails.
 
--   `executing_user` (str, optional): Username to assume temporary ownership.
+* * * * *
+
+### `get_widget_script(dashboard_id, widget_id)`
+
+Builds a **`SisenseScript`** helper for one widget in the exported dashboard payload.
+
+**Parameters:**
+
+-   `dashboard_id` (str): Dashboard ID.
+-   `widget_id` (str): Widget key in the exported dashboard’s `widgets` map (typically the widget OID / id used in that structure).
 
 **Returns:**
 
--   `str`: Success or error message.
+-   `SisenseScript` or `dict`: A `SisenseScript` instance when the widget exists and has script data, or `{"error": "..."}` on failure (including missing widget in the export).
 
 * * * * *
 
@@ -169,48 +208,18 @@ If that fails or the reference does not look like an ID, it falls back to `get_d
 
 * * * * *
 
-### `extract_scripts(dashboard, output_dir="results")`
+### `SisenseScript` helper (`scripts.py`)
 
-Fetches a dashboard from the Sisense API and saves its JavaScript scripts to disk.
+Instances of **`SisenseScript`** are returned by `get_dashboard_script` and `get_widget_script` on success. They wrap raw script text plus metadata (title, URL path, last opened; widget scripts also carry **widget type**).
 
-Exports the full dashboard JSON, strips default Sisense boilerplate comments, beautifies each script with a 4-space indent, and writes the results to a structured output directory. A JS footer comment is appended to every file with the dashboard's `lastOpened` timestamp and its Sisense URL path.
+**Rendering behavior (`to_text`)**
 
-Output layout:
+-   Dashboard scripts: a fixed Sisense welcome comment block is removed from the source, then the body is passed through **jsbeautifier** (4-space indent).
+-   Widget scripts: boilerplate matching the standard Sisense “see the online documentation” comment is stripped with a **regex**, then the same beautifier runs.
+-   A short **footer** is appended (dashboard title / URL / last opened for dashboard scripts; widget title, type, URL, and last opened for widget scripts).
 
-```
-<output_dir>/<title>_<oid>/dashboard_script_1.js
-<output_dir>/<title>_<oid>/widgets/<widget_oid>_WidgetScript.js
-```
+**Methods**
 
-**Parameters:**
-
-- `dashboard` (str): Dashboard reference — either a 24-character ID or a dashboard title. Resolved automatically.
-- `output_dir` (str or Path, optional): Root directory for output folders. Defaults to `"results"`.
-
-**Returns:**
-
-- `list[dict]`: One entry per written file. Each entry contains:
-  - `type` (`"dashboard"` or `"widget"`) — script source
-  - `oid` — dashboard OID
-  - `title` — dashboard title
-  - `widget_oid` — widget OID (`"widget"` entries only)
-  - `widget_type` — Sisense widget type (`"widget"` entries only)
-  - `path` — absolute path of the written `.js` file
-
-  Returns `[{"error": "..."}]` on failure.
-
-* * * * *
-
-### `extract_scripts_from_all_dashboards(output_dir="results")`
-
-Fetches all dashboards from the Sisense API and saves their JavaScript scripts to disk.
-
-Calls `get_all_dashboards` and runs `extract_scripts` on each one. Dashboards with no scripts are silently skipped. All output is written under `output_dir`, with one sub-folder per dashboard.
-
-**Parameters:**
-
-- `output_dir` (str or Path, optional): Root directory for output folders. Defaults to `"results"`.
-
-**Returns:**
-
-- `list[dict]`: Combined list of written-file entries from all processed dashboards. Returns `[{"error": "..."}]` if the dashboard list cannot be retrieved.
+-   `to_text() -> str`: Full formatted JavaScript string (empty string if nothing remains after stripping).
+-   `to_md() -> str`: Markdown with an `#` title and a fenced `js` code block built from `to_text()`.
+-   `to_file(path: str) -> None`: Writes `to_text()` to the given path.

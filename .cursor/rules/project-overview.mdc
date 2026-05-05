@@ -44,7 +44,7 @@ uv run pre-commit install --hook-type commit-msg
 |---|---|---|
 | `sisenseclient.py` | `SisenseClient` | Base HTTP client, auth, logging, shared session |
 | `access_management/` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
-| `dashboard/` | `Dashboard` | Dashboard CRUD, share management, script injection |
+| `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
@@ -63,10 +63,10 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `resolve_dashboard_reference` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `resolve_dashboard_reference` |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share` |
 | | `columns.py` | `get_dashboard_columns` |
-| | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `extract_scripts`, `extract_scripts_from_all_dashboards` |
+| | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
 | | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |

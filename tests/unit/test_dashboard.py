@@ -2,7 +2,9 @@
 
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
+import pysisense.dashboard.scripts as scripts_module
 from pysisense.dashboard import Dashboard
+from pysisense.dashboard.scripts import SisenseScript
 
 # ---------------------------------------------------------------------------
 # Shared fixture data
@@ -291,106 +293,156 @@ class TestResolveDashboardReference:
 
 
 # ---------------------------------------------------------------------------
-# extract_scripts
+# script retrieval + rendering
 # ---------------------------------------------------------------------------
 
 
-class TestExtractScripts:
-    def test_returns_error_entry_when_dashboard_not_found(self, tmp_path):
-        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
-        result = dash.extract_scripts("NoSuchDash", output_dir=tmp_path)
-        # Returns [{"error": "..."}] on resolve failure
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert "error" in result[0]
+class TestGetDashboardScript:
+    def test_returns_script_object(self, monkeypatch):
+        class DummyScript:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
 
-    def test_returns_results_list_for_dashboard_with_script(self, tmp_path):
-        export_data = [
-            {
-                "oid": "dash123",
-                "title": "Sales Report",
-                "lastOpened": "2025-01-01T00:00:00.000Z",
-                "script": "console.log('hello');",
-                "widgets": [],
-            }
-        ]
-        dash = _make_dash(
-            get_responses={
-                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/export": FakeResponse(200, export_data),
-            }
-        )
-        result = dash.extract_scripts("Sales Report", output_dir=tmp_path)
-        assert isinstance(result, list)
-        assert len(result) >= 1
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "lastOpened": "2025-01-01T00:00:00.000Z",
+            "script": "console.log('hello');",
+            "widgets": [],
+        }
+        monkeypatch.setattr(scripts_module, "SisenseScript", DummyScript)
+        dash = _make_dash()
+        # Method delegates through self.dashboard.export_dashboard(...)
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
 
+        result = dash.get_dashboard_script("dash123")
 
-# ---------------------------------------------------------------------------
-# extract_scripts_from_all_dashboards
-# ---------------------------------------------------------------------------
+        assert isinstance(result, DummyScript)
+        assert result.kwargs["title"] == "Sales Report"
+        assert result.kwargs["script"] == "console.log('hello');"
 
+    def test_returns_error_dict_when_export_fails(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"error": "failed to export"}
 
-class TestExtractScriptsFromAllDashboards:
-    def test_returns_empty_list_when_no_dashboards(self, tmp_path):
-        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
-        result = dash.extract_scripts_from_all_dashboards(output_dir=tmp_path)
-        assert result == []
+        result = dash.get_dashboard_script("dash123")
+
+        assert isinstance(result, dict)
+        assert result["error"] == "failed to export"
 
 
-# ---------------------------------------------------------------------------
-# Private helpers (existence + basic behaviour)
-# ---------------------------------------------------------------------------
+class TestGetWidgetScript:
+    def test_returns_script_object_for_widget(self, monkeypatch):
+        class DummyScript:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "lastOpened": "2025-01-01T00:00:00.000Z",
+            "script": "",
+            "widgets": [
+                {
+                    "oid": "widget456",
+                    "title": "Revenue by Region",
+                    "type": "chart/column",
+                    "script": "console.log('widget');",
+                }
+            ],
+        }
+        monkeypatch.setattr(scripts_module, "SisenseScript", DummyScript)
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert isinstance(result, DummyScript)
+        assert result.kwargs["title"] == "Revenue by Region"
+        assert result.kwargs["type"] == "chart/column"
+
+    def test_returns_error_dict_when_widget_not_found(self):
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "lastOpened": "2025-01-01T00:00:00.000Z",
+            "script": "",
+            "widgets": [],
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert isinstance(result, dict)
+        assert "error" in result
 
 
 class TestBeautifyJsCode:
     def test_returns_string(self):
-        dash = _make_dash()
-        result = dash._beautify_js_code("function foo(){return 1;}")
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="x",
+            template=r"/\*unused\*/",
+            footer="// Dashboard Title: {title}",
+        )
+        result = script._beautify_js_code("function foo(){return 1;}")
         assert isinstance(result, str)
 
 
-class TestWriteScriptFile:
-    def test_writes_js_file_and_returns_path_dict(self, tmp_path):
-        dash = _make_dash()
-        out = tmp_path / "test_script.js"
-        result = dash._write_script_file("console.log(1);", out, "// footer")
-        assert out.exists()
-        assert isinstance(result, dict)
-        assert "path" in result
+class TestScriptRendering:
+    def test_to_text_beautifies_javascript(self):
+        """``to_text`` runs jsbeautifier (4-space indent) on script + footer."""
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="function foo(){if(true){return 1;}}",
+            template=r"/\*no-such-banner\*/",
+            footer="// Dashboard Title: {title}",
+        )
 
+        text = script.to_text()
 
-class TestExtractDashboardLevelScript:
-    def test_returns_empty_list_when_no_script_on_dashboard(self, tmp_path):
-        dashboard_data = {
-            "oid": "dash123",
-            "title": "Sales Report",
-            "lastOpened": "2025-01-01T00:00:00.000Z",
-            # No "script" key
-        }
-        dash = _make_dash()
-        result = dash._extract_dashboard_level_script(dashboard_data, tmp_path)
-        assert result == []
+        assert "function foo()" in text
+        assert "    return 1" in text
+        assert "// Dashboard Title: Sales Report" in text
 
-    def test_returns_result_when_script_present(self, tmp_path):
-        dashboard_data = {
-            "oid": "dash123",
-            "title": "Sales Report",
-            "lastOpened": "2025-01-01T00:00:00.000Z",
-            "script": "console.log('dashboard');",
-        }
-        dash = _make_dash()
-        result = dash._extract_dashboard_level_script(dashboard_data, tmp_path)
-        assert isinstance(result, list)
+    def test_to_md_includes_heading_and_code_block(self):
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="console.log('x');",
+            template=r"/\*unused\*/",
+            footer="// Dashboard Title: {title}",
+        )
 
+        markdown = script.to_md()
 
-class TestExtractWidgetLevelScripts:
-    def test_returns_empty_list_when_no_widgets(self, tmp_path):
-        dashboard_data = {
-            "oid": "dash123",
-            "title": "Sales Report",
-            "lastOpened": "2025-01-01T00:00:00.000Z",
-            "widgets": [],
-        }
-        dash = _make_dash()
-        result = dash._extract_widget_level_scripts(dashboard_data, tmp_path)
-        assert result == []
+        assert markdown.startswith("# Sales Report")
+        assert "```js" in markdown
+        assert "console.log('x');" in markdown
+
+    def test_to_file_writes_rendered_text(self, tmp_path):
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="console.log('x');",
+            template=r"/\*unused\*/",
+            footer="// Dashboard Title: {title}",
+        )
+        output = tmp_path / "script.js"
+
+        script.to_file(str(output))
+
+        assert output.exists()
+        content = output.read_text()
+        assert "console.log('x');" in content
