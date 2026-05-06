@@ -189,7 +189,7 @@ class PluginsCoreMixin:
     def _normalize_name(self, name: str) -> str:
         """Lowercase and strip the optional ``"plugin-"`` prefix."""
         lower = name.lower()
-        return lower[len("plugin-"):] if lower.startswith("plugin-") else lower
+        return lower[len("plugin-") :] if lower.startswith("plugin-") else lower
 
     def _find_plugin(self, all_plugins: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
         """Return the first plugin whose name or folderName matches (case-insensitive, prefix-stripped)."""
@@ -298,10 +298,5 @@ class PluginsCoreMixin:
                     result["changed"].append(folder)
 
         done_action = "Enabled" if enabled else "Disabled"
-        self.logger.info(
-            f"{done_action} {len(result['changed'])} plugin(s). "
-            f"Skipped: {len(result[already_key])}. "
-            f"Not found: {len(result['not_found'])}. "
-            f"Errors: {len(result['errors'])}."
-        )
+        self.logger.info(f"{done_action} {len(result['changed'])} plugin(s). Skipped: {len(result[already_key])}. Not found: {len(result['not_found'])}. Errors: {len(result['errors'])}.")
         return result

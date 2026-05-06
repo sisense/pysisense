@@ -100,10 +100,7 @@ class PluginsSnapshotsMixin:
             "errors": [],
         }
 
-        updates = (
-            [{"folderName": f, "isEnabled": True} for f in to_enable]
-            + [{"folderName": f, "isEnabled": False} for f in to_disable]
-        )
+        updates = [{"folderName": f, "isEnabled": True} for f in to_enable] + [{"folderName": f, "isEnabled": False} for f in to_disable]
 
         if not updates:
             self.logger.info("Restore complete — no changes needed")
