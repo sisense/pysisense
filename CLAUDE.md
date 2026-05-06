@@ -536,6 +536,13 @@ When a public method signature or documented behavior changes:
 1. Update the relevant `docs/<module>.md` page — parameters, return shape, and semantics.
 2. Update the relevant `examples/<module>_example.md` snippet if it references the changed behavior.
 
+When adding a new module or public method:
+
+1. Add the module to the **Modules** table in `CLAUDE.md` and `.cursor/rules/project-overview.mdc`.
+2. Add the mixin file and its public methods to the **mixin lookup table** in both files.
+3. Add the new class to the canonical init pattern in `CLAUDE.md` if it is a top-level SDK class.
+4. Create `examples/<module>_example.md` with copy-paste usage snippets.
+
 ### Quality bar and minimal-change policy
 
 - **Preserve existing behavior** unless fixing a bug.
