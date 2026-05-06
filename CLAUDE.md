@@ -243,7 +243,7 @@ def __init__(self, api_client=None):
 
 ### Type hints (required)
 
-All public methods must have type hints. Target Python 3.9+ — use builtin generics:
+All public methods must have type hints. Target Python 3.10+ — use builtin generics:
 
 ```python
 # ✅ GOOD
