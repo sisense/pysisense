@@ -129,6 +129,83 @@ class TestGetDashboardByName:
 
 
 # ---------------------------------------------------------------------------
+# get_dashboard_widgets
+# ---------------------------------------------------------------------------
+
+
+_WIDGETS = [
+    {"oid": "w1", "title": "Chart A", "type": "chart/column"},
+    {"oid": "w2", "title": "Pivot B", "type": "pivot"},
+]
+
+
+class TestGetDashboardWidgets:
+    def test_returns_widget_list_on_success(self):
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, _WIDGETS),
+            }
+        )
+        result = dash.get_dashboard_widgets("Sales Report")
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["oid"] == "w1"
+
+    def test_returns_error_when_reference_unresolved(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
+        result = dash.get_dashboard_widgets("NoSuchDash")
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    def test_returns_error_on_none_widgets_response(self):
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/dash123/widgets": None,
+            }
+        )
+        result = dash.get_dashboard_widgets("dash123")
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    def test_returns_error_on_non_200_widgets(self):
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/dash123/widgets": FakeResponse(403, {"message": "forbidden"}),
+            }
+        )
+        result = dash.get_dashboard_widgets("Sales Report")
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    def test_returns_error_when_body_not_list(self):
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, {"unexpected": True}),
+            }
+        )
+        result = dash.get_dashboard_widgets("Sales Report")
+        assert isinstance(result, dict)
+        assert "error" in result
+
+    def test_resolves_24_char_oid_with_single_admin_then_widgets(self):
+        dash_id = "a" * 24
+        dash_row = {**_DASHBOARD, "oid": dash_id}
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [dash_row]),
+                f"/api/v1/dashboards/{dash_id}/widgets": FakeResponse(200, _WIDGETS),
+            }
+        )
+        result = dash.get_dashboard_widgets(dash_id)
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
 # add_dashboard_script
 # ---------------------------------------------------------------------------
 
