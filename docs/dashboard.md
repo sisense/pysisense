@@ -72,6 +72,20 @@ Exports a full dashboard definition as JSON using the admin export API (`GET /ap
 
 * * * * *
 
+### `get_dashboard_widgets(dashboard_ref)`
+
+Fetches the widget list for a dashboard via `GET /api/v1/dashboards/{dashboardId}/widgets`. The `dashboard_ref` argument is resolved the same way as other helpers: a 24-character `oid` or a dashboard title (see `resolve_dashboard_reference`).
+
+**Parameters:**
+
+-   `dashboard_ref` (str): Dashboard `oid` or title.
+
+**Returns:**
+
+-   `list`: Widget objects on success. On failure, a dict with an `"error"` key (unresolved reference, no HTTP response, non-200 status, invalid JSON, or a non-list body).
+
+* * * * *
+
 ### `add_dashboard_script(dashboard_id, script, executing_user=None)`
 
 Adds or overwrites the dashboard-level JavaScript script. Sisense only allows the **dashboard owner** to modify scripts.

@@ -64,7 +64,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `resolve_dashboard_reference` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference` |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |

@@ -59,7 +59,22 @@ api_client.export_to_csv(response, 'dashboard.csv')
 
 ---
 
-## Example 3: Get Dashboard by Name
+## Example 3: Get dashboard widgets (lightweight list)
+
+Use `GET /api/v1/dashboards/{id}/widgets` when you need widget metadata (`type`, `oid`, `title`, etc.) without exporting the full dashboard.
+
+```python
+# Pass dashboard oid or title — same resolution as other dashboard helpers
+widgets = dashboard.get_dashboard_widgets("Sample ECommerce")
+if isinstance(widgets, list):
+    print(f"Widget count: {len(widgets)}")
+else:
+    print(widgets.get("error"))
+```
+
+---
+
+## Example 4: Get Dashboard by Name
 
 Fetch a dashboard using its name.
 
@@ -73,7 +88,7 @@ print(dashboard_df)
 
 ---
 
-## Example 4: Add a Custom Script to a Dashboard
+## Example 5: Add a Custom Script to a Dashboard
 
 Add a custom JavaScript script to a dashboard for UI customization.
 
@@ -109,7 +124,7 @@ print(response)
 
 ---
 
-## Example 5: Add Widget Script
+## Example 6: Add Widget Script
 
 Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** often indicates an ownership issue.
 
@@ -138,7 +153,7 @@ print(response)
 
 ---
 
-## Example 6: Add Dashboard Shares
+## Example 7: Add Dashboard Shares
 
 Share a dashboard with users and groups, specifying permissions.
 
@@ -155,7 +170,7 @@ print(response)
 
 ---
 
-## Example 7: Get Columns from a Dashboard
+## Example 8: Get Columns from a Dashboard
 
 Retrieve all columns from a specific dashboard.
 
@@ -169,7 +184,7 @@ print(df)
 
 ---
 
-## Example 8: Get Dashboard Shares
+## Example 9: Get Dashboard Shares
 
 Get sharing information for a dashboard by name.
 
@@ -183,7 +198,7 @@ print(df)
 
 ---
 
-## Example 9: Resolve Dashboard Reference (ID or Name)
+## Example 10: Resolve Dashboard Reference (ID or Name)
 
 Resolve one or more Dashboard references that may be either IDs or names.
 
@@ -210,7 +225,7 @@ if resolved.get("success"):
 
 ---
 
-## Example 10: Get Dashboard Script
+## Example 11: Get Dashboard Script
 
 Retrieve the dashboard export, wrap the dashboard script in a **`SisenseScript`** helper, then render cleaned **jsbeautifier** output (Sisense boilerplate removed, metadata footer appended).
 
@@ -233,7 +248,7 @@ else:
 
 ---
 
-## Example 11: Get Widget Script and Save to File
+## Example 12: Get Widget Script and Save to File
 
 `get_widget_script` uses the same export as Example 10; **`widget_id`** must match a key in the exported dashboard’s **`widgets`** map. The helper strips the standard Sisense widget header comment via regex, beautifies, and appends a widget-specific footer.
 
