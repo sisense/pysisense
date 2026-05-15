@@ -74,7 +74,7 @@ Exports a full dashboard definition as JSON using the admin export API (`GET /ap
 
 ### `get_dashboard_widgets(dashboard_ref)`
 
-Fetches the widget list for a dashboard via `GET /api/v1/dashboards/{dashboardId}/widgets`. The `dashboard_ref` argument is resolved the same way as other helpers: a 24-character `oid` or a dashboard title (see `resolve_dashboard_reference`).
+Returns the `widgets` collection from an admin **export** of the dashboard—the same `GET /api/v1/dashboards/export?dashboardIds=...&adminAccess=true` flow as `export_dashboard`, not the lightweight `.../widgets` REST list. Resolves `dashboard_ref` as a 24-character `oid` or a title via `resolve_dashboard_reference`. If the export has no `widgets` key or it is empty, returns an empty list.
 
 **Parameters:**
 
@@ -82,7 +82,7 @@ Fetches the widget list for a dashboard via `GET /api/v1/dashboards/{dashboardId
 
 **Returns:**
 
--   `list`: Widget objects on success. On failure, a dict with an `"error"` key (unresolved reference, no HTTP response, non-200 status, invalid JSON, or a non-list body).
+-   `list`: Widget objects from the export payload on success (may be empty). On failure, a dict with an `"error"` key (unresolved reference or export failure). If `widgets` is present but not a list or object map of widget dicts, returns an error dict.
 
 * * * * *
 

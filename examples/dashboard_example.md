@@ -59,9 +59,9 @@ api_client.export_to_csv(response, 'dashboard.csv')
 
 ---
 
-## Example 3: Get dashboard widgets (lightweight list)
+## Example 3: Get dashboard widgets from export
 
-Use `GET /api/v1/dashboards/{id}/widgets` when you need widget metadata (`type`, `oid`, `title`, etc.) without exporting the full dashboard.
+Widget definitions come from the same admin export as `export_dashboard` (`GET /api/v1/dashboards/export` with `dashboardIds` and `adminAccess=true`): the `widgets` field on the exported dashboard object (list or object map of widget payloads).
 
 ```python
 # Pass dashboard oid or title — same resolution as other dashboard helpers
