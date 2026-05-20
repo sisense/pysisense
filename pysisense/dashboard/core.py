@@ -244,11 +244,13 @@ class DashboardCoreMixin:
         return data[0]
 
     def get_dashboard_widgets(self, dashboard_ref: str) -> list[dict[str, Any]] | dict[str, Any]:
-        """Retrieve widget metadata for a dashboard.
+        """Retrieve widget definitions from an admin export of the dashboard.
 
-        Sends a GET request to ``/api/v1/dashboards/{dashboardId}/widgets``.
-        The response is a JSON array of widget objects (fields such as ``type``,
-        ``oid``, ``title``, and ``created`` depend on the Sisense version).
+        Uses ``export_dashboard`` (``GET /api/v1/dashboards/export`` with
+        ``dashboardIds`` and ``adminAccess=true``), then reads the ``widgets``
+        field from the first exported dashboard object—the same payload shape
+        used by ``get_dashboard_script`` and ``get_widget_script``. If
+        ``widgets`` is missing or empty, an empty list is returned.
 
         ``dashboard_ref`` is resolved with ``resolve_dashboard_reference`` so it
         may be either a 24-character dashboard ``oid`` or a dashboard title.
@@ -261,10 +263,10 @@ class DashboardCoreMixin:
         Returns
         -------
         list[dict[str, Any]] | dict[str, Any]
-            The widget list on success. On failure, ``{"error": "..."}`` when
-            the reference cannot be resolved, the HTTP layer returns no
-            response, the status code is not 200, the body is not valid JSON,
-            or the parsed body is not a list.
+            A list of widget objects on success (possibly empty). On failure,
+            ``{"error": "..."}`` when the reference cannot be resolved or
+            ``export_dashboard`` fails. If ``widgets`` is present but neither a
+            list nor a mapping of widget objects, returns an error dict.
         """
         resolved = self.resolve_dashboard_reference(dashboard_ref)
         if not resolved.get("success"):
@@ -278,32 +280,22 @@ class DashboardCoreMixin:
             self.logger.error(msg)
             return {"error": msg}
 
-        endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets"
-        self.logger.debug(f"Fetching widgets from: {endpoint}")
+        self.logger.debug(f"Loading widgets via export_dashboard for dashboard '{dashboard_id}'")
 
-        response = self.api_client.get(endpoint)
+        exported = self.export_dashboard(dashboard_id)
+        if "error" in exported:
+            self.logger.error(f"get_dashboard_widgets: export failed for '{dashboard_id}': {exported['error']}")
+            return exported
 
-        if response is None:
-            self.logger.error(f"GET request for dashboard widgets failed (no response): {dashboard_id}")
-            return {"error": f"No response received while retrieving widgets for dashboard '{dashboard_id}'"}
+        raw_widgets = exported.get("widgets") or []
+        if isinstance(raw_widgets, dict):
+            widgets = [w for w in raw_widgets.values() if isinstance(w, dict)]
+        elif isinstance(raw_widgets, list):
+            widgets = [w for w in raw_widgets if isinstance(w, dict)]
+        else:
+            msg = f"Unexpected widgets type in export for dashboard '{dashboard_id}'"
+            self.logger.error(msg)
+            return {"error": msg}
 
-        if response.status_code != 200:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = getattr(response, "text", None) or "No response text available."
-            self.logger.error(f"Failed to retrieve widgets for dashboard {dashboard_id}. Error: {error_message}")
-            return {"error": f"Failed to retrieve widgets for dashboard '{dashboard_id}'. {error_message}"}
-
-        try:
-            widgets = response.json()
-        except Exception:
-            self.logger.error(f"Failed to parse widgets JSON for dashboard '{dashboard_id}'")
-            return {"error": f"Failed to parse widgets response for dashboard '{dashboard_id}'"}
-
-        if not isinstance(widgets, list):
-            self.logger.error(f"Unexpected widgets response structure for dashboard '{dashboard_id}'")
-            return {"error": f"Unexpected widgets response structure for dashboard '{dashboard_id}'"}
-
-        self.logger.info(f"Successfully retrieved {len(widgets)} widgets for dashboard '{dashboard_id}'.")
+        self.logger.info(f"Successfully retrieved {len(widgets)} widgets for dashboard '{dashboard_id}' from export.")
         return widgets

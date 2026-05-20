@@ -138,13 +138,15 @@ _WIDGETS = [
     {"oid": "w2", "title": "Pivot B", "type": "pivot"},
 ]
 
+_EXPORT_DASH = {**_DASHBOARD, "widgets": _WIDGETS}
+
 
 class TestGetDashboardWidgets:
     def test_returns_widget_list_on_success(self):
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, _WIDGETS),
+                "/api/v1/dashboards/export": FakeResponse(200, [_EXPORT_DASH]),
             }
         )
         result = dash.get_dashboard_widgets("Sales Report")
@@ -152,52 +154,78 @@ class TestGetDashboardWidgets:
         assert len(result) == 2
         assert result[0]["oid"] == "w1"
 
+    def test_returns_empty_list_when_widgets_missing(self):
+        export_no_widgets = {**_DASHBOARD, "widgets": []}
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/export": FakeResponse(200, [export_no_widgets]),
+            }
+        )
+        result = dash.get_dashboard_widgets("Sales Report")
+        assert result == []
+
+    def test_normalizes_widgets_object_map(self):
+        export_map = {**_DASHBOARD, "widgets": {"w1": _WIDGETS[0], "w2": _WIDGETS[1]}}
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/export": FakeResponse(200, [export_map]),
+            }
+        )
+        result = dash.get_dashboard_widgets("Sales Report")
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert {w["oid"] for w in result} == {"w1", "w2"}
+
     def test_returns_error_when_reference_unresolved(self):
         dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_widgets("NoSuchDash")
         assert isinstance(result, dict)
         assert "error" in result
 
-    def test_returns_error_on_none_widgets_response(self):
+    def test_returns_error_on_export_none_response(self):
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": None,
+                "/api/v1/dashboards/export": None,
             }
         )
         result = dash.get_dashboard_widgets("dash123")
         assert isinstance(result, dict)
         assert "error" in result
 
-    def test_returns_error_on_non_200_widgets(self):
+    def test_returns_error_on_export_non_200(self):
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(403, {"message": "forbidden"}),
+                "/api/v1/dashboards/export": FakeResponse(403, {"message": "forbidden"}),
             }
         )
         result = dash.get_dashboard_widgets("Sales Report")
         assert isinstance(result, dict)
         assert "error" in result
 
-    def test_returns_error_when_body_not_list(self):
+    def test_returns_error_when_widgets_wrong_type(self):
+        bad_export = {**_DASHBOARD, "widgets": "not-a-list-or-map"}
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, {"unexpected": True}),
+                "/api/v1/dashboards/export": FakeResponse(200, [bad_export]),
             }
         )
         result = dash.get_dashboard_widgets("Sales Report")
         assert isinstance(result, dict)
         assert "error" in result
 
-    def test_resolves_24_char_oid_with_single_admin_then_widgets(self):
+    def test_resolves_24_char_oid_with_admin_then_export(self):
         dash_id = "a" * 24
         dash_row = {**_DASHBOARD, "oid": dash_id}
+        export_dash = {**dash_row, "widgets": _WIDGETS}
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [dash_row]),
-                f"/api/v1/dashboards/{dash_id}/widgets": FakeResponse(200, _WIDGETS),
+                "/api/v1/dashboards/export": FakeResponse(200, [export_dash]),
             }
         )
         result = dash.get_dashboard_widgets(dash_id)
