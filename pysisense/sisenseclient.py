@@ -9,6 +9,8 @@ import yaml
 from .utils import convert_to_dataframe
 from .utils import export_to_csv as export_csv_util
 
+DEFAULT_NON_SSL_PORT = 30845
+
 
 class SisenseClient:
     def __init__(
@@ -19,6 +21,7 @@ class SisenseClient:
         domain: str | None = None,
         token: str | None = None,
         is_ssl: bool | None = None,
+        port: int | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -33,6 +36,7 @@ class SisenseClient:
              - domain: "https://your-domain.sisense.com"
              - token: "YOUR_API_TOKEN"
              - is_ssl: true  # optional, defaults to True
+             - port: 30845  # optional; HTTP port when is_ssl is false (default 30845)
 
         2) Direct connection (no YAML, ideal for agent/inline usage):
             client = SisenseClient(
@@ -57,9 +61,11 @@ class SisenseClient:
                 domain, inline config is used instead of YAML.
             is_ssl (bool | None): Whether to use HTTPS (True) or HTTP (False).
                 If None and inline config is used, defaults to True.
+            port (int | None): HTTP port for non-SSL connections. Ignored when
+                ``is_ssl`` is True. Defaults to 30845 when omitted.
         """
         # Decide how to build the base config
-        if domain is not None or token is not None or is_ssl is not None:
+        if domain is not None or token is not None or is_ssl is not None or port is not None:
             # Direct connection mode – require domain + token
             if not domain or not token:
                 raise ValueError("When using direct connection, both 'domain' and 'token' must be provided.")
@@ -70,6 +76,8 @@ class SisenseClient:
                 # if is_ssl is None, default to True
                 "is_ssl": True if is_ssl is None else bool(is_ssl),
             }
+            if port is not None:
+                self.config["port"] = port
         else:
             # Legacy YAML mode
             if not config_file:
@@ -91,8 +99,8 @@ class SisenseClient:
             # Use default HTTPS (port 443)
             self.base_url = f"https://{self.domain}"
         else:
-            # Use non-SSL and specify port 30845
-            self.base_url = f"http://{self.domain}:30845"
+            http_port = self._non_ssl_port()
+            self.base_url = f"http://{self.domain}:{http_port}"
 
         # Extract the API token for authorization
         self.token = self.config["token"]
@@ -126,6 +134,7 @@ class SisenseClient:
         domain: str,
         token: str,
         is_ssl: bool = True,
+        port: int | None = None,
         debug: bool = False,
     ) -> "SisenseClient":
         """
@@ -145,7 +154,15 @@ class SisenseClient:
             domain=domain,
             token=token,
             is_ssl=is_ssl,
+            port=port,
         )
+
+    def _non_ssl_port(self) -> int:
+        """Return the HTTP port for non-SSL connections (default 30845)."""
+        raw = self.config.get("port")
+        if raw is None:
+            return DEFAULT_NON_SSL_PORT
+        return int(raw)
 
     def _load_config(self, config_file):
         """
