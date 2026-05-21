@@ -1,0 +1,49 @@
+about-time==4.2.1
+alive-progress==3.2.0
+altgraph==0.17.4
+certifi==2025.4.26
+charset-normalizer==3.4.2
+colorama==0.4.6
+deepdiff==8.4.2
+et_xmlfile==2.0.0
+grapheme==0.6.0
+idna==3.10
+macholib==1.16.3
+numpy==2.2.5
+openpyxl==3.1.5
+orderly-set==5.4.0
+packaging==25.0
+pandas==2.2.3
+pillow==11.2.1
+platformdirs==4.3.7
+pyinstaller==6.13.0
+pyinstaller-hooks-contrib==2025.4
+python-dateutil==2.9.0.post0
+pytz==2025.2
+PyYAML==6.0.2
+requests==2.32.3
+six==1.17.0
+tzdata==2025.2
+urllib3==2.4.0
+# Pin setuptools to avoid pkg_resources deprecation warning (emitted when PyInstaller/loader imports it).
+# Setuptools 70+ emits the warning; 69.5.1 is the last 69.x and works with PyInstaller 6.x.
+setuptools>=69.0.0,<70.0.0
+python-dotenv>=1.0.0
+Flask>=2.0
+PyYAML>=5.0
+pymongo~=4.13.0
+httpx~=0.28.1
+Werkzeug<2.1
+waitress
+
+# Chat agent / MCP removed; reimplement as needed for chat UI backend
+mcp>=1.0.0
+
+# MCP client: use MCPServerStdio from OpenAI Agents SDK (optional; for chat integration)
+openai-agents>=0.10.0
+
+# Chat UI to test MCP server (optional)
+gradio>=4.0.0
+
+# LLM mode in chat (optional): OpenAI or Google Gemini via OpenAI-compatible API
+openai>=1.0.0

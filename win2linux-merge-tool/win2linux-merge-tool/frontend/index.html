@@ -1,0 +1,2741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sisense Migration & Merge Settings</title>
+
+    <!-- 1. Load Tailwind CSS first -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 2. Define custom colors AFTER loading Tailwind -->
+    <script>
+        // Wait for Tailwind to be available before configuring
+        function configureTailwind() {
+            if (typeof tailwind !== 'undefined') {
+                tailwind.config = {
+                    theme: {
+                        extend: {
+                            colors: {
+                                'sisense-dark-blue': '#131F29',
+                                'sisense-light-blue': '#1DE4EB',
+                                'sisense-light-green': '#D7F77D',
+                                'sisense-red': '#F05959',
+                                'sisense-red-hover': '#D95050',
+                                'sisense-light-grey': '#F2F4F4',
+                                'sisense-lighter-blue': '#94F5F0',
+                                'sisense-medium-grey': '#E0E0E0',
+                                'sisense-darker-grey': '#BDBDBD',
+                                'sisense-text-dark': '#333333',
+                            }
+                        }
+                    }
+                };
+            } else {
+                // Retry if Tailwind hasn't loaded yet
+                setTimeout(configureTailwind, 50);
+            }
+        }
+        configureTailwind();
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        /* Custom style to ensure the active panel item has a persistent background color, even on hover. */
+        /* This provides a better user experience than the default hover effect on an active item. */
+        .left-panel-item.panel-active,
+        .left-panel-item.panel-active:hover {
+            background-color: #94F5F0; /* Corresponds to sisense-lighter-blue */
+        }
+    </style>
+</head>
+<body class="bg-sisense-light-grey text-sisense-text-dark">
+
+    <div class="container mx-auto p-4 lg:p-8">
+        <!-- Minimal header: title, then nav row with thin border -->
+        <header class="mb-6">
+            <div class="flex items-baseline justify-between gap-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-sisense-dark-blue">Sisense Migration &amp; Merge</h1>
+                    <p class="text-slate-600 mt-0.5">Configure migration settings or validate dashboards and widgets on a server.</p>
+                </div>
+                <div class="text-right shrink-0">
+                    <span id="version-display" class="text-sm text-slate-500">v<span id="version-number">...</span></span>
+                </div>
+            </div>
+            <div class="flex items-center justify-between gap-4 mt-4 pt-3 border-b border-sisense-medium-grey">
+                <nav class="flex gap-6" aria-label="Main">
+                    <a id="view-link-migration" href="#migration" class="view-tab pb-2 -mb-px text-sm font-medium transition-colors border-b-2 border-sisense-dark-blue text-sisense-dark-blue">Migration &amp; Merge</a>
+                    <a id="view-link-validation" href="#validation" class="view-tab pb-2 -mb-px text-sm font-medium transition-colors border-b-2 border-transparent text-slate-600 hover:text-slate-800">Validation</a>
+                    <a id="view-link-servers" href="#servers" class="view-tab pb-2 -mb-px text-sm font-medium transition-colors border-b-2 border-transparent text-slate-600 hover:text-slate-800">Manage Servers</a>
+                    <a id="view-link-chat" href="#chat" class="view-tab pb-2 -mb-px text-sm font-medium transition-colors border-b-2 border-transparent text-slate-600 hover:text-slate-800">Chat</a>
+                </nav>
+                <button id="stop-server-btn" type="button" class="pb-2 text-sm font-medium text-red-600 hover:text-red-700 transition-colors shrink-0">Stop Server</button>
+            </div>
+        </header>
+
+        <!-- View: Migration & Merge -->
+        <div id="view-migration" class="view-content">
+            <div class="bg-white p-6 rounded-t-lg shadow-sm border-b border-sisense-light-grey">
+                <h2 class="text-xl font-semibold text-sisense-dark-blue mb-2">Migration &amp; Merge</h2>
+                <p class="text-slate-600 mb-0">Configure source and target servers, choose what to migrate, and run the migration.</p>
+            </div>
+        <!-- Action Buttons -->
+        <div class="bg-white p-4 rounded-none shadow-sm border-b border-sisense-light-grey flex flex-wrap gap-2 items-center">
+            <button id="load-settings-btn" class="qt-btn qt-btn-main">Load Settings</button>
+            <label for="upload-settings-input" class="qt-btn qt-btn-main cursor-pointer flex items-center justify-center">
+                Upload Settings
+                <input type="file" id="upload-settings-input" class="hidden" accept=".yaml,.yml">
+            </label>
+            <button id="save-settings-btn" class="qt-btn qt-btn-main">Save Settings</button>
+            <button id="export-settings-btn" class="qt-btn qt-btn-main">Export Settings</button>
+            <button id="preview-yaml-btn" class="qt-btn qt-btn-main">Preview YAML</button>
+            <div class="flex-grow"></div>
+            <button id="run-app-btn" class="qt-btn qt-btn-main">Run App</button>
+        </div>
+
+        <!-- Main Content - New Two-Panel Layout -->
+        <div class="bg-white p-4 sm:p-6 rounded-b-lg shadow-sm flex flex-col md:flex-row gap-6">
+            <!-- Left Panel: Migration Switches & Navigation -->
+            <div class="w-full md:w-1/3 lg:w-1/4 border-r border-sisense-medium-grey pr-4">
+                <div id="left-panel-container" class="space-y-1">
+                    <!-- Left panel items will be rendered here by JS -->
+                </div>
+            </div>
+
+            <!-- Right Panel: Options -->
+            <div class="w-full md:w-2/3 lg:w-3/4">
+                <h3 id="options-panel-title" class="text-lg font-semibold text-sisense-dark-blue mb-4">Options</h3>
+                <div id="options-panel-content" class="space-y-4">
+                    <!-- Options will be rendered here by JS -->
+                </div>
+            </div>
+        </div>
+        </div>
+        <!-- End View: Migration & Merge -->
+
+        <!-- View: Validation -->
+        <div id="view-validation" class="view-content hidden">
+            <div class="bg-white p-6 rounded-lg shadow-sm mb-6">
+                <h2 class="text-xl font-semibold text-sisense-dark-blue mb-2">Dashboard &amp; Widget Validation</h2>
+                <p class="text-slate-600 mb-6">Validate that all dashboards and widgets on a selected server load without errors.</p>
+                <div class="space-y-4 max-w-2xl">
+                    <div>
+                        <label for="validation-server-select" class="block text-sm font-medium text-slate-700 mb-1">Server</label>
+                        <div class="flex items-center gap-2">
+                            <select id="validation-server-select" class="w-64 p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown">
+                                <option value="">-- Select a Server --</option>
+                            </select>
+                            <button type="button" id="validation-test-connection-btn" class="shrink-0 w-9 h-9 flex items-center justify-center text-sisense-dark-blue hover:text-sisense-light-blue hover:bg-sisense-light-grey rounded-md transition-colors" title="Test connection to this server">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </button>
+                            <div id="validation-test-connection-result" class="text-sm hidden"></div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="validation-include-jaql" class="rounded border-sisense-medium-grey" checked>
+                        <label for="validation-include-jaql" class="text-sm text-slate-700">Include JAQL checks (run each widget&#39;s query; slower)</label>
+                        <span class="relative inline-flex items-center ml-1 cursor-help group/info">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span class="absolute left-0 top-full mt-1 hidden group-hover/info:block z-50 w-72 p-2 text-xs font-normal text-slate-700 bg-white border border-slate-200 rounded-md shadow-lg pointer-events-none">Runs each widget's JAQL query against the server to verify it executes. Use &quot;One per widget&quot; to match the app UI, or &quot;One per JAQL item&quot; to check each dimension/measure separately.</span>
+                        </span>
+                    </div>
+                    <div id="validation-jaql-mode-wrap" class="hidden ml-6 pl-4 border-l-2 border-slate-200">
+                        <span class="text-sm text-slate-600 mr-2">JAQL mode:</span>
+                        <label class="inline-flex items-center gap-1 mr-4"><input type="radio" name="validation-jaql-mode" value="widget" class="rounded-full border-sisense-medium-grey" checked> One per widget (like UI)</label>
+                        <label class="inline-flex items-center gap-1"><input type="radio" name="validation-jaql-mode" value="item" class="rounded-full border-sisense-medium-grey"> One per JAQL item</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="validation-show-jaql-in-results" class="rounded border-sisense-medium-grey">
+                        <label for="validation-show-jaql-in-results" class="text-sm text-slate-700">Show JAQL query in results</label>
+                        <span class="relative inline-flex items-center ml-1 cursor-help group/info2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            <span class="absolute left-0 top-full mt-1 hidden group-hover/info2:block z-50 w-72 p-2 text-xs font-normal text-slate-700 bg-white border border-slate-200 rounded-md shadow-lg pointer-events-none">When enabled, the metadata (JAQL) sent for each check is shown in the results so you can inspect the exact query.</span>
+                        </span>
+                    </div>
+                    <div>
+                        <button id="validation-run-btn" class="qt-btn qt-btn-main">Run validation</button>
+                    </div>
+                </div>
+            </div>
+            <div id="validation-results-container" class="bg-white p-6 rounded-lg shadow-sm hidden">
+                <div id="validation-progress-section" class="hidden mb-6">
+                    <h3 class="text-lg font-semibold text-sisense-dark-blue mb-2">Progress</h3>
+                    <div class="w-full bg-sisense-light-grey rounded-full h-3 mb-2">
+                        <div id="validation-progress-bar" class="bg-sisense-light-blue h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <p id="validation-progress-text" class="text-sm text-slate-600 mb-2">Starting...</p>
+                    <div id="validation-control-buttons" class="hidden flex gap-2 mb-2">
+                        <button type="button" id="validation-pause-btn" class="qt-btn bg-slate-500 text-white px-3 py-1 text-sm rounded">Pause</button>
+                        <button type="button" id="validation-resume-btn" class="qt-btn bg-slate-500 text-white px-3 py-1 text-sm rounded hidden">Resume</button>
+                        <button type="button" id="validation-stop-btn" class="qt-btn bg-sisense-red text-white px-3 py-1 text-sm rounded">Stop</button>
+                    </div>
+                    <p class="text-xs text-slate-500 mb-1">Log (live; path also printed in server terminal — use <code class="bg-slate-100 px-1">tail -f &lt;path&gt;</code> to watch there)</p>
+                    <div id="validation-log" class="bg-sisense-dark-blue text-sisense-lighter-blue text-xs font-mono p-3 rounded-md max-h-48 overflow-y-auto whitespace-pre-wrap"></div>
+                </div>
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                    <div class="flex items-center gap-3">
+                        <h3 class="text-lg font-semibold text-sisense-dark-blue">Results</h3>
+                        <label for="validation-results-filter" class="text-sm text-slate-600">Show:</label>
+                        <select id="validation-results-filter" class="border border-sisense-medium-grey rounded px-2 py-1 text-sm bg-white">
+                            <option value="all">All</option>
+                            <option value="failed">Failed only</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label for="validation-export-format" class="text-sm text-slate-600">Export as:</label>
+                        <select id="validation-export-format" class="border border-sisense-medium-grey rounded px-2 py-1 text-sm">
+                            <option value="json">JSON</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                        <button type="button" id="validation-export-results-btn" class="qt-btn bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1 text-sm rounded">Export</button>
+                        <button type="button" id="validation-clear-results-btn" class="qt-btn bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1 text-sm rounded">Clear</button>
+                    </div>
+                </div>
+                <div id="validation-results-content" class="space-y-2 text-sm"></div>
+            </div>
+        </div>
+        <!-- End View: Validation -->
+
+        <!-- View: Manage Servers -->
+        <div id="view-servers" class="view-content hidden">
+            <div class="bg-white p-6 rounded-lg shadow-sm mb-6">
+                <h2 class="text-xl font-semibold text-sisense-dark-blue mb-2">Manage Servers</h2>
+                <p class="text-slate-600 mb-4">Add, edit, and remove servers. Configure host, port, API token, and allowed roles (source/target).</p>
+                <div id="view-servers-body" class="min-h-[60vh]">
+                    <!-- Server manager UI injected by JS -->
+                </div>
+                <div id="view-servers-footer" class="mt-4 flex gap-2 border-t pt-4"></div>
+            </div>
+        </div>
+        <!-- End View: Manage Servers -->
+
+        <!-- View: Chat (embedded React chat) -->
+        <div id="view-chat" class="view-content hidden">
+            <iframe id="chat-iframe" src="/chat/?embed=1" title="Migration Chat" class="w-full min-h-[480px] border-0 rounded-lg bg-white shadow-sm" style="height: 70vh;"></iframe>
+            <p class="text-slate-600 text-sm mt-2"><a href="/chat/" target="_blank" rel="noopener noreferrer" class="text-sisense-dark-blue hover:underline">Open full chat in new tab</a></p>
+        </div>
+        <!-- End View: Chat -->
+
+        <!-- Status Bar -->
+        <footer id="status-bar" class="fixed bottom-0 left-0 right-0 bg-sisense-dark-blue text-white text-xs px-4 py-1 z-10">Ready</footer>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+        <div id="modal-content" class="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] flex flex-col">
+             <div class="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-lg">
+                <h3 id="modal-title" class="text-lg font-semibold"></h3>
+                <button id="modal-close-btn" class="text-2xl text-slate-500 hover:text-slate-800 leading-none">&times;</button>
+            </div>
+            <div id="modal-body" class="p-6 overflow-y-auto flex-grow"></div>
+             <div id="modal-footer" class="p-4 bg-slate-50 border-t flex justify-end gap-2 rounded-b-lg"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION (mirroring config.py) ---
+        const config = {
+            // New configuration for the two-panel layout
+            PANEL_ICONS: {
+                'Connection': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>`,
+                'Logging': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`,
+                'Users': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>`,
+                'Groups': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>`,
+                'Folders': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>`,
+                'Dashboards': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" /><path stroke-linecap="round" stroke-linejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" /></svg>`,
+                'Datamodels': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>`,
+                'Saved Formulas': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7" /></svg>`,
+                'Saved Filters': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>`,
+                'Data Security': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>`,
+                'Blox': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>`,
+                'Custom Code': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" /></svg>`,
+                'Preflight': `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`,
+            },
+            LEFT_PANEL_SECTIONS: {
+                'Configuration': ['Connection', 'Logging', 'Preflight'],
+                'Migration Items': ['Users', 'Groups', 'Folders', 'Dashboards', 'Datamodels', 'Saved Formulas', 'Saved Filters', 'Data Security', 'Blox', 'Custom Code']
+            },
+            // Maps a panel/category to the migration key that controls it
+            PANEL_TO_CONTROL_KEY: {
+                'Users': 'migrate_users',
+                'Groups': 'migrate_groups',
+                'Folders': 'migrate_folders',
+                'Dashboards': 'migrate_dashboards',
+                'Datamodels': 'migrate_datamodels',
+                'Saved Formulas': 'migrate_saved_formulas',
+                'Saved Filters': 'migrate_saved_filters',
+                'Data Security': 'migrate_datasecurity',
+                'Blox': 'migrate_blox_actions',
+                'Custom Code': 'migrate_custom_code'
+            },
+            // This map remains crucial for assigning individual settings to a panel.
+            CATEGORY_MAP: {
+                'selected_source_server': 'Connection', 'selected_target_server': 'Connection', 'verify': 'Connection',
+                'file_logLevel': 'Logging', 'console_logLevel': 'Logging', 'logFileName': 'Logging', 'override_logs': 'Logging', 'write_migration_reports': 'Logging', 'migration_log_levels': 'Logging',
+                'dashboard_import_mode': 'Dashboards', 'dashboard_migration_mode': 'Dashboards', 'dashboard_include_list': 'Dashboards',
+                'exclude_dashboards_by_name': 'Dashboards', 'exclude_dashboards_by_oid': 'Dashboards', 'use_custom_dashboard_oid': 'Dashboards',
+                'oid_host_mapping': 'Dashboards', 'exact_match_in_dashboard_search': 'Dashboards', 'validate_dashboards_migration': 'Dashboards',
+                'skip_dashboards_with_missing_owner': 'Dashboards', 'skip_dashboards_with_missing_ancestor_folder': 'Dashboards', 'dashboard_migration_concurrency': 'Dashboards',
+                'dashboard_fetch_chunk_size': 'Dashboards',
+                'datamodel_overwrite': 'Datamodels', 'exclude_datamodels': 'Datamodels', 'include_datamodels': 'Datamodels', 'enable_update_connections': 'Datamodels', 'update_connections': 'Datamodels', 'post_import_update_connection_function': 'Datamodels', 'auto_migrate_missing_custom_code_notebooks': 'Datamodels', 'notebook_import_mode': 'Datamodels', 'migrate_remote_datamodel': 'Datamodels',
+                'update_users_password': 'Users', 'new_password_for_migrated_users': 'Users', 'migrate_users_chunk_size': 'Users', 'wait_between_chunks': 'Users', 'wait_chunk_size_threshold': 'Users',
+                'migrate_datasecurity_chunk_size': 'Data Security', 'include_datamodels_datasecurity': 'Data Security', 'exclude_datamodels_datasecurity': 'Data Security',
+                'share_source_dashboards_with_migration_user': 'Folders', 'update_target_folders_owner': 'Folders', 'run_folder_migration_if_missing': 'Folders',
+                'migrate_blox_actions': 'Blox', 'overwrite_existing_blox_actions': 'Blox', 'migrate_custom_code': 'Custom Code', 'notebook_include_list': 'Custom Code',
+                'dashboard_share_with_migration_user': 'Preflight', 'dashboard_share_concurrency': 'Preflight', 'ignore_custom_roles': 'Preflight',
+            },
+            FOLDER_SUB_KEYS: ['share_source_dashboards_with_migration_user', 'update_target_folders_owner', 'run_folder_migration_if_missing'],
+            DASHBOARD_MIGRATION_MODE_KEY: 'dashboard_migration_mode',
+            DASHBOARD_INCLUDE_LIST_KEY: 'dashboard_include_list',
+            LOGGING_LEVELS: ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+            MIGRATION_LOG_LEVEL_ITEMS: [
+                { id: 'groups', label: 'Groups' },
+                { id: 'users', label: 'Users' },
+                { id: 'preflight', label: 'Preflight' },
+                { id: 'folders', label: 'Folders' },
+                { id: 'datamodels', label: 'Datamodels' },
+                { id: 'datasecurity', label: 'Data Security' },
+                { id: 'dashboards', label: 'Dashboards' },
+                { id: 'blox', label: 'Blox' },
+                { id: 'custom_code', label: 'Custom Code' }
+            ],
+            DASHBOARD_IMPORT_MODES: ['skip', 'overwrite'],
+            NOTEBOOK_IMPORT_MODES: ['skip', 'overwrite'],
+            BOOLEAN_KEYS: [
+                'verify', 'override_logs', 'write_migration_reports', 'use_custom_dashboard_oid', 'exact_match_in_dashboard_search', 'migrate_users', 'migrate_groups', 'migrate_folders', 'migrate_dashboards', 'migrate_datamodels', 'migrate_datasecurity',
+                'validate_dashboards_migration', 'skip_dashboards_with_missing_owner', 'skip_dashboards_with_missing_ancestor_folder',
+                'datamodel_overwrite', 'enable_update_connections', 'auto_migrate_missing_custom_code_notebooks', 'migrate_saved_formulas', 'migrate_saved_filters', 'update_users_password', 'migrate_remote_datamodel',
+                'share_source_dashboards_with_migration_user', 'update_target_folders_owner', 'run_folder_migration_if_missing',
+                'migrate_blox_actions', 'overwrite_existing_blox_actions', 'dashboard_share_with_migration_user', 'ignore_custom_roles'
+            ],
+            COMMA_STRING_KEYS: ['include_datamodels', 'exclude_datamodels', 'include_datamodels_datasecurity', 'exclude_datamodels_datasecurity', 'dashboard_include_list', 'exclude_dashboards_by_name', 'exclude_dashboards_by_oid'],
+            KEY_VALUE_EDITOR_KEYS: ['oid_host_mapping'],
+            LIST_OF_DICTS_EDITOR_KEYS: { 'update_connections': {'provider': 'Provider', 'function': 'Function'} },
+            HELP_TEXTS: {
+                'verify': "Verify SSL certificates for API requests. Should generally be kept enabled unless you have specific reasons (e.g., self-signed certificates) and understand the security implications.",
+                'file_logLevel': "Set the logging level for the log file (e.g., 'DEBUG', 'INFO', 'WARNING').",
+                'console_logLevel': "Set the logging level for the console output (e.g., 'DEBUG', 'INFO', 'WARNING').",
+                'logFileName': "Name of the log file to be created in the 'dist/logs' directory.",
+                'override_logs': "If checked, existing log files with the same name will be overwritten on each run. Otherwise, new logs will be appended.",
+                'write_migration_reports': "If checked, migration reports (Excel, CSV, etc.) will be written to disk when errors occur. Uncheck to disable all report file generation.",
+                'migration_log_levels': "Per-migration-item log levels. Set to 'inherit' to use the global file/console log level. Override for specific items (e.g., DEBUG for dashboards) to control verbosity.",
+                'dashboard_import_mode': "'skip': Do not import dashboards that already exist on the target. 'overwrite': Replace existing dashboards on the target with the ones from the source.",
+                'dashboard_migration_mode': "'ALL': Migrate all accessible dashboards. 'By Name': Migrate only the dashboards listed in 'dashboard_include_list' by name. 'By OID': Migrate only the dashboards listed in 'dashboard_include_list' by OID.",
+                'dashboard_include_list': "List of dashboard names (when 'By Name') or OIDs (when 'By OID'), one per line, to include when 'dashboard_migration_mode' is 'By Name' or 'By OID'.",
+                'exclude_dashboards_by_name': "List of dashboard names (one per line) to explicitly exclude from migration.",
+                'exclude_dashboards_by_oid': "List of dashboard OIDs (Object IDs) (one per line) to explicitly exclude from migration.",
+                'use_custom_dashboard_oid': "Enable mapping of dashboard OIDs based on the source host. Requires 'oid_host_mapping' to be configured.",
+                'oid_host_mapping': "Map source hostnames/IPs to target OID prefixes. Used when 'use_custom_dashboard_oid' is enabled to generate predictable OIDs on the target.",
+                'exact_match_in_dashboard_search': "If checked, dashboard search (for include/exclude lists) will require an exact name match. Otherwise, it performs a substring match.",
+                'validate_dashboards_migration': "Perform post-migration checks to verify dashboard structure and data sources (can increase migration time).",
+                'skip_dashboards_with_missing_owner': "If checked, dashboards whose owners do not exist on the target system will be skipped during migration.",
+                'skip_dashboards_with_missing_ancestor_folder': "If checked, dashboards whose parent folder (or any ancestor folder) is missing on the target system will be skipped during migration. This helps prevent dashboards from being migrated to the root if their folder structure cannot be replicated.",
+                'dashboard_share_with_migration_user': "During folder migration, share dashboards from the *source* system with the migration user *on the source* (useful for ensuring the migration user can access folders and dashboards to migrate them).",
+                'dashboard_migration_concurrency': "Number of dashboards to process concurrently during migration. Higher values may speed up migration but increase load.",
+                'datamodel_overwrite': "If checked, existing datamodels on the target server will be overwritten by those from the source.",
+                'exclude_datamodels': "List of datamodel titles (one per line) to exclude from migration.",
+                'include_datamodels': "List of datamodel titles (one per line) to include in the migration (if empty, all non-excluded datamodels are considered).",
+                'enable_update_connections': "Enable the modification of connection details within migrated datamodels based on the 'update_connections' mapping.",
+                'update_connections': "Define rules for updating connection details in datamodels. Map 'Provider' (e.g., 'CSV', 'SQLServer') to a 'Function' name defined in 'post_import_update_connection_function'.",
+                'post_import_update_connection_function': "Path to a Python file containing custom functions for updating datamodel connections (referenced in 'update_connections').",
+                'auto_migrate_missing_custom_code_notebooks': "If checked, when migrating a datamodel that requires custom code notebooks that are missing on the target server, the tool will automatically migrate those notebooks before continuing with the datamodel migration.",
+                'migrate_remote_datamodel': "Enable migration of remote server elasticube datamodels. This option allows the tool to migrate datamodels from remote servers.",
+                'update_users_password': "If checked, the passwords of migrated users will be updated to the value specified in 'new_password_for_migrated_users'.",
+                'new_password_for_migrated_users': "The new password to set for users if 'update_users_password' is enabled.",
+                'migrate_users_chunk_size': "Number of users to process in each batch during migration.",
+                'ignore_custom_roles': "If checked, the 'custom_' prefix will be stripped from role names when matching roles between source and target systems. For example, a source role 'custom_admin' will match a target role 'admin' (or 'custom_admin'). This is useful when source systems use custom roles but target systems use standard roles with the same base name.",
+                'migrate_datasecurity_chunk_size': "Number of data security rules to process in each batch.",
+                'include_datamodels_datasecurity': "List of datamodel titles (one per line) to include for data security migration (if empty, all non-excluded datamodels are considered).",
+                'exclude_datamodels_datasecurity': "List of datamodel titles (one per line) to exclude from data security migration.",
+                'share_source_dashboards_with_migration_user': "During folder migration, share dashboards from the *source* system with the migration user *on the source* (useful for ensuring the migration user can access folders and dashboards to migrate them).",
+                'update_target_folders_owner': "Update the owner of migrated folders on the target system to match the owner from the source system.",
+                'run_folder_migration_if_missing': "If checked, the script will automatically run a full folder migration if it detects that no folders have been migrated from the source server before starting the dashboard migration. This is useful to ensure dashboard parent folders exist.",
+                'migrate_blox_actions': "Enable the migration of BloX actions.",
+                'overwrite_existing_blox_actions': "If checked, existing BloX actions on the target with the same name will be overwritten.",
+                'migrate_custom_code': "Enable the migration of custom code (notebooks).",
+                'notebook_import_mode': "'skip': Do not import notebooks that already exist on the target. 'overwrite': Replace existing notebooks on the target using PATCH.",
+                'wait_between_chunks': "Time (in seconds) to wait between processing large chunks of data (e.g., users).",
+                'wait_chunk_size_threshold': "Apply the 'wait_between_chunks' delay only if a data chunk exceeds this threshold.",
+                'dashboard_share_concurrency': "Number of dashboards to process concurrently during the sharing step (if enabled). Value must be between 1 and 20."
+            }
+        };
+
+        // --- DOM Elements & State ---
+        const dom = {
+            viewLinkMigration: document.getElementById('view-link-migration'),
+            viewLinkValidation: document.getElementById('view-link-validation'),
+            viewLinkServers: document.getElementById('view-link-servers'),
+            viewLinkChat: document.getElementById('view-link-chat'),
+            viewMigration: document.getElementById('view-migration'),
+            viewValidation: document.getElementById('view-validation'),
+            viewServers: document.getElementById('view-servers'),
+            viewChat: document.getElementById('view-chat'),
+            chatLog: document.getElementById('chat-log'),
+            chatInput: document.getElementById('chat-input'),
+            chatSendBtn: document.getElementById('chat-send-btn'),
+            chatMode: document.getElementById('chat-mode'),
+            chatProvider: document.getElementById('chat-provider'),
+            chatModel: document.getElementById('chat-model'),
+            chatApiKey: document.getElementById('chat-api-key'),
+            chatSettingsPath: document.getElementById('chat-settings-path'),
+            viewServersBody: document.getElementById('view-servers-body'),
+            viewServersFooter: document.getElementById('view-servers-footer'),
+            validationServerSelect: document.getElementById('validation-server-select'),
+            validationIncludeJaql: document.getElementById('validation-include-jaql'),
+            validationJaqlModeWrap: document.getElementById('validation-jaql-mode-wrap'),
+            validationRunBtn: document.getElementById('validation-run-btn'),
+            validationResultsContainer: document.getElementById('validation-results-container'),
+            validationResultsContent: document.getElementById('validation-results-content'),
+            validationClearResultsBtn: document.getElementById('validation-clear-results-btn'),
+            validationExportResultsBtn: document.getElementById('validation-export-results-btn'),
+            validationProgressSection: document.getElementById('validation-progress-section'),
+            validationProgressBar: document.getElementById('validation-progress-bar'),
+            validationProgressText: document.getElementById('validation-progress-text'),
+            validationControlButtons: document.getElementById('validation-control-buttons'),
+            validationPauseBtn: document.getElementById('validation-pause-btn'),
+            validationResumeBtn: document.getElementById('validation-resume-btn'),
+            validationStopBtn: document.getElementById('validation-stop-btn'),
+            validationLog: document.getElementById('validation-log'),
+            leftPanelContainer: document.getElementById('left-panel-container'),
+            optionsPanelTitle: document.getElementById('options-panel-title'),
+            optionsPanelContent: document.getElementById('options-panel-content'),
+            statusBar: document.getElementById('status-bar'),
+            modalContainer: document.getElementById('modal-container'),
+            modalContent: document.getElementById('modal-content'),
+            modalTitle: document.getElementById('modal-title'),
+            modalBody: document.getElementById('modal-body'),
+            modalFooter: document.getElementById('modal-footer'),
+            modalCloseBtn: document.getElementById('modal-close-btn'),
+            loadBtn: document.getElementById('load-settings-btn'),
+            saveBtn: document.getElementById('save-settings-btn'),
+            previewBtn: document.getElementById('preview-yaml-btn'),
+            exportBtn: document.getElementById('export-settings-btn'),
+            runBtn: document.getElementById('run-app-btn'),
+            stopServerBtn: document.getElementById('stop-server-btn'),
+            manageServersBtn: document.getElementById('manage-servers-btn'),
+            uploadInput: document.getElementById('upload-settings-input'),
+        };
+        let state = { activePanel: 'Connection', settings: {}, servers: {}, selectedServer: null, serversSelectedForBulkDelete: new Set(), chatMessages: [] };
+        let originalServerEntry = null;
+
+        // --- UI & Modal Functions ---
+        const setStatus = (message, isError = false, duration = 0) => {
+            dom.statusBar.textContent = message;
+            dom.statusBar.className = `fixed bottom-0 left-0 right-0 text-xs px-4 py-1 z-10 transition-colors ${isError ? 'bg-sisense-red text-white' : 'bg-sisense-dark-blue text-white'}`;
+            if (duration > 0) setTimeout(() => setStatus("Ready"), duration * 1000);
+        };
+
+        const showModal = (title, bodyHtml, footerHtml = '') => {
+            dom.modalTitle.textContent = title;
+            dom.modalBody.innerHTML = bodyHtml;
+            dom.modalFooter.innerHTML = footerHtml;
+            dom.modalContainer.classList.remove('hidden');
+            dom.modalContainer.classList.add('flex');
+        };
+
+        const hideModal = () => {
+            dom.modalContainer.classList.add('hidden');
+            // --- FIX: Reset the outside-click behavior to the default (allow closing) ---
+            dom.modalContainer.dataset.allowOutsideClose = 'true';
+        };
+
+        // --- View switching (Migration & Merge | Validation | Manage Servers | Chat) ---
+        const switchView = (viewId) => {
+            const isMigration = viewId === 'migration';
+            const isValidation = viewId === 'validation';
+            const isServers = viewId === 'servers';
+            const isChat = viewId === 'chat';
+            if (dom.viewMigration) dom.viewMigration.classList.toggle('hidden', !isMigration);
+            if (dom.viewValidation) dom.viewValidation.classList.toggle('hidden', !isValidation);
+            if (dom.viewServers) dom.viewServers.classList.toggle('hidden', !isServers);
+            if (dom.viewChat) dom.viewChat.classList.toggle('hidden', !isChat);
+            [dom.viewLinkMigration, dom.viewLinkValidation, dom.viewLinkServers, dom.viewLinkChat].forEach((el, i) => {
+                if (!el) return;
+                const active = (i === 0 && isMigration) || (i === 1 && isValidation) || (i === 2 && isServers) || (i === 3 && isChat);
+                el.classList.toggle('border-sisense-dark-blue', active);
+                el.classList.toggle('border-transparent', !active);
+                el.classList.toggle('text-sisense-dark-blue', active);
+                el.classList.toggle('text-slate-600', !active);
+            });
+            window.location.hash = viewId;
+            if (isServers && dom.viewServersBody) openServersView();
+            if (isChat) {
+                renderChatLog();
+                updateChatModelDropdown();
+            }
+        };
+
+        const openServersView = async () => {
+            if (!dom.viewServersBody || !dom.viewServersFooter) return;
+            try {
+                if (Object.keys(state.servers || {}).length === 0) {
+                    state.servers = await apiCall('servers');
+                    state.selectedServer = Object.keys(state.servers)[0] || null;
+                }
+                dom.viewServersBody.innerHTML = renderServerManagerUI();
+                renderServerDetails({ footerContainer: dom.viewServersFooter, closeLabel: '' });
+            } catch (error) {
+                setStatus(`Could not load servers: ${error.message}`, true);
+                dom.viewServersBody.innerHTML = `<p class="text-sisense-red">Failed to load servers.</p>`;
+            }
+        };
+
+        // --- Chat view ---
+        const CHAT_OPENAI_MODELS = ['gpt-4o-mini', 'gpt-4o', 'gpt-4-turbo'];
+        const CHAT_GOOGLE_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        const updateChatModelDropdown = () => {
+            if (!dom.chatModel || !dom.chatProvider) return;
+            const provider = dom.chatProvider.value;
+            const models = provider === 'Google' ? CHAT_GOOGLE_MODELS : CHAT_OPENAI_MODELS;
+            const current = dom.chatModel.value;
+            dom.chatModel.innerHTML = models.map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+            const hasCurrent = models.includes(current);
+            dom.chatModel.value = hasCurrent ? current : (models[0] || '');
+        };
+        const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const renderChatLog = () => {
+            if (!dom.chatLog) return;
+            if (state.chatMessages.length === 0) {
+                dom.chatLog.innerHTML = '<p class="text-slate-500">Send a message to run migration commands. Try &quot;validate connections&quot; or &quot;migrate dashboards&quot;.</p>';
+                return;
+            }
+            dom.chatLog.innerHTML = state.chatMessages.map(({ role, content, source }) => {
+                const isUser = role === 'user';
+                const block = isUser ? 'bg-sisense-light-blue border-sisense-dark-blue' : 'bg-white border-sisense-medium-grey';
+                const label = isUser ? 'You' : (source ? `Assistant (${escapeHtml(source)})` : 'Assistant');
+                const text = escapeHtml(content).replace(/\n/g, '<br>');
+                return `<div class="border rounded p-2 ${block}"><span class="font-medium text-slate-600">${label}</span><div class="mt-1 whitespace-pre-wrap">${text}</div></div>`;
+            }).join('');
+            dom.chatLog.scrollTop = dom.chatLog.scrollHeight;
+        };
+        const chatSend = async () => {
+            if (!dom.chatInput || !dom.chatLog) return;
+            const message = (dom.chatInput.value || '').trim();
+            if (!message) return;
+            dom.chatInput.value = '';
+            state.chatMessages.push({ role: 'user', content: message, source: null });
+            renderChatLog();
+            const mode = dom.chatMode ? dom.chatMode.value : 'tool_only';
+            const provider = dom.chatProvider ? dom.chatProvider.value : 'OpenAI';
+            const apiKey = dom.chatApiKey ? dom.chatApiKey.value.trim() : '';
+            const model = dom.chatModel ? dom.chatModel.value.trim() : '';
+            const settingsPath = dom.chatSettingsPath ? dom.chatSettingsPath.value.trim() : '';
+            // Send previous turns as history so the LLM has conversation context (e.g. "Why not?" refers to prior answer)
+            const history = state.chatMessages.slice(0, -1).map(({ role, content }) => ({ role, content }));
+            setStatus('Chat: sending...', false);
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message, history, mode, settings_path: settingsPath || undefined, provider, api_key: apiKey || undefined, model: model || undefined }),
+                });
+                const data = await response.json();
+                const reply = response.ok ? (data.reply || '') : (data.error || 'Request failed');
+                const source = (data.source || 'tool_only');
+                const sourceLabel = source === 'direct_lookup' ? 'Direct lookup' : source === 'llm' ? (data.model ? `LLM (${data.model})` : 'LLM') : 'Tool only';
+                state.chatMessages.push({ role: 'assistant', content: reply, source: sourceLabel });
+            } catch (err) {
+                state.chatMessages.push({ role: 'assistant', content: 'Error: ' + (err.message || String(err)), source: null });
+            }
+            renderChatLog();
+            setStatus('Ready', false);
+        };
+        if (dom.chatSendBtn) dom.chatSendBtn.addEventListener('click', chatSend);
+        if (dom.chatInput) dom.chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); chatSend(); } });
+        if (dom.chatProvider) dom.chatProvider.addEventListener('change', updateChatModelDropdown);
+
+        const populateValidationServers = () => {
+            if (!dom.validationServerSelect) return;
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const names = Object.keys(state.servers || {}).filter(Boolean).sort();
+            dom.validationServerSelect.innerHTML = '<option value="">-- Select a Server --</option>' +
+                names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+        };
+
+        // --- Form Rendering ---
+        const createKeyValueEditor = (key, data) => {
+            const keyLabel = key === 'oid_host_mapping' ? 'Host' : 'Key';
+            const valueLabel = key === 'oid_host_mapping' ? 'OID Prefix' : 'Value';
+            let rowsHtml = '';
+            if (typeof data === 'object' && data !== null) {
+                for (const [k, v] of Object.entries(data)) {
+                    rowsHtml += `
+                        <div class="kv-row flex items-center gap-2 mb-2">
+                            <input type="text" class="kv-key w-full p-2 border rounded-md shadow-sm text-sm" placeholder="${keyLabel}" value="${k}">
+                            <input type="text" class="kv-value w-full p-2 border rounded-md shadow-sm text-sm" placeholder="${valueLabel}" value="${v}">
+                            <button type="button" class="kv-remove-btn bg-sisense-red text-white px-2 py-1 rounded hover:bg-sisense-red-hover text-xs">Remove</button>
+                        </div>
+                    `;
+                }
+            }
+            return `
+                <div id="kv-editor-${key}" class="p-2 border rounded-md bg-sisense-light-grey">
+                    <div class="kv-rows-container">${rowsHtml}</div>
+                    <button type="button" class="kv-add-btn mt-2 bg-sisense-lighter-blue text-sisense-text-dark px-3 py-1 rounded hover:bg-opacity-80 text-sm" data-key-label="${keyLabel}" data-value-label="${valueLabel}">Add Mapping</button>
+                </div>
+            `;
+        };
+
+        const createListOfDictsEditor = (key, data) => {
+            const fieldConfig = config.LIST_OF_DICTS_EDITOR_KEYS[key];
+            const internalKeys = Object.keys(fieldConfig);
+            let rowsHtml = '';
+            if (Array.isArray(data)) {
+                data.forEach(item => {
+                    const inputs = internalKeys.map(k => `
+                        <input type="text" class="w-full p-2 border rounded-md shadow-sm text-sm" data-field-key="${k}" placeholder="${fieldConfig[k]}" value="${item[k] || ''}">
+                    `).join('');
+                    rowsHtml += `<div class="lod-row flex items-center gap-2 mb-2">${inputs}<button type="button" class="lod-remove-btn bg-sisense-red text-white px-2 py-1 rounded hover:bg-sisense-red-hover text-xs">Remove</button></div>`;
+                });
+            }
+            return `
+                <div id="lod-editor-${key}" class="p-2 border rounded-md bg-sisense-light-grey">
+                    <div class="lod-rows-container">${rowsHtml}</div>
+                    <button type="button" class="lod-add-btn mt-2 bg-sisense-lighter-blue text-sisense-text-dark px-3 py-1 rounded hover:bg-opacity-80 text-sm" data-editor-key="${key}">Add Entry</button>
+                </div>
+            `;
+        };
+
+        const createField = (key, value) => {
+            const helpText = config.HELP_TEXTS[key] || `Configuration for ${key}`;
+            let fieldHtml = '';
+
+            // For boolean values, create a special single-line layout with the checkbox and label together.
+            // This improves UX and prevents layout issues with long keys.
+            if (typeof value === 'boolean') {
+                // Special case: auto_migrate_missing_custom_code_notebooks with inline notebook_import_mode dropdown
+                if (key === 'auto_migrate_missing_custom_code_notebooks') {
+                    const notebookImportModeValue = state.settings.notebook_import_mode || 'skip';
+                    const modeOptions = config.NOTEBOOK_IMPORT_MODES
+                        .map(mode => `<option value="${mode}" ${mode === notebookImportModeValue ? 'selected' : ''}>${mode}</option>`)
+                        .join('');
+                    return `
+                <div class="py-3 border-b border-slate-100" id="row-${key}">
+                    <div class="flex items-center gap-4">
+                        <label for="field-${key}" class="flex items-center cursor-pointer group flex-1">
+                            <input type="checkbox" id="field-${key}" class="h-5 w-5 rounded-full border-gray-300 text-sisense-light-blue focus:ring-sisense-light-blue" ${value ? 'checked' : ''}>
+                            <span class="ml-3 text-sm font-medium text-slate-700 group-hover:text-sisense-dark-blue">${key}</span>
+                            <span class="ml-2 text-slate-400 hover:text-slate-600 cursor-help" data-tooltip="${helpText}">ⓘ</span>
+                        </label>
+                        <div id="notebook-import-mode-container" class="flex items-center gap-2" style="display: ${value ? 'flex' : 'none'};">
+                            <label for="field-notebook_import_mode" class="text-sm text-slate-600">notebook_import_mode:</label>
+                            <select id="field-notebook_import_mode" class="w-32 p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown">
+                                ${modeOptions}
+                            </select>
+                        </div>
+                    </div>
+                </div>`;
+                }
+                return `
+                <div class="py-3 border-b border-slate-100" id="row-${key}">
+                    <label for="field-${key}" class="flex items-center cursor-pointer group">
+                        <input type="checkbox" id="field-${key}" class="h-5 w-5 rounded-full border-gray-300 text-sisense-light-blue focus:ring-sisense-light-blue" ${value ? 'checked' : ''}>
+                        <span class="ml-3 text-sm font-medium text-slate-700 group-hover:text-sisense-dark-blue">${key}</span>
+                        <span class="ml-2 text-slate-400 hover:text-slate-600 cursor-help" data-tooltip="${helpText}">ⓘ</span>
+                    </label>
+                </div>`;
+            }
+
+
+            if (key === 'selected_source_server' || key === 'selected_target_server') {
+                const role = key === 'selected_source_server' ? 'source' : 'target';
+                const serverOptions = Object.entries(state.servers)
+                    .filter(([name, details]) => details.allowed_roles && details.allowed_roles.includes(role))
+                    .map(([name]) => `<option value="${name}" ${name === value ? 'selected' : ''}>${name}</option>`)
+                    .join('');
+                fieldHtml = `<div class="flex items-center gap-2">
+                                <select id="field-${key}" class="w-64 p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown">
+                                    <option value="">-- Select a Server --</option>
+                                    ${serverOptions}
+                                </select>
+                                <button id="test-${role}-connection-btn" class="p-2 text-sisense-dark-blue hover:text-sisense-light-blue hover:bg-sisense-light-grey rounded-md transition-colors" title="Test ${role} connection">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </button>
+                                <div id="test-${role}-connection-result" class="text-sm hidden">
+                                    <!-- Test results will be displayed here -->
+                                </div>
+                             </div>`;
+            } else if (key === 'console_logLevel' || key === 'file_logLevel') {
+                const levelOptions = config.LOGGING_LEVELS
+                    .map(level => `<option value="${level}" ${level.toUpperCase() === String(value).toUpperCase() ? 'selected' : ''}>${level}</option>`)
+                    .join('');
+                fieldHtml = `<select id="field-${key}" class="w-full p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown">
+                                ${levelOptions}
+                             </select>`;
+            } else if (key === 'migration_log_levels') {
+                const mll = value && typeof value === 'object' ? value : {};
+                const levelOptionsWithInherit = ['inherit', ...config.LOGGING_LEVELS];
+                const rows = config.MIGRATION_LOG_LEVEL_ITEMS.map(item => {
+                    const currentVal = mll[item.id] || 'inherit';
+                    const opts = levelOptionsWithInherit
+                        .map(level => `<option value="${level}" ${String(currentVal).toLowerCase() === String(level).toLowerCase() ? 'selected' : ''}>${level}</option>`)
+                        .join('');
+                    return `<div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+                        <span class="text-sm font-medium text-slate-700">${item.label}</span>
+                        <select id="field-migration_log_levels-${item.id}" class="w-32 p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown migration-log-level">
+                            ${opts}
+                        </select>
+                    </div>`;
+                }).join('');
+                fieldHtml = `<div class="space-y-0 border rounded-md p-3 bg-slate-50">
+                    <p class="text-xs text-slate-500 mb-3">Override log level per migration item. Empty = inherit global.</p>
+                    ${rows}
+                </div>`;
+            } else if (key === 'dashboard_import_mode') {
+                const modeOptions = config.DASHBOARD_IMPORT_MODES
+                    .map(mode => `<option value="${mode}" ${mode === value ? 'selected' : ''}>${mode}</option>`)
+                    .join('');
+                fieldHtml = `<select id="field-${key}" class="w-full p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown">
+                                ${modeOptions}
+                             </select>`;
+            } else if (key === 'notebook_import_mode') {
+                const modeOptions = config.NOTEBOOK_IMPORT_MODES
+                    .map(mode => `<option value="${mode}" ${mode === value ? 'selected' : ''}>${mode}</option>`)
+                    .join('');
+                fieldHtml = `<select id="field-${key}" class="w-full p-2 border rounded-md shadow-sm text-sm bg-white qt-dropdown">
+                                ${modeOptions}
+                             </select>`;
+            } else if (key === 'notebook_include_list') {
+                // Special UI for notebook selection with checkboxes
+                const currentValue = Array.isArray(value) ? value : (value ? value.split('\n').filter(v => v.trim()) : []);
+                const isAll = !currentValue.length || (currentValue.length === 1 && currentValue[0].toUpperCase() === 'ALL');
+                fieldHtml = `
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between mb-2">
+                            <button id="refresh-notebooks-btn" class="px-3 py-1 text-xs bg-sisense-light-blue text-white rounded hover:bg-sisense-dark-blue transition-colors">
+                                Refresh Notebooks
+                            </button>
+                            <button id="select-all-notebooks-btn" class="px-3 py-1 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300 transition-colors">
+                                Select All
+                            </button>
+                            <button id="deselect-all-notebooks-btn" class="px-3 py-1 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300 transition-colors">
+                                Deselect All
+                            </button>
+                        </div>
+                        <div id="notebook-checkboxes-container" class="max-h-64 overflow-y-auto border rounded-md p-3 bg-slate-50">
+                            <div class="text-sm text-slate-500">Loading notebooks...</div>
+                        </div>
+                        <div id="notebook-selection-count" class="text-xs text-slate-600 mt-2 px-1">
+                            <span id="notebook-count-text">0 selected</span>
+                        </div>
+                        <input type="hidden" id="field-${key}" value="${isAll ? 'ALL' : currentValue.join('\n')}">
+                    </div>`;
+            } else if (config.KEY_VALUE_EDITOR_KEYS.includes(key)) {
+                fieldHtml = createKeyValueEditor(key, value);
+            } else if (Object.keys(config.LIST_OF_DICTS_EDITOR_KEYS).includes(key)) {
+                fieldHtml = createListOfDictsEditor(key, value);
+            } else if (config.COMMA_STRING_KEYS.includes(key)) {
+                let textValue = Array.isArray(value) ? value.join('\n') : (value || '');
+                // Set default to 'ALL' for include_datamodels_datasecurity if empty
+                if (key === 'include_datamodels_datasecurity' && !textValue) {
+                    textValue = 'ALL';
+                }
+                fieldHtml = `<textarea id="field-${key}" class="w-full h-24 p-2 border rounded-md shadow-sm text-sm">${textValue}</textarea>`;
+            } else {
+                fieldHtml = `<input type="text" id="field-${key}" value="${value || ''}" class="w-full p-2 border rounded-md shadow-sm text-sm">`;
+            }
+
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2 items-start py-3 border-b border-slate-100" id="row-${key}">
+                    <label for="field-${key}" class="text-sm font-medium text-slate-700 flex items-center">
+                        ${key}
+                        <span class="ml-2 text-slate-400 hover:text-slate-600 cursor-help" data-tooltip="${helpText}">ⓘ</span>
+                    </label>
+                    <div class="md:col-span-2">${fieldHtml}</div>
+                </div>`;
+        };
+
+        const addDynamicVisibilityHandlers = () => {
+            // Dashboard Migration Mode -> Include List visibility
+            const modeField = document.getElementById(`field-${config.DASHBOARD_MIGRATION_MODE_KEY}`);
+            if (modeField && modeField.tagName === 'INPUT') {
+                 const modeSelect = document.createElement('select');
+                 modeSelect.id = modeField.id;
+                 modeSelect.className = modeField.className + ' qt-dropdown';
+                 ['ALL', 'By Name', 'By OID'].forEach(opt => {
+                     const option = document.createElement('option');
+                     option.value = opt;
+                     option.textContent = opt;
+                     if (opt === modeField.value) option.selected = true;
+                     modeSelect.appendChild(option);
+                 });
+                 modeField.replaceWith(modeSelect);
+
+                 modeSelect.addEventListener('change', () => {
+                    const includeRow = document.getElementById(`row-${config.DASHBOARD_INCLUDE_LIST_KEY}`);
+                    if (includeRow) includeRow.style.display = (modeSelect.value === 'By Name' || modeSelect.value === 'By OID') ? '' : 'none';
+                 });
+                 modeSelect.dispatchEvent(new Event('change'));
+            }
+
+            // Custom OID -> OID Host Mapping visibility
+            const useCustomOidCheckbox = document.getElementById('field-use_custom_dashboard_oid');
+            if (useCustomOidCheckbox) {
+                const updateOidMappingVisibility = () => {
+                    const oidMappingRow = document.getElementById('row-oid_host_mapping');
+                    if (oidMappingRow) {
+                        oidMappingRow.style.display = useCustomOidCheckbox.checked ? '' : 'none';
+                    }
+                };
+                useCustomOidCheckbox.addEventListener('change', updateOidMappingVisibility);
+                updateOidMappingVisibility();
+            }
+
+            // Enable Update Connections -> Update Connections and Post Import Function visibility
+            const enableUpdateConnectionsCheckbox = document.getElementById('field-enable_update_connections');
+            if (enableUpdateConnectionsCheckbox) {
+                const updateConnectionFieldsVisibility = () => {
+                    const updateConnectionsRow = document.getElementById('row-update_connections');
+                    const postImportFunctionRow = document.getElementById('row-post_import_update_connection_function');
+                    if (updateConnectionsRow) {
+                        updateConnectionsRow.style.display = enableUpdateConnectionsCheckbox.checked ? '' : 'none';
+                    }
+                    if (postImportFunctionRow) {
+                        postImportFunctionRow.style.display = enableUpdateConnectionsCheckbox.checked ? '' : 'none';
+                    }
+                };
+                enableUpdateConnectionsCheckbox.addEventListener('change', updateConnectionFieldsVisibility);
+                updateConnectionFieldsVisibility();
+            }
+
+            // Auto Migrate Missing Custom Code Notebooks -> Notebook Import Mode visibility
+            const autoMigrateNotebooksCheckbox = document.getElementById('field-auto_migrate_missing_custom_code_notebooks');
+            if (autoMigrateNotebooksCheckbox) {
+                const updateNotebookImportModeVisibility = () => {
+                    const notebookImportModeContainer = document.getElementById('notebook-import-mode-container');
+                    if (notebookImportModeContainer) {
+                        notebookImportModeContainer.style.display = autoMigrateNotebooksCheckbox.checked ? 'flex' : 'none';
+                    }
+                };
+                autoMigrateNotebooksCheckbox.addEventListener('change', updateNotebookImportModeVisibility);
+                updateNotebookImportModeVisibility();
+            }
+        };
+
+        const updateConnectionSettingsState = () => {
+            const targetServerName = state.settings.selected_target_server;
+
+            // Default to enabled if no server is selected or found
+            let isMultiTenant = false;
+            if (targetServerName && state.servers[targetServerName]) {
+                const targetServerHost = state.servers[targetServerName].host || '';
+                isMultiTenant = targetServerHost.includes('/');
+            }
+
+            const keysToToggle = ['enable_update_connections', 'update_connections', 'post_import_update_connection_function'];
+
+            keysToToggle.forEach(key => {
+                const row = document.getElementById(`row-${key}`);
+                if (row) {
+                    const fieldset = row.closest('fieldset'); // Find the parent fieldset
+                    const inputs = row.querySelectorAll('input, select, textarea, button');
+                    const helpIcon = row.querySelector('.cursor-help');
+
+                    if (isMultiTenant) {
+                        row.style.opacity = '0.5';
+                        row.style.cursor = 'not-allowed';
+                        inputs.forEach(input => { input.disabled = true; });
+
+                        // Specifically uncheck the 'enable_update_connections' checkbox
+                        if (key === 'enable_update_connections') {
+                            const checkbox = row.querySelector('#field-enable_update_connections');
+                            if (checkbox) checkbox.checked = false;
+                        }
+
+                        if (helpIcon) { helpIcon.dataset.tooltip = "This option is disabled when migrating to a multi-tenant target system."; }
+                    } else {
+                        row.style.opacity = '1';
+                        row.style.cursor = 'auto';
+                        if (fieldset && !fieldset.disabled) { inputs.forEach(input => { input.disabled = false; }); }
+                        if (helpIcon) { helpIcon.dataset.tooltip = config.HELP_TEXTS[key] || `Configuration for ${key}`; }
+                    }
+                }
+            });
+        };
+
+        const addConnectionTestHandlers = () => {
+            const testSourceBtn = document.getElementById('test-source-connection-btn');
+            const testTargetBtn = document.getElementById('test-target-connection-btn');
+            const sourceServerSelect = document.getElementById('field-selected_source_server');
+            const targetServerSelect = document.getElementById('field-selected_target_server');
+
+            if (testSourceBtn) {
+                testSourceBtn.addEventListener('click', async () => {
+                    await testConnection('source');
+                });
+            }
+
+            if (testTargetBtn) {
+                testTargetBtn.addEventListener('click', async () => {
+                    await testConnection('target');
+                });
+            }
+
+            // Clear test results when server selection changes
+            if (sourceServerSelect) {
+                sourceServerSelect.addEventListener('change', clearConnectionTestResults);
+            }
+
+            if (targetServerSelect) {
+                targetServerSelect.addEventListener('change', clearConnectionTestResults);
+            }
+        };
+
+        const testConnection = async (serverType) => {
+            const button = document.getElementById(`test-${serverType}-connection-btn`);
+            
+            if (!button) return;
+
+            // Clear previous test results
+            const resultDiv = document.getElementById(`test-${serverType}-connection-result`);
+            if (resultDiv) {
+                resultDiv.classList.add('hidden');
+                resultDiv.innerHTML = '';
+            }
+
+            // Get current settings to determine which server to test
+            const currentSettings = getSettingsFromGui();
+            const serverName = currentSettings[`selected_${serverType}_server`];
+            
+            if (!serverName) {
+                setStatus(`No ${serverType} server selected`, true, 3);
+                return;
+            }
+
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = `
+                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+            `;
+
+            try {
+                const response = await apiCall('test-connection', 'POST', { serverName });
+                
+                // Display results next to the button
+                const resultDiv = document.getElementById(`test-${serverType}-connection-result`);
+                
+                if (response.success) {
+                    setStatus(`✅ ${response.message}`, false, 4);
+                    button.classList.remove('text-sisense-dark-blue');
+                    button.classList.add('text-green-600');
+                    
+                    if (resultDiv) {
+                        resultDiv.innerHTML = `
+                            <span class="text-green-600 flex items-center gap-1">
+                              
+                                ${response.message}
+                            </span>
+                        `;
+                        resultDiv.classList.remove('hidden');
+                    }
+                } else {
+                    setStatus(`❌ ${response.message}`, true, 4);
+                    button.classList.remove('text-sisense-dark-blue');
+                    button.classList.add('text-red-600');
+                    
+                    if (resultDiv) {
+                        resultDiv.innerHTML = `
+                            <span class="text-red-600 flex items-center gap-1">
+                               
+                                ${response.message}
+                            </span>
+                        `;
+                        resultDiv.classList.remove('hidden');
+                    }
+                }
+            } catch (error) {
+                setStatus(`❌ Connection test failed: ${error.message}`, true, 4);
+                button.classList.remove('text-sisense-dark-blue');
+                button.classList.add('text-red-600');
+                
+                const resultDiv = document.getElementById(`test-${serverType}-connection-result`);
+                if (resultDiv) {
+                    resultDiv.innerHTML = `
+                        <span class="text-red-600 flex items-center gap-1">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Connection test failed: ${error.message}
+                        </span>
+                    `;
+                    resultDiv.classList.remove('hidden');
+                }
+            } finally {
+                // Restore button state (but keep the color change)
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    `;
+                    // Don't reset the color - keep it green or red
+                }, 2000);
+            }
+        };
+
+        const clearConnectionTestResults = () => {
+            // Clear source connection test results
+            const sourceResult = document.getElementById('test-source-connection-result');
+            if (sourceResult) {
+                sourceResult.classList.add('hidden');
+                sourceResult.innerHTML = '';
+            }
+            
+            // Clear target connection test results
+            const targetResult = document.getElementById('test-target-connection-result');
+            if (targetResult) {
+                targetResult.classList.add('hidden');
+                targetResult.innerHTML = '';
+            }
+            
+            // Reset button colors
+            const sourceBtn = document.getElementById('test-source-connection-btn');
+            if (sourceBtn) {
+                sourceBtn.classList.remove('text-green-600', 'text-red-600');
+                sourceBtn.classList.add('text-sisense-dark-blue');
+            }
+            
+            const targetBtn = document.getElementById('test-target-connection-btn');
+            if (targetBtn) {
+                targetBtn.classList.remove('text-green-600', 'text-red-600');
+                targetBtn.classList.add('text-sisense-dark-blue');
+            }
+        };
+
+        // --- Data Handling ---
+        const getSettingsFromGui = () => {
+            const newSettings = JSON.parse(JSON.stringify(state.settings)); // Deep copy to preserve non-rendered settings
+            if (!newSettings.folders) {
+                newSettings.folders = {}; // Ensure the folders object exists
+            }
+
+            // Get values from the currently rendered right panel
+            document.querySelectorAll('#options-panel-content [id^="field-"]').forEach(field => {
+                const key = field.id.replace('field-', '');
+                if (key.startsWith('migration_log_levels-')) return; // Handled separately below
+                let value;
+                if (field.type === 'checkbox') {
+                    value = field.checked;
+                } else if (field.type === 'textarea') {
+                    value = field.value.split('\n').map(s => s.trim()).filter(Boolean).join(', ');
+                } else {
+                    value = field.value;
+                }
+
+                if (config.FOLDER_SUB_KEYS.includes(key)) {
+                    newSettings.folders[key] = value;
+                } else {
+                    newSettings[key] = value;
+                }
+            });
+
+            // Get values from the checkboxes in the left panel
+            Object.values(config.PANEL_TO_CONTROL_KEY).forEach(key => {
+                const field = document.getElementById(`field-${key}`);
+                if (field) {
+                    newSettings[key] = field.checked;
+                }
+            });
+
+            config.KEY_VALUE_EDITOR_KEYS.forEach(key => {
+                const editor = document.getElementById(`kv-editor-${key}`);
+                if (editor) {
+                    const data = {};
+                    editor.querySelectorAll('.kv-row').forEach(row => {
+                        const k = row.querySelector('.kv-key').value.trim();
+                        const v = row.querySelector('.kv-value').value.trim();
+                        if (k) { data[k] = v; }
+                    });
+                    newSettings[key] = data;
+                }
+            });
+            Object.keys(config.LIST_OF_DICTS_EDITOR_KEYS).forEach(key => {
+                 const editor = document.getElementById(`lod-editor-${key}`);
+                 if(editor) {
+                     const data = [];
+                     editor.querySelectorAll('.lod-row').forEach(row => {
+                         const item = {};
+                         let hasValue = false;
+                         row.querySelectorAll('input[type="text"]').forEach(input => {
+                             const fieldKey = input.dataset.fieldKey;
+                             const value = input.value.trim();
+                             if(value) hasValue = true;
+                             item[fieldKey] = value;
+                         });
+                         if(hasValue) data.push(item);
+                     });
+                     newSettings[key] = data;
+                 }
+            });
+
+            // Collect migration_log_levels from per-item dropdowns
+            const mll = {};
+            config.MIGRATION_LOG_LEVEL_ITEMS.forEach(item => {
+                const sel = document.getElementById(`field-migration_log_levels-${item.id}`);
+                if (sel) {
+                    const v = sel.value;
+                    if (v && v.toLowerCase() !== 'inherit') {
+                        mll[item.id] = v;
+                    }
+                }
+            });
+            newSettings.migration_log_levels = Object.keys(mll).length ? mll : {};
+
+            return newSettings;
+        };
+
+        // --- API Calls ---
+        const apiCall = async (endpoint, method = 'GET', body = null) => {
+            const options = { method, headers: {} };
+            if (body) {
+                if(body instanceof FormData) {
+                    options.body = body;
+                } else {
+                    options.headers['Content-Type'] = 'application/json';
+                    options.body = JSON.stringify(body);
+                }
+            }
+            const response = await fetch(`/api/${endpoint}`, options);
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({ description: response.statusText }));
+                // Check for both 'error' and 'description' fields in error response
+                const errorMessage = errData.error || errData.description || `Request failed with status ${response.status}`;
+                throw new Error(errorMessage);
+            }
+            return response.json();
+        };
+
+        const updateActivePanelUI = (panelKey) => {
+            // Remove the active state from all panel items
+            document.querySelectorAll('.left-panel-item').forEach(el => {
+                el.classList.remove('panel-active');
+            });
+            // Add the active state to the specified panel item
+            const panelElement = document.querySelector(`.left-panel-item[data-panel-key="${panelKey}"]`);
+            if (panelElement) {
+                panelElement.classList.add('panel-active');
+            }
+        };
+
+        // --- App Logic ---
+        const loadInitialData = async () => {
+            setStatus('Loading initial data...');
+            try {
+                const [settingsData, serversData] = await Promise.all([
+                    apiCall('settings'),
+                    apiCall('servers')
+                ]);
+                state.settings = settingsData;
+                state.servers = serversData;
+
+                populateValidationServers();
+                renderLeftPanel();
+                updateActivePanelUI(state.activePanel); // Set initial highlight correctly
+                renderRightPanel(state.activePanel); // Render initial panel content
+
+                setStatus('Data loaded successfully.', false, 3);
+
+            } catch (error) { setStatus(`Error loading initial data: ${error.message}`, true); }
+        };
+
+        const renderLeftPanel = () => {
+            let html = '';
+            for (const [sectionTitle, items] of Object.entries(config.LEFT_PANEL_SECTIONS)) {
+                html += `<h4 class="text-sm font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2">${sectionTitle}</h4>`;
+                items.forEach(item => {
+                    const iconSvg = config.PANEL_ICONS[item] || '';
+                    const controlKey = config.PANEL_TO_CONTROL_KEY[item];
+                    if (controlKey) {
+                        // This is a migration item with a checkbox
+                        const isChecked = state.settings[controlKey] || false;
+                        html += `
+                            <div class="left-panel-item flex items-center justify-between p-2 rounded-md cursor-pointer hover:bg-sisense-light-grey" data-panel-key="${item}">
+                                <div class="flex items-center flex-grow">
+                                    ${iconSvg}
+                                    <span class="font-medium text-sisense-text-dark">${item}</span>
+                                </div>
+                                <input type="checkbox" id="field-${controlKey}" data-control-key="${controlKey}" class="h-5 w-5 rounded-full border-gray-300 text-sisense-light-blue focus:ring-sisense-light-blue" ${isChecked ? 'checked' : ''}>
+                            </div>`;
+                    } else {
+                        // This is a static configuration item
+                        html += `
+                            <div class="left-panel-item flex items-center p-2 rounded-md cursor-pointer hover:bg-sisense-light-grey" data-panel-key="${item}">
+                                ${iconSvg}
+                                <span class="font-medium text-sisense-text-dark">${item}</span>
+                            </div>`;
+                    }
+                });
+            }
+            dom.leftPanelContainer.innerHTML = html;
+        };
+
+        const renderRightPanel = (panelKey) => {
+            dom.optionsPanelTitle.textContent = `${panelKey} Options`;
+            dom.optionsPanelContent.innerHTML = '';
+
+            const controlKey = config.PANEL_TO_CONTROL_KEY[panelKey];
+            const isEnabled = controlKey ? state.settings[controlKey] : true; // Default to enabled for non-controlled panels
+
+            const keysToRender = Object.keys(config.CATEGORY_MAP)
+                .filter(key => {
+                    // Exclude notebook_import_mode from Datamodels since it's shown inline with auto_migrate_missing_custom_code_notebooks
+                    if (panelKey === 'Datamodels' && key === 'notebook_import_mode') {
+                        return false;
+                    }
+                    return config.CATEGORY_MAP[key] === panelKey;
+                });
+
+            if (panelKey === 'Custom Code') {
+                console.log('Custom Code panel - keys to render:', keysToRender);
+            }
+
+            let fieldsHtml = '';
+            keysToRender.forEach(key => {
+                // We don't want to render the master checkbox again on the right side
+                if (Object.values(config.PANEL_TO_CONTROL_KEY).includes(key)) return;
+
+                let value;
+                if (config.FOLDER_SUB_KEYS.includes(key)) {
+                    value = state.settings.folders ? state.settings.folders[key] : undefined;
+                } else {
+                    value = state.settings[key];
+                }
+                if (value === undefined && config.BOOLEAN_KEYS.includes(key)) {
+                    // Special case for migrate_remote_datamodel - default to true
+                    if (key === 'migrate_remote_datamodel') {
+                        value = true;
+                    } else {
+                        value = false;
+                    }
+                }
+                // Set default to 'ALL' for include_datamodels_datasecurity if undefined
+                if (key === 'include_datamodels_datasecurity' && (value === undefined || value === '')) {
+                    value = 'ALL';
+                }
+                // Set default to 'ALL' for notebook_include_list if undefined
+                if (key === 'notebook_include_list' && (value === undefined || value === '')) {
+                    value = 'ALL';
+                }
+                fieldsHtml += createField(key, value);
+            });
+
+            const finalHtml = fieldsHtml || `<p class="text-slate-500">No additional options for this section.</p>`;
+            
+            
+            dom.optionsPanelContent.innerHTML = `
+                <fieldset id="options-fieldset" ${!isEnabled ? 'disabled' : ''} class="transition-opacity duration-300 ${!isEnabled ? 'opacity-50' : ''}">
+                    ${finalHtml}
+                </fieldset>`;
+            addDynamicVisibilityHandlers();
+            if (panelKey === 'Datamodels') {
+                updateConnectionSettingsState();
+            }
+            if (panelKey === 'Connection') {
+                addConnectionTestHandlers();
+            }
+            if (panelKey === 'Custom Code') {
+                // Use setTimeout to ensure DOM is fully rendered before loading notebooks
+                setTimeout(() => {
+                    // Check if the notebook container exists
+                    const container = document.getElementById('notebook-checkboxes-container');
+                    console.log('Custom Code panel opened, container exists:', !!container);
+                    
+                    if (!container) {
+                        console.error('Notebook container not found in DOM');
+                        return;
+                    }
+                    
+                    // Set up button event listeners immediately
+                    const refreshBtn = document.getElementById('refresh-notebooks-btn');
+                    const selectAllBtn = document.getElementById('select-all-notebooks-btn');
+                    const deselectAllBtn = document.getElementById('deselect-all-notebooks-btn');
+                    
+                    console.log('Buttons found:', {
+                        refresh: !!refreshBtn,
+                        selectAll: !!selectAllBtn,
+                        deselectAll: !!deselectAllBtn
+                    });
+                    
+                    if (refreshBtn) {
+                        refreshBtn.onclick = loadNotebooks;
+                    }
+                    if (selectAllBtn) {
+                        selectAllBtn.onclick = () => {
+                            const container = document.getElementById('notebook-checkboxes-container');
+                            if (container) {
+                                container.querySelectorAll('.notebook-checkbox').forEach(cb => cb.checked = true);
+                                updateNotebookSelection();
+                            }
+                        };
+                    }
+                    if (deselectAllBtn) {
+                        deselectAllBtn.onclick = () => {
+                            const container = document.getElementById('notebook-checkboxes-container');
+                            if (container) {
+                                container.querySelectorAll('.notebook-checkbox').forEach(cb => cb.checked = false);
+                                updateNotebookSelection();
+                            }
+                        };
+                    }
+                    
+                    // Load notebooks
+                    loadNotebooks();
+                }, 200);
+            }
+        };
+
+        const handlePanelItemClick = (panelKey) => {
+            if (!panelKey || state.activePanel === panelKey) return;
+
+            state.settings = getSettingsFromGui(); // Persist changes from the currently visible panel before switching
+            state.activePanel = panelKey;
+
+            updateActivePanelUI(panelKey);
+            renderRightPanel(panelKey);
+        };
+
+        const saveSettings = async () => {
+            setStatus('Saving settings...');
+            const newSettings = getSettingsFromGui();
+            try {
+                const response = await apiCall('settings', 'POST', newSettings);
+                state.settings = newSettings;
+                setStatus(response.message, false, 3);
+                return true; // Indicate success
+            } catch (error) {
+                setStatus(`Error saving settings: ${error.message}`, true);
+                return false; // Indicate failure
+            }
+        };
+
+        const previewYaml = async () => {
+            const dataToPreview = getSettingsFromGui();
+            try {
+                const response = await apiCall('preview', 'POST', dataToPreview);
+                const body = `<pre class="bg-sisense-dark-blue text-white p-4 rounded-md text-sm whitespace-pre-wrap">${response.preview.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</pre>`;
+                const footer = `<button onclick="hideModal()" class="bg-sisense-medium-grey px-4 py-2 rounded-md hover:bg-sisense-darker-grey">Close</button>`;
+                showModal('YAML Preview', body, footer);
+            } catch (error) { setStatus(`Error generating preview: ${error.message}`, true); }
+        };
+
+        const uploadFile = async (file, endpoint, onComplete) => {
+            setStatus(`Uploading ${file.name}...`);
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const response = await apiCall(endpoint, 'POST', formData);
+                setStatus(response.message, false, 4);
+                if (onComplete) onComplete();
+            } catch(error) { setStatus(`Upload failed: ${error.message}`, true); }
+        };
+
+        const runApp = () => {
+            const currentSettings = getSettingsFromGui();
+
+            const isDashboardOverwrite = currentSettings.migrate_dashboards && currentSettings.dashboard_import_mode === 'overwrite';
+            const isDatamodelOverwrite = currentSettings.migrate_datamodels && currentSettings.datamodel_overwrite;
+
+            // Check if any overwrite mode is enabled for an active migration
+            if (isDashboardOverwrite || isDatamodelOverwrite) {
+                const isConfirmed = confirm(
+                    "DANGER: Overwrite Mode is Enabled!\n\n" +
+                    "You are about to run the migration in 'overwrite' mode for the following enabled sections:\n\n" +
+                    (isDashboardOverwrite ? "- Dashboards (existing dashboards will be replaced)\n" : "") +
+                    (isDatamodelOverwrite ? "- Datamodels (existing datamodels will be replaced)\n" : "") +
+                    "\nAre you sure you want to proceed?"
+                );
+
+                if (!isConfirmed) {
+                    setStatus('Run cancelled by user.', false, 3);
+                    return; // Stop the function if the user clicks "Cancel"
+                }
+            } else {
+                // If no overwrite is enabled, proceed directly to the run confirmation
+                const title = "Run Migration";
+                const bodyHtml = "<p>Do you want to save your current settings before running the migration script?</p>";
+                const footerHtml = `
+                    <button id="run-cancel-btn" class="qt-btn qt-btn-main">Cancel</button>
+                    <button id="run-discard-btn" class="qt-btn qt-btn-main">Run Without Saving</button>
+                    <button id="run-save-btn" class="qt-btn qt-btn-main">Save and Run</button>
+                `;
+                showModal(title, bodyHtml, footerHtml);
+
+                const performRun = () => {
+                    window.open(`migration_output.html?v=${new Date().getTime()}`, '_blank');
+                    setStatus('Migration output opened in new tab.', false, 3);
+                };
+
+                document.getElementById('run-cancel-btn').onclick = () => {
+                    hideModal();
+                    setStatus('Run cancelled.', false, 3);
+                };
+
+                document.getElementById('run-discard-btn').onclick = () => {
+                    hideModal();
+                    performRun();
+                };
+
+                document.getElementById('run-save-btn').onclick = async () => {
+                    hideModal();
+                    const success = await saveSettings();
+                    if (success) {
+                        performRun();
+                    } else {
+                        setStatus('Run cancelled because settings save failed.', true, 5);
+                    }
+                };
+                return; // Exit runApp after showing the initial confirmation
+            }
+
+            // If we reach here, it means an overwrite warning was shown and confirmed.
+            // Now, proceed to the standard run confirmation.
+            const title = "Run Migration";
+            const bodyHtml = "<p>Do you want to save your current settings before running the migration script?</p>";
+            const footerHtml = `
+                <button id="run-cancel-btn" class="qt-btn qt-btn-main">Cancel</button>
+                <button id="run-discard-btn" class="qt-btn qt-btn-main">Run Without Saving</button>
+                <button id="run-save-btn" class="qt-btn qt-btn-main">Save and Run</button>
+            `;
+            showModal(title, bodyHtml, footerHtml);
+
+            const performRun = () => {
+                window.open(`migration_output.html?v=${new Date().getTime()}`, '_blank');
+                setStatus('Migration output opened in new tab.', false, 3);
+            };
+
+            document.getElementById('run-cancel-btn').onclick = () => {
+                hideModal();
+                setStatus('Run cancelled.', false, 3);
+            };
+
+            document.getElementById('run-discard-btn').onclick = () => {
+                hideModal();
+                performRun();
+            };
+
+            document.getElementById('run-save-btn').onclick = async () => {
+                hideModal();
+                const success = await saveSettings();
+                if (success) {
+                    performRun();
+                } else {
+                    setStatus('Run cancelled because settings save failed.', true, 5);
+                }
+            };
+        };
+
+        // --- Stop Server Function ---
+        const stopServer = async () => {
+            if (!confirm('Are you sure you want to stop the server? This will close the application.')) {
+                return;
+            }
+            
+            setStatus('Stopping server...', false);
+            
+            try {
+                const response = await fetch('/api/shutdown', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    setStatus('Server shutdown initiated. The application will close shortly.', false, 5);
+                    // The server will exit, so the page will become unresponsive
+                    // Give user feedback before that happens
+                    setTimeout(() => {
+                        alert('Server has been stopped. The application should close now.');
+                    }, 1000);
+                } else {
+                    setStatus('Failed to stop server: ' + response.statusText, true, 5);
+                }
+            } catch (error) {
+                // Network error is expected since the server is shutting down
+                setStatus('Server shutdown initiated. The application will close shortly.', false, 5);
+            }
+        };
+
+        // --- Server Manager Logic ---
+        const openServerManager = async () => {
+            setStatus('Loading servers...');
+            try {
+                // --- FIX: Prevent this specific modal from closing on outside click ---
+                dom.modalContainer.dataset.allowOutsideClose = 'false';
+
+                state.servers = await apiCall('servers');
+                state.selectedServer = Object.keys(state.servers)[0] || null;
+                showModal('Manage Servers', renderServerManagerUI());
+                renderServerDetails();
+            } catch (error) {
+                setStatus(`Could not load servers: ${error.message}`, true);
+                hideModal(); // This will correctly reset the data attribute
+            }
+        };
+
+        const renderServerManagerUI = () => {
+            const serverNames = Object.keys(state.servers);
+            const bulkCount = state.serversSelectedForBulkDelete ? state.serversSelectedForBulkDelete.size : 0;
+            const serverListHtml = serverNames.length > 0 ? getServerListItemsHtml() : `<p class="text-sm text-slate-500">No servers configured.</p>`;
+
+            return `
+                <div class="flex flex-col md:flex-row gap-6 h-[65vh]">
+                    <div class="w-full md:w-1/3 border-r pr-4 flex flex-col">
+                        <div class="flex items-center mb-2 flex-shrink-0 gap-2 justify-between flex-wrap">
+                            <h4 class="font-semibold">Servers</h4>
+                            <div class="flex gap-2 ml-auto items-center">
+                                <button type="button" id="bulk-delete-servers-btn" class="qt-btn qt-btn-main text-sm py-1 px-2" ${bulkCount === 0 ? 'disabled' : ''} title="Delete selected servers">Delete selected${bulkCount > 0 ? ` (${bulkCount})` : ''}</button>
+                                <button id="add-new-server-icon" title="Add New Server" class="rounded-full bg-sisense-lighter-blue hover:bg-sisense-light-blue focus:outline-none w-7 h-7 flex items-center justify-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="white">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                </button>
+                                <label for="upload-servers-input" title="Upload Servers File" class="rounded-full bg-sisense-lighter-blue hover:bg-sisense-light-blue focus:outline-none w-7 h-7 flex items-center justify-center cursor-pointer">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="white">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M16 10l-4-4m0 0l-4 4m4-4v12" />
+                                    </svg>
+                                    <input type="file" id="upload-servers-input" class="hidden" accept=".yaml,.yml">
+                                </label>
+                                <button id="export-servers-icon" title="Export Servers File" class="rounded-full bg-sisense-lighter-blue hover:bg-sisense-light-blue focus:outline-none w-7 h-7 flex items-center justify-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="white">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="server-list" class="space-y-1 overflow-y-auto flex-grow">${serverListHtml}</div>
+                    </div>
+                    <div id="server-details-form" class="w-full md:w-2/3 space-y-3 overflow-y-auto pr-2"></div>
+                </div>`;
+        };
+
+        const renderServerDetails = (options = {}) => {
+            const formContainer = document.getElementById('server-details-form');
+            const footerContainer = options.footerContainer || dom.modalFooter;
+            const closeLabel = options.closeLabel != null ? options.closeLabel : 'Close';
+            const onClose = options.onClose || (() => hideModal());
+
+            if (!formContainer) return;
+            const server = state.selectedServer ? state.servers[state.selectedServer] : null;
+            const roles = server?.allowed_roles || ['source', 'target'];
+
+            // --- FIX: Trim original values for consistent comparison ---
+            originalServerEntry = {
+                name: (server?.name || '').trim(),
+                host: (server?.host || '').trim(),
+                port: server?.port?.toString() || '',
+                protocol: server?.protocol || 'https',
+                os: server?.os || 'Windows',
+                api_token: (server?.api_token || '').trim(),
+                allowed_roles: roles.slice().sort()
+            };
+
+            formContainer.innerHTML = `
+                <h4 class="font-semibold">${server ? 'Edit Server' : 'Add New Server'}</h4>
+                <div><label class="text-sm font-medium">Server Name</label><input type="text" id="server-name" value="${server?.name || ''}" class="w-full p-2 border rounded-md shadow-sm text-sm" ${server ? 'disabled' : ''}></div>
+                <div><label class="text-sm font-medium">Host</label><input type="text" id="server-host" value="${server?.host || ''}" class="w-full p-2 border rounded-md shadow-sm text-sm"></div>
+                <div><label class="text-sm font-medium">Port</label><input type="number" id="server-port" value="${server?.port || ''}" class="w-full p-2 border rounded-md shadow-sm text-sm"></div>
+                <div><label class="text-sm font-medium">Protocol</label><select id="server-protocol" class="block p-2 border rounded-md shadow-sm text-sm qt-dropdown"><option value="https">https</option><option value="http">http</option></select></div>
+                <div><label class="text-sm font-medium">OS</label><select id="server-os" class="block p-2 border rounded-md shadow-sm text-sm qt-dropdown"><option value="Windows">Windows</option><option value="Linux">Linux</option></select></div>
+                <div class="relative"><label class="text-sm font-medium">API Token</label><input type="password" id="server-api_token" value="${server?.api_token || ''}" class="w-full p-2 pr-10 border rounded-md shadow-sm text-sm"><button id="toggle-token-visibility" type="button" class="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-slate-500 hover:text-slate-800" aria-label="Show/Hide API Token" style="top: 2.1rem;"><svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg></button></div>
+                <div>
+                    <label class="text-sm font-medium">Connection Test</label>
+                    <button id="test-server-connection-btn" class="mt-1 px-4 py-2 bg-sisense-light-blue text-white rounded-md hover:bg-opacity-80 transition-colors flex items-center gap-2" title="Test connection to this server">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Test Connection
+                    </button>
+                    <div id="server-test-results" class="mt-2 text-sm hidden">
+                        <!-- Test results will be displayed here -->
+                    </div>
+                </div>
+                <div>
+                    <label class="text-sm font-medium">Allowed Roles</label>
+                    <div class="flex gap-4 mt-1"><label class="flex items-center"><input type="checkbox" id="role-source" ${roles.includes('source') ? 'checked' : ''} class="h-5 w-5 rounded-full border-gray-300 text-sisense-light-blue focus:ring-sisense-light-blue"> <span class="ml-2">Source</span></label><label class="flex items-center"><input type="checkbox" id="role-target" ${roles.includes('target') ? 'checked' : ''} class="h-5 w-5 rounded-full border-gray-300 text-sisense-light-blue focus:ring-sisense-light-blue"> <span class="ml-2">Target</span></label></div>
+                </div>`;
+
+            footerContainer.innerHTML = `
+                ${server ? `<button id="delete-server-btn" class="qt-btn qt-btn-main">Delete</button>` : ''}
+                <button id="save-server-btn" class="qt-btn qt-btn-main" disabled>Save Server</button>
+                ${closeLabel ? `<button type="button" id="servers-close-btn" class="qt-btn qt-btn-main">${closeLabel}</button>` : ''}
+            `;
+            const closeBtn = document.getElementById('servers-close-btn');
+            if (closeBtn) closeBtn.addEventListener('click', onClose);
+
+            if (server) {
+                document.getElementById('server-protocol').value = server.protocol || 'https';
+                document.getElementById('server-os').value = server.os || 'Windows';
+            }
+
+            // Clear any previous test results
+            const resultsDiv = document.getElementById('server-test-results');
+            if (resultsDiv) {
+                resultsDiv.classList.add('hidden');
+                resultsDiv.innerHTML = '';
+            }
+
+            addServerManagerEventListeners();
+            document.querySelectorAll('#server-list .server-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.serverName === state.selectedServer);
+            });
+
+            // --- FIX: Add robust event listeners for change detection ---
+            const fields = [
+                'server-name', 'server-host', 'server-port', 'server-protocol', 'server-os', 'server-api_token', 'role-source', 'role-target'
+            ];
+            fields.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.addEventListener('input', () => {
+                        updateSaveButtonState();
+                        clearTestResults();
+                    });
+                    el.addEventListener('change', () => {
+                        updateSaveButtonState();
+                        clearTestResults();
+                    });
+                    // Explicitly handle 'paste' to be robust, with a timeout
+                    // to ensure the input's value has been updated before we check it.
+                    el.addEventListener('paste', () => {
+                        setTimeout(() => {
+                            updateSaveButtonState();
+                            clearTestResults();
+                        }, 0);
+                    });
+                }
+            });
+            updateSaveButtonState();
+        };
+
+        function updateSaveButtonState() {
+            // --- FIX: Trim current values for consistent comparison ---
+            const name = document.getElementById('server-name')?.value.trim() || '';
+            const host = document.getElementById('server-host')?.value.trim() || '';
+            const port = document.getElementById('server-port')?.value.trim() || '';
+            const protocol = document.getElementById('server-protocol')?.value || 'https';
+            const os = document.getElementById('server-os')?.value || 'Windows';
+            const api_token = document.getElementById('server-api_token')?.value.trim() || '';
+            const allowed_roles = [];
+            if (document.getElementById('role-source')?.checked) allowed_roles.push('source');
+            if (document.getElementById('role-target')?.checked) allowed_roles.push('target');
+            allowed_roles.sort();
+            const current = { name, host, port, protocol, os, api_token, allowed_roles };
+            const orig = originalServerEntry || {};
+            const changed = JSON.stringify(current) !== JSON.stringify(orig);
+            const saveBtn = document.getElementById('save-server-btn');
+            if (saveBtn) saveBtn.disabled = !changed;
+        }
+
+        const saveCurrentServer = async () => {
+            const nameField = document.getElementById('server-name');
+            const newName = nameField.value.trim();
+            if (!newName) {
+                alert('Server Name cannot be empty.');
+                return;
+            }
+
+            const roles = [];
+            if (document.getElementById('role-source').checked) roles.push('source');
+            if (document.getElementById('role-target').checked) roles.push('target');
+            if(roles.length === 0) {
+                alert('A server must have at least one role.');
+                return;
+            }
+
+            const serverData = {
+                name: newName,
+                host: document.getElementById('server-host').value.trim(),
+                port: parseInt(document.getElementById('server-port').value) || null,
+                protocol: document.getElementById('server-protocol').value,
+                os: document.getElementById('server-os').value,
+                api_token: document.getElementById('server-api_token').value.trim(),
+                allowed_roles: roles
+            };
+
+            const isNew = state.selectedServer === null;
+            if (isNew && state.servers[newName]) {
+                alert('A server with this name already exists.');
+                return;
+            }
+
+            if (!isNew && newName !== state.selectedServer) {
+                delete state.servers[state.selectedServer];
+            }
+
+            state.servers[newName] = serverData;
+            state.selectedServer = newName;
+
+            try {
+                await apiCall('servers', 'POST', state.servers);
+                setStatus('Servers saved successfully', false, 3);
+                populateValidationServers();
+                if (dom.viewServers && !dom.viewServers.classList.contains('hidden') && dom.viewServersBody) {
+                    dom.viewServersBody.innerHTML = renderServerManagerUI();
+                    renderServerDetails({ footerContainer: dom.viewServersFooter, closeLabel: '' });
+                } else {
+                    const currentBody = dom.modalBody.innerHTML;
+                    const currentFooter = dom.modalFooter.innerHTML;
+                    showModal('Manage Servers', currentBody, currentFooter);
+                    const listEl = document.getElementById('server-list');
+                    if (listEl) listEl.innerHTML = Object.keys(state.servers).length > 0 ? getServerListItemsHtml() : '<p class="text-sm text-slate-500">No servers configured.</p>';
+                    renderServerDetails();
+                }
+            } catch (error) {
+                setStatus(`Error saving servers: ${error.message}`, true);
+            }
+        };
+
+        const updateBulkDeleteButton = () => {
+            const btn = document.getElementById('bulk-delete-servers-btn');
+            if (!btn) return;
+            const n = state.serversSelectedForBulkDelete ? state.serversSelectedForBulkDelete.size : 0;
+            btn.disabled = n === 0;
+            btn.textContent = n > 0 ? `Delete selected (${n})` : 'Delete selected';
+            btn.title = n > 0 ? `Delete ${n} selected server(s)` : 'Delete selected servers';
+        };
+
+        const bulkDeleteSelectedServers = async () => {
+            const names = state.serversSelectedForBulkDelete ? Array.from(state.serversSelectedForBulkDelete) : [];
+            if (names.length === 0) return;
+            if (!confirm(`Are you sure you want to delete ${names.length} server(s)?\n\n${names.join('\n')}`)) return;
+
+            names.forEach(name => { delete state.servers[name]; });
+            state.serversSelectedForBulkDelete.clear();
+            state.selectedServer = Object.keys(state.servers)[0] || null;
+
+            try {
+                await apiCall('servers', 'POST', state.servers);
+                setStatus(`${names.length} server(s) deleted successfully`, false, 3);
+                populateValidationServers();
+                if (dom.viewServers && !dom.viewServers.classList.contains('hidden') && dom.viewServersBody) {
+                    dom.viewServersBody.innerHTML = renderServerManagerUI();
+                    renderServerDetails({ footerContainer: dom.viewServersFooter, closeLabel: '' });
+                } else {
+                    renderServerDetails();
+                    const listEl = document.getElementById('server-list');
+                    if (listEl) listEl.innerHTML = getServerListItemsHtml();
+                    document.querySelectorAll('#server-list .server-item').forEach(item => {
+                        item.classList.toggle('selected', item.dataset.serverName === state.selectedServer);
+                    });
+                }
+            } catch (error) {
+                setStatus(`Error deleting servers: ${error.message}`, true);
+            }
+        };
+
+        const getServerListItemsHtml = () => {
+            const serverNames = Object.keys(state.servers);
+            if (serverNames.length === 0) return '';
+            return serverNames.map(name => {
+                const checked = state.serversSelectedForBulkDelete && state.serversSelectedForBulkDelete.has(name);
+                return `<div class="server-item flex items-center gap-2" data-server-name="${name}"><input type="checkbox" class="server-bulk-select h-4 w-4 rounded border-gray-300 text-sisense-light-blue focus:ring-sisense-light-blue" data-server-name="${name}" ${checked ? 'checked' : ''}><span class="flex-grow truncate">${name}</span></div>`;
+            }).join('');
+        };
+
+        const deleteCurrentServer = async () => {
+            if (!state.selectedServer || !confirm(`Are you sure you want to delete server '${state.selectedServer}'?`)) return;
+
+            delete state.servers[state.selectedServer];
+            if (state.serversSelectedForBulkDelete) state.serversSelectedForBulkDelete.delete(state.selectedServer);
+            const newSelectedServer = Object.keys(state.servers)[0] || null;
+
+            try {
+                await apiCall('servers', 'POST', state.servers);
+                setStatus('Server deleted successfully', false, 3);
+                populateValidationServers();
+                state.selectedServer = newSelectedServer;
+                if (dom.viewServers && !dom.viewServers.classList.contains('hidden') && dom.viewServersBody) {
+                    dom.viewServersBody.innerHTML = renderServerManagerUI();
+                    renderServerDetails({ footerContainer: dom.viewServersFooter, closeLabel: '' });
+                } else {
+                    renderServerDetails();
+                    const listEl = document.getElementById('server-list');
+                    if (listEl) listEl.innerHTML = Object.keys(state.servers).length > 0 ? getServerListItemsHtml() : '<p class="text-sm text-slate-500">No servers configured.</p>';
+                    document.querySelectorAll('#server-list .server-item').forEach(item => {
+                        item.classList.toggle('selected', item.dataset.serverName === state.selectedServer);
+                    });
+                }
+            } catch(error) {
+                setStatus(`Error deleting server: ${error.message}`, true);
+            }
+        };
+
+        const testServerConnection = async () => {
+            const button = document.getElementById('test-server-connection-btn');
+            if (!button) return;
+
+            // Get current form values
+            const serverName = document.getElementById('server-name')?.value.trim();
+            const host = document.getElementById('server-host')?.value.trim();
+            const port = document.getElementById('server-port')?.value.trim();
+            const protocol = document.getElementById('server-protocol')?.value;
+            const os = document.getElementById('server-os')?.value;
+            const apiToken = document.getElementById('server-api_token')?.value.trim();
+
+            // Validate required fields
+            if (!serverName || !host || !apiToken) {
+                setStatus('Please fill in Server Name, Host, and API Token before testing', true, 3);
+                return;
+            }
+
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = `
+                <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Testing...
+            `;
+
+            try {
+                // Create a temporary server entry for testing (include verify from global settings)
+                const tempServer = {
+                    name: serverName,
+                    host: host,
+                    port: parseInt(port) || (protocol === 'https' ? 443 : 80),
+                    protocol: protocol,
+                    os: os,
+                    api_token: apiToken,
+                    verify: state.settings?.verify !== false,
+                    allowed_roles: ['source', 'target'] // Default roles for testing
+                };
+
+                // Test the connection using the current form data; send global verify so backend respects unchecked SSL
+                const response = await apiCall('test-connection', 'POST', { 
+                    serverName: serverName,
+                    tempServer: tempServer,
+                    verify: state.settings?.verify !== false
+                });
+                
+                // Display results in the server test results area
+                const resultsDiv = document.getElementById('server-test-results');
+                if (response.success) {
+                    resultsDiv.innerHTML = `
+                        <div class="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-md">
+                            <svg class="h-4 w-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span class="text-green-800">${response.message}</span>
+                        </div>
+                    `;
+                    resultsDiv.classList.remove('hidden');
+                    button.classList.remove('bg-sisense-light-blue');
+                    button.classList.add('bg-green-600');
+                } else {
+                    resultsDiv.innerHTML = `
+                        <div class="flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                            <svg class="h-4 w-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            <span class="text-red-800">${response.message}</span>
+                        </div>
+                    `;
+                    resultsDiv.classList.remove('hidden');
+                    button.classList.remove('bg-sisense-light-blue');
+                    button.classList.add('bg-red-600');
+                }
+            } catch (error) {
+                // Display error in the server test results area
+                const resultsDiv = document.getElementById('server-test-results');
+                resultsDiv.innerHTML = `
+                    <div class="flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                        <svg class="h-4 w-4 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        <span class="text-red-800">Connection test failed: ${error.message}</span>
+                    </div>
+                `;
+                resultsDiv.classList.remove('hidden');
+                button.classList.remove('bg-sisense-light-blue');
+                button.classList.add('bg-red-600');
+            } finally {
+                // Restore button state after a delay
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Test Connection
+                    `;
+                    button.classList.remove('bg-green-600', 'bg-red-600');
+                    button.classList.add('bg-sisense-light-blue');
+                }, 2000);
+            }
+        };
+
+        const clearTestResults = () => {
+            const resultsDiv = document.getElementById('server-test-results');
+            if (resultsDiv) {
+                resultsDiv.classList.add('hidden');
+                resultsDiv.innerHTML = '';
+            }
+        };
+
+        const getServerDetailsOptions = () => {
+            if (dom.viewServers && !dom.viewServers.classList.contains('hidden')) {
+                return { footerContainer: dom.viewServersFooter, closeLabel: '' };
+            }
+            return {};
+        };
+
+        const addServerManagerEventListeners = () => {
+            const handleServerManagerClick = (e) => {
+                if (e.target.id === 'bulk-delete-servers-btn') {
+                    bulkDeleteSelectedServers();
+                    return;
+                }
+                if (e.target.closest('.server-bulk-select')) return;
+                if (e.target.closest('.server-item')) {
+                    state.selectedServer = e.target.closest('.server-item').dataset.serverName;
+                    renderServerDetails(getServerDetailsOptions());
+                }
+                if (e.target.closest('#toggle-token-visibility')) {
+                    const button = e.target.closest('#toggle-token-visibility');
+                    const tokenInput = document.getElementById('server-api_token');
+                    const isPassword = tokenInput.type === 'password';
+                    tokenInput.type = isPassword ? 'text' : 'password';
+                    button.innerHTML = isPassword
+                        ? `<svg id="eye-off-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7 .946-2.882 3.23-5.12 6.042-6.175M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c1.554 0 3.02.43 4.312 1.175m3.155 4.792A9.954 9.954 0 0112 19c-4.477 0-8.268-2.943-9.542-7a10.01 10.01 0 012.33-4.52" /></svg>`
+                        : `<svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>`;
+                }
+                if (e.target.closest('#test-server-connection-btn')) {
+                    testServerConnection();
+                }
+            };
+            dom.modalBody.onclick = handleServerManagerClick;
+            if (dom.viewServersBody) dom.viewServersBody.onclick = handleServerManagerClick;
+
+            const handleBulkSelectChange = (e) => {
+                if (!e.target.classList.contains('server-bulk-select')) return;
+                const name = e.target.dataset.serverName;
+                if (!state.serversSelectedForBulkDelete) state.serversSelectedForBulkDelete = new Set();
+                if (e.target.checked) state.serversSelectedForBulkDelete.add(name);
+                else state.serversSelectedForBulkDelete.delete(name);
+                updateBulkDeleteButton();
+            };
+            dom.modalBody.onchange = handleBulkSelectChange;
+            if (dom.viewServersBody) dom.viewServersBody.onchange = handleBulkSelectChange;
+
+            const handleServerFooterClick = (e) => {
+                if (e.target.id === 'save-server-btn') saveCurrentServer();
+                if (e.target.id === 'delete-server-btn') deleteCurrentServer();
+            };
+            dom.modalFooter.onclick = handleServerFooterClick;
+            if (dom.viewServersFooter) dom.viewServersFooter.onclick = handleServerFooterClick;
+
+            const addNewServerIcon = document.getElementById('add-new-server-icon');
+            if (addNewServerIcon) addNewServerIcon.onclick = () => { state.selectedServer = null; renderServerDetails(getServerDetailsOptions()); };
+            const uploadServersInput = document.getElementById('upload-servers-input');
+            if (uploadServersInput) uploadServersInput.onchange = (e) => {
+                if(e.target.files.length > 0) uploadFile(e.target.files[0], 'upload/servers.yaml', openServerManager);
+            };
+            const exportServersIcon = document.getElementById('export-servers-icon');
+            if (exportServersIcon) exportServersIcon.onclick = () => {
+                fetch('/api/export_servers')
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to export servers.');
+                        const disposition = response.headers.get('Content-Disposition');
+                        let filename = 'servers.yaml';
+                        if (disposition && disposition.includes('filename=')) {
+                            filename = disposition.split('filename=')[1].replace(/"/g, '').trim();
+                        }
+                        return response.blob().then(blob => ({ blob, filename }));
+                    })
+                    .then(({ blob, filename }) => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                        setStatus('Servers exported successfully.', false, 3);
+                    })
+                    .catch(err => {
+                        setStatus('Failed to export servers: ' + err.message, true, 5);
+                    });
+            };
+
+            updateBulkDeleteButton();
+        };
+
+        const handleLeftPanelClick = (e) => {
+            // If the click was on a checkbox, do nothing here.
+            // The 'change' event listener will handle the logic for the checkbox.
+            if (e.target.type === 'checkbox') {
+                return;
+            }
+
+            const itemDiv = e.target.closest('.left-panel-item');
+            if (itemDiv) {
+                handlePanelItemClick(itemDiv.dataset.panelKey);
+            }
+        };
+
+        // Notebook selection functions
+        let notebooksList = [];
+        
+        const loadNotebooks = async () => {
+            const container = document.getElementById('notebook-checkboxes-container');
+            if (!container) {
+                console.warn('Notebook container not found');
+                return; // Panel not open yet
+            }
+            
+            // Check if source server is selected
+            const sourceServer = state.settings?.selected_source_server;
+            if (!sourceServer) {
+                container.innerHTML = '<div class="text-sm text-amber-600">Please select a source server first.</div>';
+                return;
+            }
+            
+            container.innerHTML = '<div class="text-sm text-slate-500">Loading notebooks...</div>';
+            
+            try {
+                console.log('Fetching notebooks from source server:', sourceServer);
+                const response = await apiCall('notebooks', 'GET');
+                console.log('Notebooks response:', response);
+                notebooksList = response.notebooks || [];
+                
+                if (notebooksList.length === 0) {
+                    container.innerHTML = '<div class="text-sm text-slate-500">No notebooks found on source server.</div>';
+                    return;
+                }
+                
+                console.log(`Found ${notebooksList.length} notebooks`);
+                renderNotebookCheckboxes();
+            } catch (error) {
+                console.error('Error loading notebooks:', error);
+                // The apiCall function throws an Error with the message from the API response
+                // The error message should already contain the detailed error from the server
+                let errorMessage = error.message || 'Unknown error occurred';
+                
+                container.innerHTML = `
+                    <div class="text-sm text-red-500 space-y-1">
+                        <div class="font-semibold">Error loading notebooks:</div>
+                        <div class="break-words">${errorMessage}</div>
+                        <div class="text-xs text-slate-500 mt-2">Please check your source server connection settings and try again.</div>
+                    </div>
+                `;
+            }
+        };
+        
+        const renderNotebookCheckboxes = () => {
+            const container = document.getElementById('notebook-checkboxes-container');
+            if (!container) return;
+            
+            const currentValue = document.getElementById('field-notebook_include_list')?.value || '';
+            const selectedNotebooks = currentValue && currentValue.toUpperCase() !== 'ALL' 
+                ? currentValue.split('\n').filter(v => v.trim()).map(v => v.trim())
+                : [];
+            const isAll = !currentValue || currentValue.toUpperCase() === 'ALL';
+            
+            if (notebooksList.length === 0) {
+                container.innerHTML = '<div class="text-sm text-slate-500">No notebooks available.</div>';
+                return;
+            }
+            
+            // Sort notebooks alphabetically by display name (or name, or id as fallback)
+            const sortedNotebooks = [...notebooksList].sort((a, b) => {
+                const nameA = (a.displayName || a.name || a.id || '').toLowerCase();
+                const nameB = (b.displayName || b.name || b.id || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            });
+            
+            const checkboxesHtml = sortedNotebooks.map(notebook => {
+                const notebookId = notebook.id || '';
+                const notebookName = notebook.displayName || notebook.name || notebookId || 'Unknown';
+                const isSelected = isAll || selectedNotebooks.includes(notebookId) || selectedNotebooks.includes(notebookName);
+                
+                return `
+                    <label class="flex items-center py-1 px-2 hover:bg-slate-100 rounded cursor-pointer">
+                        <input type="checkbox" 
+                               class="notebook-checkbox h-4 w-4 text-sisense-light-blue border-gray-300 rounded focus:ring-sisense-light-blue" 
+                               data-notebook-id="${notebookId}"
+                               data-notebook-name="${notebookName}"
+                               ${isSelected ? 'checked' : ''}>
+                        <span class="ml-2 text-sm text-slate-700">${notebookName}</span>
+                        <span class="ml-2 text-xs text-slate-400">(${notebookId})</span>
+                    </label>
+                `;
+            }).join('');
+            
+            container.innerHTML = `
+                <div class="space-y-1">
+                    ${checkboxesHtml}
+                </div>
+            `;
+            
+            // Add event listeners to checkboxes
+            container.querySelectorAll('.notebook-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', updateNotebookSelection);
+            });
+            
+            // Update selection count
+            updateNotebookSelectionCount();
+        };
+        
+        const updateNotebookSelectionCount = () => {
+            const container = document.getElementById('notebook-checkboxes-container');
+            const countElement = document.getElementById('notebook-count-text');
+            if (!container || !countElement) return;
+            
+            const checkedBoxes = container.querySelectorAll('.notebook-checkbox:checked');
+            const totalCount = notebooksList.length || container.querySelectorAll('.notebook-checkbox').length;
+            const selectedCount = checkedBoxes.length;
+            
+            if (selectedCount === 0) {
+                countElement.textContent = '0 selected';
+            } else if (selectedCount === totalCount) {
+                countElement.textContent = `All ${totalCount} selected`;
+            } else {
+                countElement.textContent = `${selectedCount} of ${totalCount} selected`;
+            }
+        };
+        
+        const updateNotebookSelection = () => {
+            const container = document.getElementById('notebook-checkboxes-container');
+            if (!container) return;
+            
+            const checkedBoxes = container.querySelectorAll('.notebook-checkbox:checked');
+            const hiddenInput = document.getElementById('field-notebook_include_list');
+            
+            if (!hiddenInput) return;
+            
+            if (checkedBoxes.length === 0) {
+                hiddenInput.value = '';
+            } else if (checkedBoxes.length === notebooksList.length) {
+                hiddenInput.value = 'ALL';
+            } else {
+                const selected = Array.from(checkedBoxes).map(cb => {
+                    // Prefer ID, fallback to name
+                    return cb.dataset.notebookId || cb.dataset.notebookName;
+                });
+                hiddenInput.value = selected.join('\n');
+            }
+            
+            // Update selection count
+            updateNotebookSelectionCount();
+        };
+
+        const setupEventListeners = () => {
+             dom.loadBtn.addEventListener('click', loadInitialData);
+            dom.saveBtn.addEventListener('click', saveSettings);
+            dom.previewBtn.addEventListener('click', previewYaml);
+            dom.runBtn.addEventListener('click', runApp);
+            dom.stopServerBtn.addEventListener('click', stopServer);
+            if (dom.manageServersBtn) dom.manageServersBtn.addEventListener('click', openServerManager);
+
+            // Listener for the left panel container
+            dom.leftPanelContainer.addEventListener('click', handleLeftPanelClick);
+            dom.leftPanelContainer.addEventListener('change', e => {
+                if (e.target.type === 'checkbox' && e.target.dataset.controlKey) {
+                    const controlKey = e.target.dataset.controlKey;
+                    state.settings[controlKey] = e.target.checked;
+
+                    // If the currently active panel is the one being toggled, update its disabled state
+                    const activePanelControlKey = config.PANEL_TO_CONTROL_KEY[state.activePanel];
+                    if (activePanelControlKey === controlKey) {
+                        const fieldset = document.getElementById('options-fieldset');
+                        if (fieldset) { fieldset.disabled = !e.target.checked; fieldset.classList.toggle('opacity-50', !e.target.checked); }
+                    }
+                }
+            });
+
+             // Single delegated event listener for dynamic content clicks
+            dom.optionsPanelContent.addEventListener('click', e => {
+                 // Key-Value Editor
+                if (e.target.classList.contains('kv-add-btn')) {
+                    const editor = e.target.closest('[id^="kv-editor-"]');
+                    const keyLabel = e.target.dataset.keyLabel;
+                    const valueLabel = e.target.dataset.valueLabel;
+                    const row = document.createElement('div');
+                    row.className = 'kv-row flex items-center gap-2 mb-2';
+                    row.innerHTML = `
+                        <input type="text" class="kv-key w-full p-2 border rounded-md shadow-sm text-sm" placeholder="${keyLabel}">
+                        <input type="text" class="kv-value w-full p-2 border rounded-md shadow-sm text-sm" placeholder="${valueLabel}">
+                        <button type="button" class="kv-remove-btn bg-sisense-red text-white px-2 py-1 rounded hover:bg-sisense-red-hover text-xs">Remove</button>
+                    `;
+                    editor.querySelector('.kv-rows-container').appendChild(row);
+                }
+                if (e.target.classList.contains('kv-remove-btn')) {
+                    e.target.closest('.kv-row').remove();
+                }
+
+                // List-of-Dicts Editor
+                if (e.target.classList.contains('lod-add-btn')) {
+                    const editorKey = e.target.dataset.editorKey;
+                    const fieldConfig = config.LIST_OF_DICTS_EDITOR_KEYS[editorKey];
+                    const inputs = Object.keys(fieldConfig).map(k => `
+                        <input type="text" class="w-full p-2 border rounded-md shadow-sm text-sm" data-field-key="${k}" placeholder="${fieldConfig[k]}">
+                    `).join('');
+                    const row = document.createElement('div');
+                    row.className = 'lod-row flex items-center gap-2 mb-2';
+                    row.innerHTML = `${inputs}<button type="button" class="lod-remove-btn bg-sisense-red text-white px-2 py-1 rounded hover:bg-sisense-red-hover text-xs">Remove</button>`;
+                    e.target.previousElementSibling.appendChild(row);
+                }
+                if (e.target.classList.contains('lod-remove-btn')) {
+                    e.target.closest('.lod-row').remove();
+                }
+            });
+
+            dom.uploadInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) uploadFile(e.target.files[0], 'upload/settings.yaml', loadInitialData);
+            });
+
+            dom.modalCloseBtn.addEventListener('click', hideModal);
+
+            dom.modalContainer.addEventListener('click', (e) => {
+                if (e.target === dom.modalContainer && dom.modalContainer.dataset.allowOutsideClose !== 'false') {
+                    hideModal();
+                }
+            });
+
+            // View switcher tabs
+            if (dom.viewLinkMigration) {
+                dom.viewLinkMigration.addEventListener('click', (e) => { e.preventDefault(); switchView('migration'); });
+            }
+            if (dom.viewLinkValidation) {
+                dom.viewLinkValidation.addEventListener('click', (e) => { e.preventDefault(); switchView('validation'); });
+            }
+            if (dom.viewLinkServers) {
+                dom.viewLinkServers.addEventListener('click', (e) => { e.preventDefault(); switchView('servers'); });
+            }
+            if (dom.viewLinkChat) {
+                dom.viewLinkChat.addEventListener('click', (e) => { e.preventDefault(); switchView('chat'); });
+            }
+            window.addEventListener('hashchange', () => {
+                const viewId = (window.location.hash || '#migration').replace(/^#/, '') || 'migration';
+                const allowed = ['migration', 'validation', 'servers', 'chat'];
+                switchView(allowed.includes(viewId) ? viewId : 'migration');
+            });
+
+            // Validation: Run button (background job + polling); Pause / Resume / Stop
+            let currentValidationJobId = null;
+            let lastValidationResult = null;
+            let validationResultsFilter = 'all';
+
+            const isValidationDashboardFailed = (d) => {
+                if (d.status === 'failed') return true;
+                if ((d.widget_results || []).some(w => w.status !== 'ok')) return true;
+                if ((d.widget_results || []).some(w => (w.jaql_results || []).some(j => j.status !== 'ok'))) return true;
+                if ((d.filter_jaql_results || []).some(f => f.status !== 'ok')) return true;
+                return false;
+            };
+
+            const renderValidationDashboardResults = (dashList) => {
+                const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                if (!dashList.length) return '';
+                let out = '<div class="space-y-4 max-h-96 overflow-y-auto">';
+                dashList.forEach(d => {
+                    const dashTitle = esc(d.dashboard_title || 'Untitled');
+                    const dashOid = esc(d.dashboard_oid || '');
+                    const isFailed = d.status === 'failed';
+                    out += `<div class="border rounded-lg p-3 ${isFailed ? 'border-sisense-red bg-red-50' : 'border-slate-200 bg-slate-50'}">`;
+                    out += `<div class="font-medium text-slate-800">${dashTitle}${dashOid ? ` <span class="text-slate-500 font-normal text-xs">(OID: ${dashOid})</span>` : ''}</div>`;
+                    if (isFailed && d.error) {
+                        out += `<div class="text-sisense-red text-sm mt-1">${esc(d.error)}</div>`;
+                    }
+                    const wList = d.widget_results || [];
+                    if (wList.length) {
+                        out += '<ul class="mt-2 ml-2 space-y-1 text-sm">';
+                        wList.forEach(w => {
+                            const wTitle = esc(w.widget_title || w.widget_oid || '');
+                            const wOid = esc(w.widget_oid || '');
+                            const wOk = w.status === 'ok';
+                            out += `<li class="${wOk ? 'text-slate-600' : 'text-sisense-red'}">`;
+                            out += wOk ? '✓ ' : '✗ ';
+                            out += wTitle || ('Widget ' + wOid);
+                            if (wOid) out += ` <span class="text-slate-500 text-xs">(OID: ${wOid})</span>`;
+                            if (!wOk && w.error) out += ` — ${esc(w.error)}`;
+                            const jList = w.jaql_results || [];
+                            if (jList.length) {
+                                out += '<ul class="ml-4 mt-0.5 space-y-0.5 text-xs">';
+                                jList.forEach((j, idx) => {
+                                    const jOk = j.status === 'ok';
+                                    out += `<li class="${jOk ? 'text-slate-500' : 'text-sisense-red'}">`;
+                                    out += jOk ? '✓ ' : '✗ ';
+                                    out += 'JAQL ' + (idx + 1);
+                                    if (!jOk && j.error) out += ` — ${esc(j.error)}`;
+                                    if (j.jaql) out += `<pre class="mt-1 mb-1 ml-2 p-2 bg-slate-100 rounded text-xs overflow-x-auto whitespace-pre-wrap font-mono">${esc(j.jaql)}</pre>`;
+                                    out += '</li>';
+                                });
+                                out += '</ul>';
+                            }
+                            out += '</li>';
+                        });
+                        out += '</ul>';
+                    }
+                    const fList = d.filter_jaql_results || [];
+                    if (fList.length) {
+                        out += '<div class="mt-2 ml-2 text-sm"><span class="font-medium text-slate-700">Filter JAQLs:</span><ul class="ml-2 mt-0.5 space-y-0.5 text-xs">';
+                        fList.forEach((f, idx) => {
+                            const fOk = f.status === 'ok';
+                            out += `<li class="${fOk ? 'text-slate-500' : 'text-sisense-red'}">`;
+                            out += fOk ? '✓ ' : '✗ ';
+                            out += 'Filter ' + (idx + 1);
+                            if (!fOk && f.error) out += ` — ${esc(f.error)}`;
+                            if (f.jaql) out += `<pre class="mt-1 mb-1 ml-2 p-2 bg-slate-100 rounded text-xs overflow-x-auto whitespace-pre-wrap font-mono">${esc(f.jaql)}</pre>`;
+                            out += '</li>';
+                        });
+                        out += '</ul></div>';
+                    }
+                    out += '</div>';
+                });
+                out += '</div>';
+                return out;
+            };
+
+            const buildValidationResultsHtml = (statusData, filter) => {
+                const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                const dashResults = statusData.dashboard_results || [];
+                const toShow = filter === 'failed' ? dashResults.filter(isValidationDashboardFailed) : dashResults;
+                let html = '';
+                if (statusData.status === 'stopped') {
+                    html += '<p class="text-slate-700 mb-2 font-medium">Validation stopped.</p>';
+                }
+                const dashOk = statusData.dashboardsOk != null ? statusData.dashboardsOk : 0;
+                const dashFail = statusData.dashboardsFailed != null ? statusData.dashboardsFailed : 0;
+                const widgetOk = statusData.widgetsOk != null ? statusData.widgetsOk : 0;
+                const widgetFail = statusData.widgetsFailed != null ? statusData.widgetsFailed : 0;
+                const jaqlOk = statusData.jaqlOk;
+                const jaqlFail = statusData.jaqlFailed;
+                const errors = statusData.errors || [];
+                html += `<p class="text-slate-700 mb-2">Dashboards: <strong>${dashOk}</strong> OK, <strong>${dashFail}</strong> failed. Widgets: <strong>${widgetOk}</strong> OK, <strong>${widgetFail}</strong> failed.</p>`;
+                if (jaqlOk != null && jaqlFail != null) {
+                    html += `<p class="text-slate-700 mb-2">JAQL checks: <strong>${jaqlOk}</strong> OK, <strong>${jaqlFail}</strong> failed.</p>`;
+                }
+                if (errors.length) {
+                    html += '<ul class="list-disc list-inside text-sisense-red text-sm mb-4">' + errors.map(e => `<li>${esc(e)}</li>`).join('') + '</ul>';
+                }
+                if (dashResults.length) {
+                    if (filter === 'failed' && toShow.length < dashResults.length) {
+                        html += `<p class="text-slate-700 font-medium mt-4 mb-2">Showing ${toShow.length} of ${dashResults.length} dashboards (failed only):</p>`;
+                    } else {
+                        html += '<p class="text-slate-700 font-medium mt-4 mb-2">Per-dashboard results:</p>';
+                    }
+                    html += renderValidationDashboardResults(toShow);
+                }
+                return html;
+            };
+
+            const sendValidationControl = async (action) => {
+                const id = currentValidationJobId;
+                if (!id) return;
+                try {
+                    await fetch(`/api/validate-dashboards/control/${id}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action })
+                    });
+                } catch (_) {}
+            };
+            if (dom.validationPauseBtn) dom.validationPauseBtn.addEventListener('click', () => sendValidationControl('pause'));
+            if (dom.validationResumeBtn) dom.validationResumeBtn.addEventListener('click', () => sendValidationControl('resume'));
+            if (dom.validationStopBtn) dom.validationStopBtn.addEventListener('click', () => sendValidationControl('stop'));
+
+            if (dom.validationIncludeJaql && dom.validationJaqlModeWrap) {
+                const toggleJaqlMode = () => {
+                    dom.validationJaqlModeWrap.classList.toggle('hidden', !dom.validationIncludeJaql.checked);
+                };
+                dom.validationIncludeJaql.addEventListener('change', toggleJaqlMode);
+                toggleJaqlMode();
+            }
+
+            if (dom.validationClearResultsBtn && dom.validationResultsContent) {
+                dom.validationClearResultsBtn.addEventListener('click', () => {
+                    dom.validationResultsContent.innerHTML = '';
+                    lastValidationResult = null;
+                    if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = true;
+                });
+            }
+            const validationResultsFilterEl = document.getElementById('validation-results-filter');
+            if (validationResultsFilterEl && dom.validationResultsContent) {
+                validationResultsFilterEl.addEventListener('change', () => {
+                    validationResultsFilter = validationResultsFilterEl.value;
+                    if (lastValidationResult && Array.isArray(lastValidationResult.dashboard_results) && lastValidationResult.dashboard_results.length > 0) {
+                        if (lastValidationResult.status === 'completed' || lastValidationResult.status === 'stopped') {
+                            dom.validationResultsContent.innerHTML = buildValidationResultsHtml(lastValidationResult, validationResultsFilter);
+                        }
+                    }
+                });
+            }
+            const validationTestConnectionBtn = document.getElementById('validation-test-connection-btn');
+            const validationTestConnectionResult = document.getElementById('validation-test-connection-result');
+            if (validationTestConnectionBtn) {
+                validationTestConnectionBtn.addEventListener('click', async () => {
+                    const serverSelect = document.getElementById('validation-server-select');
+                    const serverName = serverSelect && serverSelect.value ? serverSelect.value.trim() : '';
+                    if (!serverName) {
+                        setStatus('Please select a server first.', true, 3);
+                        return;
+                    }
+                    if (validationTestConnectionResult) {
+                        validationTestConnectionResult.classList.add('hidden');
+                        validationTestConnectionResult.innerHTML = '';
+                    }
+                    validationTestConnectionBtn.disabled = true;
+                    validationTestConnectionBtn.innerHTML = '<svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+                    try {
+                        const res = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverName }) });
+                        const data = await res.json().catch(() => ({}));
+                        const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                        if (res.ok && data.success) {
+                            setStatus('Connection successful.', false, 3);
+                            validationTestConnectionBtn.classList.remove('text-red-600');
+                            validationTestConnectionBtn.classList.add('text-green-600');
+                            if (validationTestConnectionResult) {
+                                validationTestConnectionResult.innerHTML = '<span class="text-green-600">' + esc(data.message || 'Connection successful') + '</span>';
+                                validationTestConnectionResult.classList.remove('hidden');
+                            }
+                        } else {
+                            const msg = data.message || data.error || `Request failed (${res.status})`;
+                            setStatus(msg, true, 4);
+                            validationTestConnectionBtn.classList.remove('text-green-600');
+                            validationTestConnectionBtn.classList.add('text-red-600');
+                            if (validationTestConnectionResult) {
+                                validationTestConnectionResult.innerHTML = '<span class="text-red-600">' + esc(msg) + '</span>';
+                                validationTestConnectionResult.classList.remove('hidden');
+                            }
+                        }
+                    } catch (err) {
+                        setStatus('Connection test failed: ' + err.message, true, 4);
+                        validationTestConnectionBtn.classList.remove('text-green-600');
+                        validationTestConnectionBtn.classList.add('text-red-600');
+                        if (validationTestConnectionResult) {
+                            validationTestConnectionResult.innerHTML = '<span class="text-red-600">Connection test failed: ' + esc(err.message) + '</span>';
+                            validationTestConnectionResult.classList.remove('hidden');
+                        }
+                    } finally {
+                        validationTestConnectionBtn.disabled = false;
+                        validationTestConnectionBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+                    }
+                });
+            }
+            if (dom.validationServerSelect && validationTestConnectionResult) {
+                dom.validationServerSelect.addEventListener('change', () => {
+                    validationTestConnectionResult.classList.add('hidden');
+                    validationTestConnectionResult.innerHTML = '';
+                    if (validationTestConnectionBtn) {
+                        validationTestConnectionBtn.classList.remove('text-green-600', 'text-red-600');
+                    }
+                });
+            }
+            if (dom.validationExportResultsBtn) {
+                dom.validationExportResultsBtn.addEventListener('click', () => {
+                    if (!lastValidationResult) {
+                        setStatus('No results to export. Run validation first.', true, 3);
+                        return;
+                    }
+                    const formatEl = document.getElementById('validation-export-format');
+                    const format = (formatEl && formatEl.value) || 'json';
+                    const ts = new Date().toISOString().slice(0, 19).replace(/T/g, '-').replace(/:/g, '');
+                    if (format === 'csv') {
+                        const escapeCsv = (v) => {
+                            const s = v == null ? '' : String(v);
+                            if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+                            return s;
+                        };
+                        const rows = [['Dashboard OID', 'Dashboard Title', 'Widget OID', 'Widget Title', 'Type', 'Index', 'Status', 'Error']];
+                        const dashResults = lastValidationResult.dashboard_results || [];
+                        dashResults.forEach(d => {
+                            const dashOid = d.dashboard_oid || '';
+                            const dashTitle = d.dashboard_title || '';
+                            (d.widget_results || []).forEach(w => {
+                                const wOid = w.widget_oid || '';
+                                const wTitle = w.widget_title || '';
+                                const jList = w.jaql_results || [];
+                                if (jList.length) {
+                                    jList.forEach((j, idx) => {
+                                        rows.push([dashOid, dashTitle, wOid, wTitle, 'widget', idx + 1, j.status || '', (j.error || '').replace(/\r?\n/g, ' ')]);
+                                    });
+                                } else {
+                                    rows.push([dashOid, dashTitle, wOid, wTitle, 'widget', '', w.status || '', (w.error || '').replace(/\r?\n/g, ' ')]);
+                                }
+                            });
+                            (d.filter_jaql_results || []).forEach((f, idx) => {
+                                rows.push([dashOid, dashTitle, '', '', 'filter', idx + 1, f.status || '', (f.error || '').replace(/\r?\n/g, ' ')]);
+                            });
+                        });
+                        const csv = rows.map(r => r.map(escapeCsv).join(',')).join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'validation-results-' + ts + '.csv';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    } else {
+                        const json = JSON.stringify(lastValidationResult, null, 2);
+                        const blob = new Blob([json], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'validation-results-' + ts + '.json';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    }
+                    setStatus('Results exported.', false, 2);
+                });
+            }
+
+            if (dom.validationRunBtn) {
+                dom.validationRunBtn.addEventListener('click', async () => {
+                    const serverName = dom.validationServerSelect && dom.validationServerSelect.value ? dom.validationServerSelect.value.trim() : '';
+                    const includeJaql = dom.validationIncludeJaql && dom.validationIncludeJaql.checked;
+                    if (!serverName) {
+                        setStatus('Please select a server to validate.', true, 3);
+                        return;
+                    }
+                    if (!dom.validationResultsContainer || !dom.validationResultsContent) return;
+                    dom.validationResultsContainer.classList.remove('hidden');
+                    dom.validationResultsContent.innerHTML = '';
+                    if (dom.validationProgressSection) dom.validationProgressSection.classList.remove('hidden');
+                    if (dom.validationControlButtons) dom.validationControlButtons.classList.add('hidden');
+                    if (dom.validationProgressBar) dom.validationProgressBar.style.width = '0%';
+                    if (dom.validationRunBtn) dom.validationRunBtn.disabled = true;
+                    if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = true;
+                    if (dom.validationProgressText) dom.validationProgressText.textContent = 'Testing connection...';
+                    if (dom.validationLog) dom.validationLog.textContent = '';
+                    let pollIntervalId = null;
+                    try {
+                        const testRes = await fetch('/api/test-connection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serverName }) });
+                        const testData = await testRes.json().catch(() => ({}));
+                        if (!testRes.ok || !testData.success) {
+                            const testErr = testData.message || testData.error || `Connection test failed (${testRes.status})`;
+                            dom.validationResultsContent.innerHTML = '<p class="text-sisense-red">Connection failed: ' + String(testErr).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
+                            if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                            if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                            if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                            setStatus(testErr, true, 5);
+                            return;
+                        }
+                        if (dom.validationProgressText) dom.validationProgressText.textContent = 'Fetching dashboards...';
+                        const jaqlModeEl = document.querySelector('input[name="validation-jaql-mode"]:checked');
+                        const jaqlMode = (jaqlModeEl && jaqlModeEl.value) || 'widget';
+                        const showJaqlInResults = document.getElementById('validation-show-jaql-in-results') && document.getElementById('validation-show-jaql-in-results').checked;
+                        const res = await fetch('/api/validate-dashboards', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ serverName, includeJaql, jaqlMode, showJaqlInResults })
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                            const errMsg = (data && data.error) ? data.error : `Validation failed (${res.status})`;
+                            const escaped = String(errMsg).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            dom.validationResultsContent.innerHTML = `<p class="text-sisense-red">${escaped}</p>`;
+                            if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                            if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                            if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                            setStatus(errMsg, true, 5);
+                            return;
+                        }
+                        const jobId = data.jobId;
+                        if (!jobId) {
+                            dom.validationResultsContent.innerHTML = '<p class="text-sisense-red">No job ID returned.</p>';
+                            if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                            if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                            if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                            return;
+                        }
+                        currentValidationJobId = jobId;
+                        if (dom.validationControlButtons) dom.validationControlButtons.classList.remove('hidden');
+                        if (dom.validationPauseBtn) dom.validationPauseBtn.classList.remove('hidden');
+                        if (dom.validationResumeBtn) dom.validationResumeBtn.classList.add('hidden');
+                        const poll = async () => {
+                            try {
+                                const statusRes = await fetch(`/api/validate-dashboards/status/${jobId}?_=${Date.now()}`, { cache: 'no-store' });
+                                const statusData = await statusRes.json().catch(() => ({}));
+                                if (!statusRes.ok) return;
+                                const status = statusData.status || 'pending';
+                                const totalDash = statusData.total_dashboards || 0;
+                                const checkedDash = statusData.dashboards_checked || 0;
+                                const totalJaql = statusData.total_jaql;
+                                const jaqlChecked = statusData.jaql_checked || 0;
+                                const currentName = statusData.current_dashboard_name || '';
+                                const logLines = statusData.log || [];
+                                if (dom.validationProgressBar) {
+                                    let pct = 0;
+                                    if (totalDash > 0 && totalJaql != null && totalJaql > 0) {
+                                        pct = (checkedDash / totalDash) * 50 + (jaqlChecked / totalJaql) * 50;
+                                    } else if (totalJaql != null && totalJaql > 0) {
+                                        pct = 50 + (jaqlChecked / totalJaql) * 50;
+                                    } else if (totalDash > 0) {
+                                        pct = (checkedDash / totalDash) * 100;
+                                    }
+                                    dom.validationProgressBar.style.width = Math.min(100, Math.round(pct)) + '%';
+                                }
+                                if (dom.validationProgressText) {
+                                    if (currentName) dom.validationProgressText.textContent = currentName;
+                                    else if (totalDash > 0) dom.validationProgressText.textContent = `Dashboards: ${checkedDash}/${totalDash}`;
+                                }
+                                if (status === 'running' && dom.validationControlButtons) {
+                                    dom.validationControlButtons.classList.remove('hidden');
+                                    const paused = statusData.paused === true;
+                                    if (dom.validationPauseBtn) dom.validationPauseBtn.classList.toggle('hidden', paused);
+                                    if (dom.validationResumeBtn) dom.validationResumeBtn.classList.toggle('hidden', !paused);
+                                }
+                                if (dom.validationLog) {
+                                    let logText = logLines.length ? logLines.join('\n') : '';
+                                    if (statusData.stderr) logText += (logText ? '\n\n--- stderr ---\n' : '') + statusData.stderr;
+                                    dom.validationLog.textContent = logText || 'Waiting for progress...';
+                                    if (status === 'running' && statusData.paused !== true) {
+                                        dom.validationLog.scrollTop = dom.validationLog.scrollHeight;
+                                    }
+                                }
+                                const dashResults = statusData.dashboard_results || [];
+                                const toShow = validationResultsFilter === 'failed' ? dashResults.filter(isValidationDashboardFailed) : dashResults;
+                                if (dom.validationResultsContent) {
+                                    if (status === 'running' && dashResults.length > 0) {
+                                        if (statusData.paused !== true) {
+                                            let runningHtml = `<p class="text-slate-600 text-sm mb-2">Results so far (${checkedDash}/${totalDash} dashboards):</p>`;
+                                            if (validationResultsFilter === 'failed' && toShow.length < dashResults.length) {
+                                                runningHtml += `<p class="text-slate-600 text-sm mb-2">Showing ${toShow.length} of ${dashResults.length} (failed only).</p>`;
+                                            }
+                                            runningHtml += renderValidationDashboardResults(toShow);
+                                            dom.validationResultsContent.innerHTML = runningHtml;
+                                            const resultsScroll = dom.validationResultsContent.querySelector('.max-h-96');
+                                            if (resultsScroll) resultsScroll.scrollTop = resultsScroll.scrollHeight;
+                                        }
+                                    } else if (status === 'completed') {
+                                        currentValidationJobId = null;
+                                        if (pollIntervalId) clearInterval(pollIntervalId);
+                                        pollIntervalId = null;
+                                        if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                                        if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                                        if (dom.validationControlButtons) dom.validationControlButtons.classList.add('hidden');
+                                        if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                                        dom.validationResultsContent.innerHTML = buildValidationResultsHtml(statusData, validationResultsFilter);
+                                        lastValidationResult = { status: 'completed', ...statusData };
+                                        const resultsScrollDone = dom.validationResultsContent.querySelector('.max-h-96');
+                                        if (resultsScrollDone) resultsScrollDone.scrollTop = resultsScrollDone.scrollHeight;
+                                        setStatus('Validation complete.', false, 3);
+                                        return;
+                                    }
+                                    if (status === 'stopped') {
+                                        currentValidationJobId = null;
+                                        if (pollIntervalId) clearInterval(pollIntervalId);
+                                        pollIntervalId = null;
+                                        if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                                        if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                                        if (dom.validationControlButtons) dom.validationControlButtons.classList.add('hidden');
+                                        if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                                        const stoppedData = { ...statusData, status: 'stopped' };
+                                        dom.validationResultsContent.innerHTML = buildValidationResultsHtml(stoppedData, validationResultsFilter);
+                                        lastValidationResult = { status: 'stopped', ...statusData };
+                                        setStatus('Validation stopped.', false, 3);
+                                        return;
+                                    }
+                                }
+                                if (status === 'failed') {
+                                    currentValidationJobId = null;
+                                    if (pollIntervalId) clearInterval(pollIntervalId);
+                                    pollIntervalId = null;
+                                    if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                                    if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                                    if (dom.validationControlButtons) dom.validationControlButtons.classList.add('hidden');
+                                    if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                                    lastValidationResult = { status: 'failed', ...statusData };
+                                    const errMsg = statusData.error || 'Validation failed';
+                                    let failHtml = `<p class="text-sisense-red">${String(errMsg).replace(/</g, '&lt;')}</p>`;
+                                    if (statusData.stderr) failHtml += `<pre class="mt-2 text-xs bg-slate-100 p-2 rounded overflow-auto max-h-32">${String(statusData.stderr).replace(/</g, '&lt;')}</pre>`;
+                                    dom.validationResultsContent.innerHTML = failHtml;
+                                    setStatus(errMsg, true, 5);
+                                }
+                            } catch (_) { /* ignore poll errors */ }
+                        };
+                        await poll();
+                        pollIntervalId = setInterval(poll, 800);
+                    } catch (err) {
+                        currentValidationJobId = null;
+                        if (pollIntervalId) clearInterval(pollIntervalId);
+                        if (dom.validationRunBtn) dom.validationRunBtn.disabled = false;
+                        if (dom.validationExportResultsBtn) dom.validationExportResultsBtn.disabled = false;
+                        if (dom.validationControlButtons) dom.validationControlButtons.classList.add('hidden');
+                        dom.validationResultsContent.innerHTML = `<p class="text-sisense-red">${String(err.message).replace(/</g, '&lt;')}</p>`;
+                        if (dom.validationProgressSection) dom.validationProgressSection.classList.add('hidden');
+                        setStatus('Validation request failed: ' + err.message, true, 5);
+                    }
+                });
+            }
+        }
+
+        // --- Export Settings Button ---
+        dom.exportBtn.addEventListener('click', () => {
+            fetch('/api/export_settings')
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to export settings.');
+                    const disposition = response.headers.get('Content-Disposition');
+                    let filename = 'settings.yaml';
+                    if (disposition && disposition.includes('filename=')) {
+                        filename = disposition.split('filename=')[1].replace(/"/g, '').trim();
+                    }
+                    return response.blob().then(blob => ({ blob, filename }));
+                })
+                .then(({ blob, filename }) => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                    setStatus('Settings exported successfully.', false, 3);
+                })
+                .catch(err => {
+                    setStatus('Failed to export settings: ' + err.message, true, 5);
+                });
+        });
+
+        // --- Load Version ---
+        const loadVersion = async () => {
+            try {
+                const response = await fetch('/api/version');
+                if (response.ok) {
+                    const data = await response.json();
+                    const versionElement = document.getElementById('version-number');
+                    if (versionElement) {
+                        versionElement.textContent = data.version;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to load version:', error);
+                const versionElement = document.getElementById('version-number');
+                if (versionElement) {
+                    versionElement.textContent = 'unknown';
+                }
+            }
+        };
+
+        // --- Init ---
+        const init = () => {
+            document.addEventListener('DOMContentLoaded', () => {
+                loadVersion();
+                loadInitialData();
+                setupEventListeners();
+                // Apply view from current hash (default migration)
+                const hash = (window.location.hash || '#migration').replace(/^#/, '') || 'migration';
+                const allowed = ['migration', 'validation', 'servers', 'chat'];
+                switchView(allowed.includes(hash) ? hash : 'migration');
+            });
+        };
+
+        init();
+    </script>
+</body>
+</html>

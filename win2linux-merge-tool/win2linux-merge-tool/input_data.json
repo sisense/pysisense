@@ -1,0 +1,36 @@
+[
+    {
+        "id": 1,
+        "src_host": "192.168.1.100",
+        "data": "Log entry A",
+        "port": 80
+    },
+    {
+        "id": 2,
+        "src_host": "192.168.1.101",
+        "data": "Log entry B",
+        "port": 443
+    },
+    {
+        "id": 3,
+        "src_host": "10.0.0.5",
+        "data": "Log entry C",
+        "port": 22
+    },
+    {
+        "id": 4,
+        "src_host": "192.168.1.101",
+        "data": "Log entry D",
+        "port": 8080
+    },
+    {
+        "id": 5,
+        "src_host": "192.168.1.102",
+        "data": "Log entry E"
+    },
+    {
+        "id": 6,
+        "other_field": "some_value",
+        "data": "Log entry F"
+    }
+]

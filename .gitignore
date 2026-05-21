@@ -14,6 +14,7 @@ sisensepypi/
 
 # macOS system files
 .DS_Store
+.DS_Store?
 
 # IDE/editor settings
 .vscode/
@@ -24,7 +25,7 @@ dist/
 *.egg-info/
 
 # Logs and temporary files
-logs/*.log
+*.log
 
 # Data files
 *.csv
@@ -43,3 +44,42 @@ scripts/
 
 # pytest cache
 .pytest_cache/
+
+# IDE
+.idea/
+
+# Additional virtual environment names
+.venv/
+
+# Reports output directory
+reports/
+
+# Frontend dependencies
+frontend/chat/node_modules/
+
+# Validation progress temp files
+.validation_progress_*
+
+# Win2Linux merge tool — side tools and runtime artifacts/sensitive files
+win2linux-merge-tool/win2linux-merge-tool/confluence-updater/
+win2linux-merge-tool/win2linux-merge-tool/*.ipynb
+win2linux-merge-tool/win2linux-merge-tool/.gitlab-ci.yml
+win2linux-merge-tool/win2linux-merge-tool/CODE_REVIEW_RESULT.md
+win2linux-merge-tool/win2linux-merge-tool/REVIEW_FOR_EXTERNAL_MODELS.md
+win2linux-merge-tool/win2linux-merge-tool/FIX_PLAN_custom_code_logic.md
+win2linux-merge-tool/win2linux-merge-tool/PLAN_REVIEW_RECOMMENDATIONS.md
+win2linux-merge-tool/win2linux-merge-tool/docs/AGENT_PLAN.md
+win2linux-merge-tool/win2linux-merge-tool/docs/AGENT_PLAN_MIGRATION_SCRIPT.md
+win2linux-merge-tool/win2linux-merge-tool/docs/PLAN-per-migration-log-level.md
+
+# Win2Linux merge tool — runtime artifacts and sensitive files
+win2linux-merge-tool/win2linux-merge-tool/log-win2linux-merge.err
+win2linux-merge-tool/win2linux-merge-tool/config/
+win2linux-merge-tool/win2linux-merge-tool/migration/.dashboard_shares_backup.json
+win2linux-merge-tool/win2linux-merge-tool/migration/.dashboard_shares_backup_asyncio.json
+win2linux-merge-tool/win2linux-merge-tool/playground-1.mongodb.js
+win2linux-merge-tool/win2linux-merge-tool/chromedriver
+win2linux-merge-tool/win2linux-merge-tool/connection_update_functions.py
+win2linux-merge-tool/win2linux-merge-tool/dashboard_migration_timing.json
+win2linux-merge-tool/win2linux-merge-tool/error_screenshot.png
+win2linux-merge-tool/win2linux-merge-tool/frontend/chat/tsconfig.tsbuildinfo

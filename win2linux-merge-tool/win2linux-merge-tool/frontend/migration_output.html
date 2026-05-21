@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Migration Output</title>
+    <style>
+        body { background: #181818; color: #e0e0e0; font-family: monospace; margin: 0; padding: 0; }
+        #output-container { padding: 16px; }
+        #terminal-output {
+            background: #111;
+            color: #b5f774;
+            padding: 16px;
+            border-radius: 8px;
+            min-height: 400px;
+            max-height: 70vh; /* Adjusted height to make space for progress bar */
+            overflow-y: auto;
+            font-size: 1rem;
+            white-space: pre-wrap;
+        }
+        .log-warning {
+            color: #ff8c00; /* Orange color for warnings */
+        }
+        .log-error {
+            color: #ff4444; /* Red color for errors */
+        }
+        .log-critical {
+            color: #ff0000; /* Bright red for critical errors */
+        }
+        #close-btn {
+            margin: 16px;
+            padding: 8px 16px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .hidden {
+            display: none;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #333;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            border: 1px solid #555;
+        }
+        .progress-bar {
+            width: 0%;
+            height: 24px;
+            background-color: #1DE4EB; /* Bright Blue */
+            border-radius: 4px;
+            text-align: center;
+            line-height: 24px;
+            color: white;
+            font-weight: bold;
+            transition: width 0.2s ease-in-out;
+        }
+        .completed-banner {
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            background-color: #2d5a2d;
+            color: #b5f774;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="output-container">
+        <button id="close-btn" onclick="window.close()">Close</button>
+        <button id="stop-btn" style="margin: 16px; padding: 8px 16px; background: #f05959; color: white; border: none; border-radius: 4px; cursor: pointer;">Stop</button>
+        <button id="notify-btn" style="margin: 16px; padding: 8px 16px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer;">Notify me when complete</button>
+
+        <div id="completed-banner" class="hidden completed-banner">Migration completed</div>
+
+        <!-- Dashboard Sharing Progress Bar -->
+        <div id="share-progress-wrapper" class="hidden progress-wrapper-class">
+            <h2 style="margin-top: 16px;">Dashboard Sharing Progress</h2>
+            <div class="progress-container">
+                <div id="share-progress-bar" class="progress-bar">0%</div>
+            </div>
+        </div>
+
+        <!-- Dashboard Migration Progress Bar -->
+        <div id="progress-wrapper" class="hidden progress-wrapper-class">
+            <h2 style="margin-top: 16px;">Dashboard Migration Progress</h2>
+            <div class="progress-container">
+                <div id="progress-bar" class="progress-bar">0%</div>
+            </div>
+        </div>
+
+        <h2 style="margin-top: 20px;">Migration Log</h2>
+        <pre id="terminal-output"></pre>
+    </div>
+    <script>
+        const output = document.getElementById('terminal-output');
+        const allProgressWrappers = document.querySelectorAll('.progress-wrapper-class');
+        const progressWrapper = document.getElementById('progress-wrapper');
+        const progressBar = document.getElementById('progress-bar');
+        const shareProgressWrapper = document.getElementById('share-progress-wrapper');
+        const shareProgressBar = document.getElementById('share-progress-bar');
+
+        // --- Function to parse log level and create colored element ---
+        function createLogElement(logLine) {
+            const span = document.createElement('span');
+            
+            // Check for log level patterns (format: "YYYY-MM-DD HH:MM:SS - LEVEL - message")
+            if (logLine.match(/\s-\s(WARNING|WARN)\s-/i)) {
+                span.className = 'log-warning';
+                span.textContent = logLine;
+            } else if (logLine.match(/\s-\s(ERROR|ERR)\s-/i)) {
+                span.className = 'log-error';
+                span.textContent = logLine;
+            } else if (logLine.match(/\s-\s(CRITICAL|CRIT)\s-/i)) {
+                span.className = 'log-critical';
+                span.textContent = logLine;
+            } else {
+                // Default color (green) for INFO, DEBUG, etc.
+                span.textContent = logLine;
+            }
+            
+            return span;
+        }
+
+        function renderLogContent(text) {
+            output.innerHTML = '';
+            if (!text || !text.trim()) return;
+            const lines = text.split(/\r?\n/);
+            lines.forEach(function(line) {
+                const element = createLogElement(line);
+                output.appendChild(element);
+                output.appendChild(document.createTextNode('\n'));
+            });
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function showCompleted() {
+            allProgressWrappers.forEach(w => w.classList.add('hidden'));
+            const completedBanner = document.getElementById('completed-banner');
+            if (completedBanner) completedBanner.classList.remove('hidden');
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                try {
+                    new Notification('Migration completed', { body: 'The migration job has finished.' });
+                } catch (e) {}
+            }
+        }
+
+        let evtSource = null;
+        let logBuffer = [];
+        let renderInterval = null;
+        let pollIntervalId = null;
+
+        function startPollingMode() {
+            function poll() {
+                fetch('/api/migration/status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(status) {
+                        fetch('/api/migration-log?lines=10000')
+                            .then(function(r) { return r.json(); })
+                            .then(function(data) {
+                                const content = data.content || data.message || '';
+                                renderLogContent(content);
+                                if (!status.running) {
+                                    if (pollIntervalId) clearInterval(pollIntervalId);
+                                    pollIntervalId = null;
+                                    showCompleted();
+                                }
+                            })
+                            .catch(function() {});
+                    })
+                    .catch(function() {});
+            }
+            poll();
+            pollIntervalId = setInterval(poll, 2000);
+        }
+
+        function initStreamMode() {
+            evtSource = new EventSource('/run_migration_stream');
+            renderInterval = setInterval(function() {
+                if (logBuffer.length > 0) {
+                    logBuffer.forEach(function(logLine) {
+                        const lineWithoutNewline = logLine.endsWith('\n') ? logLine.slice(0, -1) : logLine;
+                        const element = createLogElement(lineWithoutNewline);
+                        output.appendChild(element);
+                        output.appendChild(document.createTextNode('\n'));
+                    });
+                    logBuffer = [];
+                    output.scrollTop = output.scrollHeight;
+                }
+            }, 100);
+
+        function updateProgressBar(event, wrapper, bar) {
+            // Hide all other progress wrappers
+            allProgressWrappers.forEach(w => {
+                if (w !== wrapper) {
+                    w.classList.add('hidden');
+                }
+            });
+            // Show the current one
+            wrapper.classList.remove('hidden');
+
+            try {
+                const progressData = JSON.parse(event.data);
+                const current = progressData.current;
+                const total = progressData.total;
+
+                if (total > 0) {
+                    const percentage = Math.round((current / total) * 100);
+                    bar.style.width = percentage + '%';
+                    bar.textContent = `${percentage}% (${current} / ${total})`;
+                } else {
+                    bar.style.width = '0%';
+                    bar.textContent = '0%';
+                }
+            } catch (e) {
+                console.error("Failed to parse progress event data:", event.data, e);
+            }
+        }
+
+            evtSource.addEventListener('progress', function(e) { updateProgressBar(e, progressWrapper, progressBar); });
+            evtSource.addEventListener('share_progress', function(e) { updateProgressBar(e, shareProgressWrapper, shareProgressBar); });
+            evtSource.onmessage = function(event) {
+                logBuffer.push(event.data + '\n');
+            };
+            evtSource.onerror = function() {
+                if (renderInterval) clearInterval(renderInterval);
+                renderInterval = null;
+                if (logBuffer.length > 0) {
+                    logBuffer.forEach(function(logLine) {
+                        const lineWithoutNewline = logLine.endsWith('\n') ? logLine.slice(0, -1) : logLine;
+                        const element = createLogElement(lineWithoutNewline);
+                        output.appendChild(element);
+                        output.appendChild(document.createTextNode('\n'));
+                    });
+                    logBuffer = [];
+                    allProgressWrappers.forEach(w => w.classList.add('hidden'));
+                    showCompleted();
+                    output.appendChild(document.createTextNode("\n--- Server connection closed. ---"));
+                } else {
+                    // No stream data (e.g. 409): show log from file and poll until done
+                    startPollingMode();
+                }
+                output.scrollTop = output.scrollHeight;
+                if (evtSource) evtSource.close();
+            };
+        }
+
+        // If migration already running (e.g. started from chat), use polling so log is visible
+        fetch('/api/migration/status')
+            .then(function(r) { return r.json(); })
+            .then(function(status) {
+                if (status.running) {
+                    startPollingMode();
+                } else {
+                    initStreamMode();
+                }
+            })
+            .catch(function() {
+                initStreamMode();
+            });
+
+        document.getElementById('notify-btn').onclick = function() {
+            if (typeof Notification === 'undefined') return;
+            Notification.requestPermission().then(function(permission) {
+                const btn = document.getElementById('notify-btn');
+                if (btn && permission === 'granted') {
+                    btn.textContent = 'Notifications enabled';
+                    btn.style.background = '#2d5a2d';
+                }
+            });
+        };
+
+        document.getElementById('stop-btn').onclick = function() {
+            fetch('/stop_migration', {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'terminated') {
+                        alert('Migration stop request sent.');
+                    } else {
+                        alert('No migration process was running.');
+                    }
+                });
+        };
+    </script>
+</body>
+</html>

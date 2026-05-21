@@ -1,0 +1,179 @@
+body {
+    font-family: 'Inter', sans-serif;
+}
+.tab-button.active {
+    border-bottom: 2px solid #1DE4EB; /* sisense-light-blue */
+    color: #131F29; /* sisense-dark-blue */
+    font-weight: 600;
+}
+.tab-button {
+    border-bottom: 2px solid transparent;
+}
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #F2F4F4; /* sisense-light-grey */
+}
+::-webkit-scrollbar-thumb {
+    background: #BDBDBD; /* sisense-darker-grey */
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #333333; /* sisense-text-dark */
+}
+[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 5px;
+    background-color: #333333;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    white-space: normal;
+    max-width: 500px;
+    min-width: 200px;
+    word-wrap: break-word;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+[data-tooltip] {
+    position: relative;
+    overflow: visible;
+}
+/* Server Manager List */
+#server-list .server-item {
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 0.875rem; /* text-sm */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#server-list .server-item:hover {
+    background-color: #F2F4F4; /* sisense-light-grey */
+}
+#server-list .server-item.selected {
+    background-color: #94F5F0; /* sisense-lighter-blue */
+    color: #131F29; /* sisense-dark-blue */
+    font-weight: 500;
+}
+
+/* --- Custom Checkbox Styling --- */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding: 0;
+  print-color-adjust: exact;
+  display: inline-block;
+  vertical-align: middle;
+  background-origin: border-box;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  flex-shrink: 0;
+  height: 1.25rem; /* h-5 */
+  width: 1.25rem; /* w-5 */
+  color: #1DE4EB; /* sisense-light-blue */
+  background-color: #fff;
+  border-color: #6b7280;
+  border-width: 1px;
+  border-radius: 100%;
+}
+
+input[type="checkbox"]:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  --tw-ring-offset-shadow: 0 0 0 0 #fff;
+  --tw-ring-shadow: 0 0 0 calc(2px + 0px) #1DE4EB;
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), 0 0 #0000;
+}
+
+input[type="checkbox"]:checked {
+  border-color: transparent;
+  background-color: currentColor;
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
+}
+
+input[type="checkbox"]:checked:hover {
+  border-color: transparent;
+  background-color: currentColor;
+}
+
+.qt-btn {
+    background-color: #94F5F0;
+    color: #333333;
+    border: 1px solid #1AC9CF;
+    border-radius: 4px;
+    padding: 4px 12px;
+    min-height: 32px;
+    font-family: 'Poppins', 'DM Sans', Arial, sans-serif;
+    font-weight: 600;
+    font-size: 1rem;
+    transition: background 0.15s, border 0.15s, color 0.15s, box-shadow 0.15s;
+    box-shadow: none;
+}
+.qt-btn:hover {
+    background-color: #1AC9CF;
+    border-color: #1AC9CF;
+    color: #333333;
+}
+.qt-btn:active {
+    background-color: #17B5BB;
+    border-color: #17B5BB;
+    color: #333333;
+}
+.qt-btn:disabled {
+    background-color: #E0E0E0 !important;
+    color: #999999 !important;
+    border: 1px solid #BDBDBD !important;
+    opacity: 1;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.qt-btn-main {
+    font-size: 0.95rem;
+    font-weight: 400;
+}
+
+select.qt-dropdown {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: #fff url('assets/down-arrow.svg') no-repeat right 0.75em center/1.5em 1.5em;
+    border: 1px solid #BDBDBD;
+    border-radius: 4px;
+    padding: 4px 2.5em 4px 8px;
+    font-family: 'Poppins', 'DM Sans', Arial, sans-serif;
+    font-size: 1rem;
+    color: #333333;
+    min-height: 32px;
+    transition: border 0.15s;
+    width: auto;
+    min-width: 8em;
+    max-width: 100%;
+    display: inline-block;
+    vertical-align: middle;
+}
+select.qt-dropdown:focus {
+    border: 1px solid #94F5F0;
+    outline: none;
+}
+
+select.qt-dropdown.block {
+    display: block;
+    width: auto;
+    min-width: 8em;
+    max-width: 100%;
+}

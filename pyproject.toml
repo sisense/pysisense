@@ -81,6 +81,7 @@ dev = [
 [tool.ruff]
 line-length = 200
 target-version = "py310"
+exclude = ["win2linux-merge-tool/"]
 
 [tool.ruff.lint]
 select = [
@@ -118,6 +119,7 @@ markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
 ]
 pythonpath = ["tests/unit"]
+testpaths = ["tests"]
 filterwarnings = [
     "ignore::urllib3.exceptions.InsecureRequestWarning",
 ]
