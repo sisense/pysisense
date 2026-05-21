@@ -18,6 +18,10 @@ The documentation is organized by feature/module. Click on any section to learn 
   Read, export, share, and change ownership of dashboards.
   [Dashboard Examples](../examples/dashboard_example.md)
 
+- [Folder](folder.md)  
+  Create, read, update, and delete Sisense dashboard folders.
+  [Folder Examples](../examples/folder_example.md)
+
 - [Data Model](datamodel.md)  
   Inspect datasets, tables, columns, and schema definitions.
   [Data Model Examples](../examples/datamodel_example.md)

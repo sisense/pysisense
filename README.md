@@ -71,6 +71,9 @@ The [`examples/`](./examples) folder contains Markdown guides. Each guide explai
 - [`dashboard_example.md`](./examples/dashboard_example.md)  
   Dashboard Lifecycle — retrieve, update, reassign ownership, and manage shares of dashboards.
 
+- [`folder_example.md`](./examples/folder_example.md)  
+  Folder Management — create, list, update, and delete Sisense dashboard folders.
+
 - [`migration_example.md`](./examples/migration_example.md)  
   Environment Migration — migrate users, dashboards, and data models across environments (e.g., dev → prod).
 

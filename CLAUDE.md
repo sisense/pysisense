@@ -48,6 +48,7 @@ uv run pre-commit install --hook-type commit-msg
 | `sisenseclient.py` | `SisenseClient` | Base HTTP client, auth, logging, shared session |
 | `access_management/` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
 | `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
+| `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
@@ -71,6 +72,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
+| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_all_folders`, `delete_folder` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
 | | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
@@ -142,13 +144,14 @@ The SDK **must** use a Sisense admin user's API token.
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Dashboard, DataModel, Plugins, WellCheck
+from pysisense import SisenseClient, AccessManagement, Dashboard, DataModel, Folder, Plugins, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)
 
 access_mgmt = AccessManagement(api_client=api_client)
 dashboard = Dashboard(api_client=api_client)
+folder = Folder(api_client=api_client)
 datamodel = DataModel(api_client=api_client)
 plugins = Plugins(api_client=api_client)
 wellcheck = WellCheck(api_client=api_client)
