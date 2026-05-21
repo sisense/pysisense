@@ -90,4 +90,4 @@ if isinstance(dashboards, str):
 
 ## SSL
 
-SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845`.
+SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845` by default; override with optional `port` in `config.yaml`.

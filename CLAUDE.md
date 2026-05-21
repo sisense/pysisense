@@ -158,7 +158,8 @@ wellcheck = WellCheck(api_client=api_client)
 
 ```yaml
 domain: ""     # IP or domain — no protocol, no port
-is_ssl: false  # true for HTTPS, false uses port 30845
+is_ssl: false  # true for HTTPS, false uses HTTP (default port 30845)
+# port: 30845  # optional, HTTP port when is_ssl is false
 token: ""      # Sisense Admin API token
 ```
 
@@ -317,7 +318,7 @@ if isinstance(dashboards, str):
 
 ### SSL
 
-SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845`.
+SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845` by default; override with optional `port` in `config.yaml`.
 
 ---
 

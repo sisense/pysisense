@@ -15,6 +15,22 @@ class TestSisenseClientInit:
         client = SisenseClient(domain="myserver.com", token="mytoken", is_ssl=False)
         assert client.base_url == "http://myserver.com:30845"
 
+    def test_direct_connection_no_ssl_custom_port(self):
+        client = SisenseClient(domain="myserver.com", token="mytoken", is_ssl=False, port=9090)
+        assert client.base_url == "http://myserver.com:9090"
+
+    def test_yaml_config_custom_port(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\nis_ssl: false\ntoken: secret\nport: 4000\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.base_url == "http://myhost:4000"
+
+    def test_yaml_config_no_ssl_default_port(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\nis_ssl: false\ntoken: secret\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.base_url == "http://myhost:30845"
+
     def test_domain_with_protocol_prefix_is_stripped(self):
         client = SisenseClient(domain="https://myserver.com", token="tok", is_ssl=True)
         assert client.base_url == "https://myserver.com"
