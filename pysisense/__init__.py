@@ -2,6 +2,7 @@ __version__ = "0.2.2"
 
 # Core classes
 from .access_management import AccessManagement
+from .blox import Blox
 from .dashboard import Dashboard
 from .datamodel import DataModel
 from .folder import Folder
@@ -13,4 +14,18 @@ from .sisenseclient import SisenseClient
 from .utils import convert_to_dataframe, convert_utc_to_local, export_to_csv
 from .wellcheck import WellCheck
 
-__all__ = ["__version__", "SisenseClient", "AccessManagement", "DataModel", "Dashboard", "Folder", "Migration", "Plugins", "WellCheck", "convert_to_dataframe", "export_to_csv", "convert_utc_to_local"]
+__all__ = [
+    "__version__",
+    "SisenseClient",
+    "AccessManagement",
+    "Blox",
+    "DataModel",
+    "Dashboard",
+    "Folder",
+    "Migration",
+    "Plugins",
+    "WellCheck",
+    "convert_to_dataframe",
+    "export_to_csv",
+    "convert_utc_to_local",
+]
