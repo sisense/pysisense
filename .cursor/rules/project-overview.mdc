@@ -71,7 +71,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
-| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_all_folders`, `delete_folder` |
+| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders`, `get_folder_ancestors`, `get_navver`, `get_all_folders`, `delete_folder` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
 | | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
