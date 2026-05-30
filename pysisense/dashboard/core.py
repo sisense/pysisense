@@ -299,3 +299,155 @@ class DashboardCoreMixin:
 
         self.logger.info(f"Successfully retrieved {len(widgets)} widgets for dashboard '{dashboard_id}' from export.")
         return widgets
+
+    def move_dashboard_to_folder(self, dashboard_id: str, folder_id: str) -> dict[str, Any]:
+        """Move a dashboard into a folder.
+
+        Sends ``PATCH /api/dashboards/{dashboard_id}`` with only ``parentFolder``
+        in the request body. Other dashboard fields are not modified.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard ``oid`` to move.
+        folder_id : str
+            The target folder ``oid`` (``parentFolder`` value).
+
+        Returns
+        -------
+        dict[str, Any]
+            The updated dashboard object from the API, or ``{"error": "..."}`` on
+            failure.
+        """
+        return self._patch_dashboard(dashboard_id, {"parentFolder": folder_id})
+
+    def rename_dashboard(self, dashboard_id: str, title: str) -> dict[str, Any]:
+        """Rename a dashboard.
+
+        Sends ``PATCH /api/dashboards/{dashboard_id}`` with only ``title`` in
+        the request body. Other dashboard fields are not modified.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard ``oid`` to rename.
+        title : str
+            The new dashboard title.
+
+        Returns
+        -------
+        dict[str, Any]
+            The updated dashboard object from the API, or ``{"error": "..."}`` on
+            failure.
+        """
+        return self._patch_dashboard(dashboard_id, {"title": title})
+
+    def publish_dashboard(
+        self,
+        dashboard_id: str,
+        *,
+        admin_access: bool = True,
+        force: bool = False,
+    ) -> dict[str, Any]:
+        """Publish (republish) a dashboard.
+
+        Sends ``POST /api/v1/dashboards/{dashboard_id}/publish``. By default
+        ``adminAccess=true`` is appended so an admin token can republish when the
+        caller already has access but is not the owner. Pass ``force=True`` to
+        append ``force=true`` (used after script updates).
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard ``oid`` to publish.
+        admin_access : bool, optional
+            When ``True`` (default), request with ``adminAccess=true``.
+        force : bool, optional
+            When ``True``, request with ``force=true``. Default is ``False``.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True}`` or the JSON response body on success. On failure,
+            ``{"error": "..."}``.
+        """
+        query_parts: list[str] = []
+        if admin_access:
+            query_parts.append("adminAccess=true")
+        if force:
+            query_parts.append("force=true")
+
+        endpoint = f"/api/v1/dashboards/{dashboard_id}/publish"
+        if query_parts:
+            endpoint += "?" + "&".join(query_parts)
+
+        self.logger.debug(f"Publishing dashboard {dashboard_id}")
+        response = self.api_client.post(endpoint)
+
+        if response is None:
+            self.logger.error(f"POST request to publish dashboard {dashboard_id} failed: No response received.")
+            return {"error": f"No response received while publishing dashboard ID '{dashboard_id}'"}
+
+        if response.status_code in (200, 204):
+            self.logger.info(f"Successfully published dashboard {dashboard_id}.")
+            if response.status_code == 204 or not response.content:
+                return {"success": True}
+            try:
+                return response.json()
+            except Exception:
+                return {"success": True}
+
+        error_message = response.json() if response else "No response text available."
+        self.logger.error(f"Failed to publish dashboard {dashboard_id}. Error: {error_message}")
+        return {"error": f"Failed to publish dashboard '{dashboard_id}'. {error_message}"}
+
+    def can_be_owned(self, dashboard_id: str) -> dict[str, Any]:
+        """Check whether a dashboard can be owned by the current user.
+
+        Sends ``GET /api/v1/dashboards/{dashboard_id}/can_be_owned``.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard ``oid`` to check.
+
+        Returns
+        -------
+        dict[str, Any]
+            The API response on success, or ``{"error": "..."}`` on failure.
+        """
+        endpoint = f"/api/v1/dashboards/{dashboard_id}/can_be_owned"
+        self.logger.debug(f"Checking ownership eligibility for dashboard {dashboard_id}")
+
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET request for can_be_owned on dashboard {dashboard_id} failed: No response received.")
+            return {"error": f"No response received while checking dashboard ID '{dashboard_id}'"}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed can_be_owned check for dashboard {dashboard_id}. Error: {error_message}")
+            return {"error": f"Failed can_be_owned check for dashboard '{dashboard_id}'. {error_message}"}
+
+        result = response.json()
+        self.logger.info(f"Successfully checked can_be_owned for dashboard {dashboard_id}.")
+        return result
+
+    def _patch_dashboard(self, dashboard_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        endpoint = f"/api/dashboards/{dashboard_id}"
+        self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        response = self.api_client.patch(endpoint, data=payload)
+
+        if response is None:
+            self.logger.error(f"PATCH request to update dashboard {dashboard_id} failed: No response received.")
+            return {"error": f"No response received while updating dashboard ID '{dashboard_id}'"}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
+            return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
+
+        updated_dashboard = response.json()
+        self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        return updated_dashboard

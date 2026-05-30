@@ -70,8 +70,8 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference` |
-| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `move_dashboard_to_folder`, `rename_dashboard`, `publish_dashboard`, `can_be_owned` |
+| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
 | `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_all_folders`, `delete_folder` |

@@ -193,6 +193,21 @@ Retrieves share information (users and groups) for a specific dashboard by its t
 
 * * * * *
 
+### `get_dashboard_shares_v1(dashboard_id, admin_access=True)`
+
+Retrieves share details using ``GET /api/v1/dashboards/{dashboard_id}/shares``. Returns the raw Sisense shares payload (for example ``sharesTo`` and ``owner``), unlike ``get_dashboard_share`` which resolves names from the admin list.
+
+**Parameters:**
+
+- `dashboard_id` (str): Dashboard ``oid``.
+- `admin_access` (bool, optional): Request with ``adminAccess=true``. Default `True`.
+
+**Returns:**
+
+- `dict`: Shares response on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
 ### `resolve_dashboard_reference(dashboard_ref)`
 
 Resolves a dashboard reference (ID or name) to a concrete dashboard ID and title.
@@ -219,6 +234,66 @@ If that fails or the reference does not look like an ID, it falls back to `get_d
   - `dashboard_id` (str or None): Resolved dashboard ID (`oid`) if found, otherwise `None`.
   - `dashboard_title` (str or None): Resolved dashboard title if found, otherwise `None`.
   - `error` (str or None): Error message if `success` is `False`, otherwise `None`.
+
+* * * * *
+
+### `move_dashboard_to_folder(dashboard_id, folder_id)`
+
+Moves a dashboard into a folder by PATCHing ``parentFolder`` on ``/api/dashboards/{dashboard_id}``.
+
+**Parameters:**
+
+- `dashboard_id` (str): Dashboard ``oid``.
+- `folder_id` (str): Target folder ``oid``.
+
+**Returns:**
+
+- `dict`: Updated dashboard object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `rename_dashboard(dashboard_id, title)`
+
+Renames a dashboard by PATCHing ``title`` on ``/api/dashboards/{dashboard_id}``.
+
+**Parameters:**
+
+- `dashboard_id` (str): Dashboard ``oid``.
+- `title` (str): New dashboard title.
+
+**Returns:**
+
+- `dict`: Updated dashboard object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `publish_dashboard(dashboard_id, admin_access=True, force=False)`
+
+Publishes (republishes) a dashboard via ``POST /api/v1/dashboards/{dashboard_id}/publish``. Defaults to ``adminAccess=true`` for admin-token preflight republish.
+
+**Parameters:**
+
+- `dashboard_id` (str): Dashboard ``oid``.
+- `admin_access` (bool, optional): Append ``adminAccess=true``. Default `True`.
+- `force` (bool, optional): Append ``force=true``. Default `False`.
+
+**Returns:**
+
+- `dict`: `{"success": True}` or the JSON body on success; `{"error": "..."}` on failure.
+
+* * * * *
+
+### `can_be_owned(dashboard_id)`
+
+Checks whether the dashboard can be owned by the current user via ``GET /api/v1/dashboards/{dashboard_id}/can_be_owned``.
+
+**Parameters:**
+
+- `dashboard_id` (str): Dashboard ``oid``.
+
+**Returns:**
+
+- `dict`: API response on success, or `{"error": "..."}` on failure.
 
 * * * * *
 
