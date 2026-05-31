@@ -294,6 +294,113 @@ class UsersMixin:
         self.logger.warning("User with email '%s' not found.", user_email)
         return {"error": f"User '{user_email}' not found."}
 
+    def get_my_user(self) -> dict[str, Any]:
+        """Retrieve the currently logged-in user for the API token.
+
+        Sends ``GET /api/users/loggedin``. Use this to resolve migration user
+        identity (email, username, internal ID) for the authenticated admin
+        token.
+
+        Returns
+        -------
+        dict[str, Any]
+            The logged-in user object from the API, or ``{"error": "..."}`` on
+            failure.
+        """
+        endpoint = "/api/users/loggedin"
+        self.logger.debug("Fetching logged-in user identity.")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error("GET request to retrieve logged-in user failed: No response received.")
+            return {"error": "No response received while retrieving logged-in user."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve logged-in user. Error: {error_message}")
+            return {"error": f"Failed to retrieve logged-in user. {error_message}"}
+
+        user = response.json()
+        self.logger.info("Successfully retrieved logged-in user identity.")
+        return user
+
+    def get_roles(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all Sisense roles.
+
+        Sends ``GET /api/roles``. Returns the raw role list used to build role
+        name-to-ID maps (for example in multi-tenant migration workflows).
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            A list of role objects on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        endpoint = "/api/roles"
+        self.logger.debug("Fetching roles from API.")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error("GET request to retrieve roles failed: No response received.")
+            return {"error": "No response received while retrieving roles."}
+
+        if not response.ok:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve roles. Error: {error_message}")
+            return {"error": f"Failed to retrieve roles. {error_message}"}
+
+        roles = response.json()
+        count = len(roles) if isinstance(roles, list) else 0
+        self.logger.info(f"Successfully retrieved {count} roles.")
+        return roles
+
+    def change_user_password(self, user_id: str, password: str) -> dict[str, Any]:
+        """Change a user's password.
+
+        Sends ``PATCH /api/users/{user_id}`` with only ``password`` in the
+        request body. Other user fields are not modified.
+
+        Parameters
+        ----------
+        user_id : str
+            Internal user ID (``_id``) to update.
+        password : str
+            New password for the user. Must not be empty.
+
+        Returns
+        -------
+        dict[str, Any]
+            The updated user object on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        if not password:
+            self.logger.error("Password change rejected: password must not be empty.")
+            return {"error": "Password must not be empty."}
+
+        endpoint = f"/api/users/{user_id}"
+        self.logger.debug(f"Changing password for user ID {user_id}")
+        response = self.api_client.patch(endpoint, data={"password": password})
+
+        if response is None:
+            self.logger.error(f"PATCH request to change password for user {user_id} failed: No response received.")
+            return {"error": f"No response received while changing password for user ID '{user_id}'"}
+
+        if not response.ok:
+            try:
+                error_message = response.json().get("error", "Unknown error")
+            except Exception:
+                error_message = "Unknown error"
+            self.logger.error(f"Failed to change password for user {user_id}. Error: {error_message}")
+            return {"error": error_message}
+
+        try:
+            response_data = response.json()
+        except Exception:
+            response_data = {"success": True}
+
+        self.logger.info(f"Successfully changed password for user ID {user_id}.")
+        return response_data
+
     def get_users_all(self):
         """
         Retrieves user details along with tenant, group, and role information.
