@@ -11,6 +11,7 @@ from .folder import Folder
 from .metadata import Metadata
 from .migration import Migration
 from .plugins import Plugins
+from .queries import Queries
 from .sisenseclient import SisenseClient
 
 # Utilities
@@ -30,6 +31,7 @@ __all__ = [
     "Metadata",
     "Migration",
     "Plugins",
+    "Queries",
     "WellCheck",
     "convert_to_dataframe",
     "export_to_csv",
