@@ -214,6 +214,55 @@ class TestCreateConnections:
 
 
 # ---------------------------------------------------------------------------
+# get_connections
+# ---------------------------------------------------------------------------
+
+
+class TestGetConnections:
+    def test_returns_list_on_success(self):
+        dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(200, [_CONNECTION])})
+        result = dm.get_connections()
+        assert isinstance(result, list)
+        assert result[0]["name"] == "MyConnection"
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(500, {"message": "error"})})
+        result = dm.get_connections()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# update_connection
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateConnection:
+    def test_returns_updated_connection_on_success(self):
+        updated = {**_CONNECTION, "name": "RenamedConnection"}
+        dm = _make_dm(
+            patch_responses={
+                "/api/v2/connections/conn1": FakeResponse(200, updated),
+            },
+        )
+        result = dm.update_connection("conn1", {"name": "RenamedConnection"})
+        assert result["name"] == "RenamedConnection"
+
+    def test_returns_error_when_empty_payload(self):
+        dm = _make_dm()
+        result = dm.update_connection("conn1", {})
+        assert "error" in result
+
+    def test_returns_error_on_patch_failure(self):
+        dm = _make_dm(
+            patch_responses={
+                "/api/v2/connections/conn1": FakeResponse(400, {"error": "invalid"}),
+            },
+        )
+        result = dm.update_connection("conn1", {"name": "Bad"})
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
 # create_dataset
 # ---------------------------------------------------------------------------
 

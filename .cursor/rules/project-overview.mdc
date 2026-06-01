@@ -48,6 +48,7 @@ uv run pre-commit install --hook-type commit-msg
 | `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
 | `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
 | `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
+| `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
@@ -74,8 +75,9 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
 | `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders`, `get_folder_ancestors`, `get_navver`, `get_all_folders`, `delete_folder` |
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
+| `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
-| | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `connections.py` | `get_connection`, `get_connections`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity`, `set_live_datasecurity_add_many` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares` |

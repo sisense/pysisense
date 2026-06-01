@@ -63,6 +63,28 @@ print(json.dumps(response, indent=4))
 
 ---
 
+## Example 3b: List All Connections
+
+```python
+response = datamodel.get_connections()
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 3c: Update a Connection (Remapping)
+
+```python
+connection_id = "65d62c9574851800339cf49e"
+response = datamodel.update_connection(
+    connection_id,
+    {"name": "target_connection_name", "parameters": {"Server": "new-host.example.com"}},
+)
+print(json.dumps(response, indent=4))
+```
+
+---
+
 ## Example 4: Get Table Schema from DataSource
 
 Retrieve the schema for a table in a data source.

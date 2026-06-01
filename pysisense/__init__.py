@@ -5,6 +5,7 @@ from .access_management import AccessManagement
 from .blox import Blox
 from .dashboard import Dashboard
 from .datamodel import DataModel
+from .encryption import Encryption
 from .folder import Folder
 from .metadata import Metadata
 from .migration import Migration
@@ -21,6 +22,7 @@ __all__ = [
     "AccessManagement",
     "Blox",
     "DataModel",
+    "Encryption",
     "Dashboard",
     "Folder",
     "Metadata",

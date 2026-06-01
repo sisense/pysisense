@@ -68,6 +68,31 @@ Retrieves a Connection by its name.
 
 ---
 
+### `get_connections()`
+
+Lists all connections via `GET /api/v2/connections`.
+
+#### Returns:
+
+* `list`: Connection objects on success, or `{"error": "..."}` on failure.
+
+---
+
+### `update_connection(connection_id, connection_data)`
+
+Updates a connection via `PATCH /api/v2/connections/{connection_id}`. Only fields in `connection_data` are sent.
+
+#### Parameters:
+
+* `connection_id` (str): Connection `oid`.
+* `connection_data` (dict): Fields to update (for example `name`, `parameters`).
+
+#### Returns:
+
+* `dict`: Updated connection on success, or `{"error": "..."}` on failure.
+
+---
+
 ### `get_table_schema(self, connection_name, database_name, schema_name, table_name)`
 
 Retrieves the schema of a table in a specified connection from Data Source.
