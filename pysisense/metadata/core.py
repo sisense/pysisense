@@ -27,8 +27,29 @@ class MetadataCoreMixin:
             Measures payload from the API (typically a list), or
             ``{"error": "..."}`` on failure.
         """
-        params = self._datasource_query_params(datasource, ds_full_name)
-        return self._metadata_get("/api/metadata/measures", params=params, context="measures")
+        params: dict[str, str] = {}
+        if datasource is not None:
+            params["datasource"] = datasource
+        if ds_full_name is not None:
+            params["dsFullName"] = ds_full_name
+
+        endpoint = "/api/metadata/measures"
+        self.logger.debug(f"GET {endpoint} — params={params or None}")
+        response = self.api_client.get(endpoint, params=params or None)
+
+        if response is None:
+            self.logger.error(f"GET {endpoint} failed: No response received.")
+            return {"error": "No response received while fetching measures."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to fetch measures. {error_message}"}
+
+        result = response.json()
+        count = len(result) if isinstance(result, list) else 1
+        self.logger.info(f"Successfully fetched measures (count={count}).")
+        return result
 
     def get_datasource_dimensions(
         self,
@@ -53,8 +74,29 @@ class MetadataCoreMixin:
             Dimensions payload from the API (typically a list), or
             ``{"error": "..."}`` on failure.
         """
-        params = self._datasource_query_params(datasource, ds_full_name)
-        return self._metadata_get("/api/metadata/dimensions", params=params, context="dimensions")
+        params: dict[str, str] = {}
+        if datasource is not None:
+            params["datasource"] = datasource
+        if ds_full_name is not None:
+            params["dsFullName"] = ds_full_name
+
+        endpoint = "/api/metadata/dimensions"
+        self.logger.debug(f"GET {endpoint} — params={params or None}")
+        response = self.api_client.get(endpoint, params=params or None)
+
+        if response is None:
+            self.logger.error(f"GET {endpoint} failed: No response received.")
+            return {"error": "No response received while fetching dimensions."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to fetch dimensions. {error_message}"}
+
+        result = response.json()
+        count = len(result) if isinstance(result, list) else 1
+        self.logger.info(f"Successfully fetched dimensions (count={count}).")
+        return result
 
     def get_datasources(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all datasources visible to the authenticated user.
@@ -66,7 +108,23 @@ class MetadataCoreMixin:
         list[dict[str, Any]] | dict[str, Any]
             Datasource list from the API, or ``{"error": "..."}`` on failure.
         """
-        return self._metadata_get("/api/datasources", params=None, context="datasources")
+        endpoint = "/api/datasources"
+        self.logger.debug(f"GET {endpoint}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET {endpoint} failed: No response received.")
+            return {"error": "No response received while fetching datasources."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to fetch datasources. {error_message}"}
+
+        result = response.json()
+        count = len(result) if isinstance(result, list) else 1
+        self.logger.info(f"Successfully fetched datasources (count={count}).")
+        return result
 
     def add_datasource_measure(self, measure: dict[str, Any]) -> dict[str, Any]:
         """Create a saved formula measure in Sisense metadata.
@@ -89,7 +147,29 @@ class MetadataCoreMixin:
             self.logger.error("add_datasource_measure requires measure to be a dict.")
             return {"error": "measure must be a dictionary."}
 
-        return self._metadata_post("/api/metadata/", measure, context="add measure")
+        endpoint = "/api/metadata/"
+        self.logger.debug(f"POST {endpoint}")
+        response = self.api_client.post(endpoint, data=measure)
+
+        if response is None:
+            self.logger.error(f"POST {endpoint} failed: No response received.")
+            return {"error": "No response received while posting add measure."}
+
+        if response.status_code not in (200, 201):
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to post add measure. {error_message}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info("Successfully posted add measure.")
+        return result
 
     def post_metadata_query(self, query_payload: dict[str, Any]) -> dict[str, Any]:
         """Execute a metadata query against Sisense.
@@ -110,57 +190,13 @@ class MetadataCoreMixin:
             self.logger.error("post_metadata_query requires query_payload to be a dict.")
             return {"error": "query_payload must be a dictionary."}
 
-        return self._metadata_post("/api/metadata", query_payload, context="metadata query")
-
-    def _datasource_query_params(
-        self,
-        datasource: str | None,
-        ds_full_name: str | None,
-    ) -> dict[str, str] | None:
-        params: dict[str, str] = {}
-        if datasource is not None:
-            params["datasource"] = datasource
-        if ds_full_name is not None:
-            params["dsFullName"] = ds_full_name
-        return params or None
-
-    def _metadata_get(
-        self,
-        endpoint: str,
-        params: dict[str, str] | None,
-        *,
-        context: str,
-    ) -> list[dict[str, Any]] | dict[str, Any]:
-        self.logger.debug(f"GET {endpoint} — context={context!r}, params={params}")
-        response = self.api_client.get(endpoint, params=params)
-
-        if response is None:
-            self.logger.error(f"GET {endpoint} failed: No response received.")
-            return {"error": f"No response received while fetching {context}."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to fetch {context}. {error_message}"}
-
-        result = response.json()
-        count = len(result) if isinstance(result, list) else 1
-        self.logger.info(f"Successfully fetched {context} (count={count}).")
-        return result
-
-    def _metadata_post(
-        self,
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        context: str,
-    ) -> dict[str, Any]:
-        self.logger.debug(f"POST {endpoint} — context={context!r}")
-        response = self.api_client.post(endpoint, data=payload)
+        endpoint = "/api/metadata"
+        self.logger.debug(f"POST {endpoint}")
+        response = self.api_client.post(endpoint, data=query_payload)
 
         if response is None:
             self.logger.error(f"POST {endpoint} failed: No response received.")
-            return {"error": f"No response received while posting {context}."}
+            return {"error": "No response received while posting metadata query."}
 
         if response.status_code not in (200, 201):
             try:
@@ -168,12 +204,12 @@ class MetadataCoreMixin:
             except Exception:
                 error_message = response.text if response else "No response text available."
             self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to post {context}. {error_message}"}
+            return {"error": f"Failed to post metadata query. {error_message}"}
 
         try:
             result = response.json()
         except Exception:
             result = {"success": True}
 
-        self.logger.info(f"Successfully posted {context}.")
+        self.logger.info("Successfully posted metadata query.")
         return result

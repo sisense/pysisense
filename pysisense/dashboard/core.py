@@ -319,7 +319,23 @@ class DashboardCoreMixin:
             The updated dashboard object from the API, or ``{"error": "..."}`` on
             failure.
         """
-        return self._patch_dashboard(dashboard_id, {"parentFolder": folder_id})
+        payload = {"parentFolder": folder_id}
+        endpoint = f"/api/dashboards/{dashboard_id}"
+        self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        response = self.api_client.patch(endpoint, data=payload)
+
+        if response is None:
+            self.logger.error(f"PATCH request to update dashboard {dashboard_id} failed: No response received.")
+            return {"error": f"No response received while updating dashboard ID '{dashboard_id}'"}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
+            return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
+
+        updated_dashboard = response.json()
+        self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        return updated_dashboard
 
     def rename_dashboard(self, dashboard_id: str, title: str) -> dict[str, Any]:
         """Rename a dashboard.
@@ -340,7 +356,23 @@ class DashboardCoreMixin:
             The updated dashboard object from the API, or ``{"error": "..."}`` on
             failure.
         """
-        return self._patch_dashboard(dashboard_id, {"title": title})
+        payload = {"title": title}
+        endpoint = f"/api/dashboards/{dashboard_id}"
+        self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        response = self.api_client.patch(endpoint, data=payload)
+
+        if response is None:
+            self.logger.error(f"PATCH request to update dashboard {dashboard_id} failed: No response received.")
+            return {"error": f"No response received while updating dashboard ID '{dashboard_id}'"}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
+            return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
+
+        updated_dashboard = response.json()
+        self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        return updated_dashboard
 
     def publish_dashboard(
         self,
@@ -433,21 +465,3 @@ class DashboardCoreMixin:
         result = response.json()
         self.logger.info(f"Successfully checked can_be_owned for dashboard {dashboard_id}.")
         return result
-
-    def _patch_dashboard(self, dashboard_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        endpoint = f"/api/dashboards/{dashboard_id}"
-        self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
-        response = self.api_client.patch(endpoint, data=payload)
-
-        if response is None:
-            self.logger.error(f"PATCH request to update dashboard {dashboard_id} failed: No response received.")
-            return {"error": f"No response received while updating dashboard ID '{dashboard_id}'"}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
-            return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
-
-        updated_dashboard = response.json()
-        self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
-        return updated_dashboard

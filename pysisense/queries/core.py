@@ -31,7 +31,29 @@ class QueriesCoreMixin:
             return {"error": "jaql_payload must be a dictionary."}
 
         endpoint = f"/api/datasources/{datasource_name}/jaql"
-        return self._queries_post(endpoint, jaql_payload, context=f"JAQL query on '{datasource_name}'")
+        context = f"JAQL query on '{datasource_name}'"
+        self.logger.debug(f"POST {endpoint} — context={context!r}")
+        response = self.api_client.post(endpoint, data=jaql_payload)
+
+        if response is None:
+            self.logger.error(f"POST {endpoint} failed: No response received.")
+            return {"error": f"No response received while running {context}."}
+
+        if not response.ok:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to run {context}. {error_message}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info(f"Successfully completed {context}.")
+        return result
 
     def elasticubes_run_jaql_csv(
         self,
@@ -59,12 +81,35 @@ class QueriesCoreMixin:
             return {"error": "jaql_payload must be a dictionary."}
 
         endpoint = f"/api/datasources/{datasource_name}/jaql/csv"
-        return self._queries_post(
-            endpoint,
-            jaql_payload,
-            context=f"JAQL CSV query on '{datasource_name}'",
-            allow_text=True,
-        )
+        context = f"JAQL CSV query on '{datasource_name}'"
+        self.logger.debug(f"POST {endpoint} — context={context!r}")
+        response = self.api_client.post(endpoint, data=jaql_payload)
+
+        if response is None:
+            self.logger.error(f"POST {endpoint} failed: No response received.")
+            return {"error": f"No response received while running {context}."}
+
+        if not response.ok:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to run {context}. {error_message}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = None
+
+        if result is None or not isinstance(result, dict | list):
+            text = response.text if response else ""
+            if text or result is not None:
+                self.logger.info(f"Successfully completed {context} (text/csv response).")
+                return text if text else str(result)
+
+        self.logger.info(f"Successfully completed {context}.")
+        return result
 
     def elasticube_run_sql_query(
         self,
@@ -92,18 +137,9 @@ class QueriesCoreMixin:
             return {"error": "sql_payload must be a dictionary."}
 
         endpoint = f"/api/elasticubes/{elasticube_name}/Sql"
-        return self._queries_post(endpoint, sql_payload, context=f"SQL query on '{elasticube_name}'")
-
-    def _queries_post(
-        self,
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        context: str,
-        allow_text: bool = False,
-    ) -> dict[str, Any] | str:
+        context = f"SQL query on '{elasticube_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
-        response = self.api_client.post(endpoint, data=payload)
+        response = self.api_client.post(endpoint, data=sql_payload)
 
         if response is None:
             self.logger.error(f"POST {endpoint} failed: No response received.")
@@ -120,15 +156,6 @@ class QueriesCoreMixin:
         try:
             result = response.json()
         except Exception:
-            result = None
-
-        if allow_text and (result is None or not isinstance(result, dict | list)):
-            text = response.text if response else ""
-            if text or result is not None:
-                self.logger.info(f"Successfully completed {context} (text/csv response).")
-                return text if text else str(result)
-
-        if result is None:
             result = {"success": True}
 
         self.logger.info(f"Successfully completed {context}.")

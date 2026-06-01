@@ -32,7 +32,29 @@ class CustomCodeCoreMixin:
         query: dict[str, Any] = dict(params or {})
         if notebook_type is not None:
             query["notebookType"] = notebook_type
-        return self._notebook_get("/api/v1/notebooks", params=query or None, context="notebooks")
+
+        endpoint = "/api/v1/notebooks"
+        self.logger.debug(f"GET {endpoint}")
+        response = self.api_client.get(endpoint, params=query or None)
+
+        if response is None:
+            return {"error": "No response received while fetching notebooks."}
+
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to fetch notebooks. Error: {detail}")
+            return {"error": f"Failed to fetch notebooks. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {}
+
+        self.logger.info("Successfully fetched notebooks.")
+        return result
 
     def export_notebook(self, notebook_id: str) -> dict[str, Any]:
         """Export a notebook definition.
@@ -51,7 +73,27 @@ class CustomCodeCoreMixin:
             failure.
         """
         endpoint = f"/api/v1/notebooks/{notebook_id}/export"
-        return self._notebook_get(endpoint, params=None, context=f"notebook export {notebook_id}")
+        self.logger.debug(f"GET {endpoint}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            return {"error": f"No response received while fetching notebook export {notebook_id}."}
+
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to fetch notebook export {notebook_id}. Error: {detail}")
+            return {"error": f"Failed to fetch notebook export {notebook_id}. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {}
+
+        self.logger.info(f"Successfully fetched notebook export {notebook_id}.")
+        return result
 
     def create_notebook(
         self,
@@ -81,15 +123,29 @@ class CustomCodeCoreMixin:
         if not isinstance(notebook_data, dict):
             return {"error": "notebook_data must be a dictionary."}
 
+        endpoint = "/api/v1/notebooks"
         extra_headers = _INTERNAL_HEADER if use_internal_header else None
-        return self._notebook_write(
-            "POST",
-            "/api/v1/notebooks",
-            notebook_data,
-            extra_headers=extra_headers,
-            context="create notebook",
-            success_codes=(200, 201),
-        )
+        self.logger.debug(f"POST {endpoint}")
+        response = self.api_client.post(endpoint, data=notebook_data, extra_headers=extra_headers)
+
+        if response is None:
+            return {"error": "No response received while create notebook."}
+
+        if response.status_code not in (200, 201):
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to create notebook. Error: {detail}")
+            return {"error": f"Failed to create notebook. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info("Successfully completed create notebook.")
+        return result
 
     def update_notebook(
         self,
@@ -121,15 +177,29 @@ class CustomCodeCoreMixin:
         if not notebook_data:
             return {"error": "notebook_data must contain at least one field to update."}
 
+        endpoint = f"/api/v1/notebooks/{notebook_id}"
         extra_headers = _INTERNAL_HEADER if use_internal_header else None
-        return self._notebook_write(
-            "PATCH",
-            f"/api/v1/notebooks/{notebook_id}",
-            notebook_data,
-            extra_headers=extra_headers,
-            context=f"update notebook {notebook_id}",
-            success_codes=(200,),
-        )
+        self.logger.debug(f"PATCH {endpoint}")
+        response = self.api_client.patch(endpoint, data=notebook_data, extra_headers=extra_headers)
+
+        if response is None:
+            return {"error": f"No response received while update notebook {notebook_id}."}
+
+        if response.status_code != 200:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to update notebook {notebook_id}. Error: {detail}")
+            return {"error": f"Failed to update notebook {notebook_id}. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info(f"Successfully completed update notebook {notebook_id}.")
+        return result
 
     def delete_notebook(self, notebook_id: str) -> dict[str, Any]:
         """Delete a notebook by ID.
@@ -159,9 +229,17 @@ class CustomCodeCoreMixin:
             return {"success": True}
 
         if response.ok:
-            return self._response_json(response, default={"success": True})
+            try:
+                return response.json()
+            except Exception:
+                return {"success": True}
 
-        return self._error_from_response(response, f"Failed to delete notebook '{notebook_id}'")
+        try:
+            detail = response.json()
+        except Exception:
+            detail = response.text if response else "No response text available."
+        self.logger.error(f"Failed to delete notebook '{notebook_id}'. Error: {detail}")
+        return {"error": f"Failed to delete notebook '{notebook_id}'. {detail}"}
 
     def list_notebook_folder_contents(self, folder_id: str) -> dict[str, Any] | list[Any]:
         """List contents of a custom-code notebook folder.
@@ -179,7 +257,27 @@ class CustomCodeCoreMixin:
             Folder contents from the API, or ``{"error": "..."}`` on failure.
         """
         endpoint = f"/api/resources/notebooks/custom_code_notebooks/notebooks/{folder_id}/"
-        return self._notebook_get(endpoint, params=None, context=f"folder contents {folder_id}")
+        self.logger.debug(f"GET {endpoint}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            return {"error": f"No response received while fetching folder contents {folder_id}."}
+
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to fetch folder contents {folder_id}. Error: {detail}")
+            return {"error": f"Failed to fetch folder contents {folder_id}. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {}
+
+        self.logger.info(f"Successfully fetched folder contents {folder_id}.")
+        return result
 
     def rename_notebook_file(self, resource_path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Rename or update a notebook resource file.
@@ -203,14 +301,28 @@ class CustomCodeCoreMixin:
             return {"error": "payload must contain at least one field to update."}
 
         path = resource_path.lstrip("/")
-        return self._notebook_write(
-            "PATCH",
-            f"/api/resources/{path}",
-            payload,
-            extra_headers=None,
-            context=f"rename resource {path}",
-            success_codes=(200,),
-        )
+        endpoint = f"/api/resources/{path}"
+        self.logger.debug(f"PATCH {endpoint}")
+        response = self.api_client.patch(endpoint, data=payload)
+
+        if response is None:
+            return {"error": f"No response received while rename resource {path}."}
+
+        if response.status_code != 200:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to rename resource {path}. Error: {detail}")
+            return {"error": f"Failed to rename resource {path}. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info(f"Successfully completed rename resource {path}.")
+        return result
 
     def rename_notebook_folder(self, old_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Rename a custom-code notebook folder.
@@ -233,74 +345,24 @@ class CustomCodeCoreMixin:
             return {"error": "payload must contain at least one field to update."}
 
         endpoint = f"/api/resources/notebooks/custom_code_notebooks/notebooks/{old_id}/"
-        return self._notebook_write(
-            "PATCH",
-            endpoint,
-            payload,
-            extra_headers=None,
-            context=f"rename notebook folder {old_id}",
-            success_codes=(200,),
-        )
-
-    def _notebook_get(
-        self,
-        endpoint: str,
-        params: dict[str, Any] | None,
-        *,
-        context: str,
-    ) -> list[dict[str, Any]] | dict[str, Any]:
-        self.logger.debug(f"GET {endpoint} — context={context!r}")
-        response = self.api_client.get(endpoint, params=params)
+        self.logger.debug(f"PATCH {endpoint}")
+        response = self.api_client.patch(endpoint, data=payload)
 
         if response is None:
-            return {"error": f"No response received while fetching {context}."}
+            return {"error": f"No response received while rename notebook folder {old_id}."}
 
-        if not response.ok:
-            return self._error_from_response(response, f"Failed to fetch {context}")
+        if response.status_code != 200:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to rename notebook folder {old_id}. Error: {detail}")
+            return {"error": f"Failed to rename notebook folder {old_id}. {detail}"}
 
-        result = self._response_json(response)
-        self.logger.info(f"Successfully fetched {context}.")
-        return result
-
-    def _notebook_write(
-        self,
-        method: str,
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        extra_headers: dict[str, str] | None,
-        context: str,
-        success_codes: tuple[int, ...],
-    ) -> dict[str, Any]:
-        self.logger.debug(f"{method} {endpoint} — context={context!r}")
-
-        if method == "POST":
-            response = self.api_client.post(endpoint, data=payload, extra_headers=extra_headers)
-        elif method == "PATCH":
-            response = self.api_client.patch(endpoint, data=payload, extra_headers=extra_headers)
-        else:
-            return {"error": f"Unsupported method '{method}'."}
-
-        if response is None:
-            return {"error": f"No response received while {context}."}
-
-        if response.status_code not in success_codes:
-            return self._error_from_response(response, f"Failed to {context}")
-
-        result = self._response_json(response, default={"success": True})
-        self.logger.info(f"Successfully completed {context}.")
-        return result
-
-    def _response_json(self, response: Any, default: dict[str, Any] | None = None) -> Any:
         try:
-            return response.json()
+            result = response.json()
         except Exception:
-            return default if default is not None else {}
+            result = {"success": True}
 
-    def _error_from_response(self, response: Any, message: str) -> dict[str, Any]:
-        try:
-            detail = response.json()
-        except Exception:
-            detail = response.text if response else "No response text available."
-        self.logger.error(f"{message}. Error: {detail}")
-        return {"error": f"{message}. {detail}"}
+        self.logger.info(f"Successfully completed rename notebook folder {old_id}.")
+        return result

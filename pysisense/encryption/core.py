@@ -22,7 +22,33 @@ class EncryptionCoreMixin:
             Encryption response from the API, or ``{"error": "..."}`` on
             failure.
         """
-        return self._encryption_post("/api/v1/encryption/encrypt", payload, context="encrypt")
+        if not isinstance(payload, dict):
+            self.logger.error("Encryption encrypt requires payload to be a dict.")
+            return {"error": "payload must be a dictionary."}
+
+        endpoint = "/api/v1/encryption/encrypt"
+        self.logger.debug(f"POST {endpoint}")
+        response = self.api_client.post(endpoint, data=payload)
+
+        if response is None:
+            self.logger.error(f"POST {endpoint} failed: No response received.")
+            return {"error": "No response received while performing encrypt."}
+
+        if not response.ok:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to encrypt. {error_message}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info("Successfully completed encryption encrypt.")
+        return result
 
     def decrypt(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Decrypt a value using the Sisense encryption service.
@@ -42,25 +68,17 @@ class EncryptionCoreMixin:
             Decryption response from the API, or ``{"error": "..."}`` on
             failure.
         """
-        return self._encryption_post("/api/v1/encryption/decrypt", payload, context="decrypt")
-
-    def _encryption_post(
-        self,
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        context: str,
-    ) -> dict[str, Any]:
         if not isinstance(payload, dict):
-            self.logger.error(f"Encryption {context} requires payload to be a dict.")
+            self.logger.error("Encryption decrypt requires payload to be a dict.")
             return {"error": "payload must be a dictionary."}
 
-        self.logger.debug(f"POST {endpoint} — context={context!r}")
+        endpoint = "/api/v1/encryption/decrypt"
+        self.logger.debug(f"POST {endpoint}")
         response = self.api_client.post(endpoint, data=payload)
 
         if response is None:
             self.logger.error(f"POST {endpoint} failed: No response received.")
-            return {"error": f"No response received while performing {context}."}
+            return {"error": "No response received while performing decrypt."}
 
         if not response.ok:
             try:
@@ -68,12 +86,12 @@ class EncryptionCoreMixin:
             except Exception:
                 error_message = response.text if response else "No response text available."
             self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to {context}. {error_message}"}
+            return {"error": f"Failed to decrypt. {error_message}"}
 
         try:
             result = response.json()
         except Exception:
             result = {"success": True}
 
-        self.logger.info(f"Successfully completed encryption {context}.")
+        self.logger.info("Successfully completed encryption decrypt.")
         return result

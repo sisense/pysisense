@@ -163,7 +163,23 @@ class FolderCoreMixin:
             Folder data from the API (typically a list), or ``{"error": "..."}``
             on failure.
         """
-        return self._get_folders_by_structure(structure)
+        endpoint = f"/api/v1/folders?structure={structure}"
+        self.logger.debug(f"Getting folders with structure={structure!r}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET request to retrieve folders (structure={structure!r}) failed: No response received.")
+            return {"error": "No response received while retrieving folders."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve folders (structure={structure!r}). Error: {error_message}")
+            return {"error": f"Failed to retrieve folders. {error_message}"}
+
+        folders = response.json()
+        count = len(folders) if isinstance(folders, list) else 1
+        self.logger.info(f"Successfully retrieved folders (structure={structure!r}, count={count}).")
+        return folders
 
     def get_folder_ancestors(self, structure: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve folder ancestor data for a given structure type.
@@ -182,7 +198,23 @@ class FolderCoreMixin:
         list[dict[str, Any]] | dict[str, Any]
             Folder data from the API, or ``{"error": "..."}`` on failure.
         """
-        return self._get_folders_by_structure(structure)
+        endpoint = f"/api/v1/folders?structure={structure}"
+        self.logger.debug(f"Getting folders with structure={structure!r}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET request to retrieve folders (structure={structure!r}) failed: No response received.")
+            return {"error": "No response received while retrieving folders."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve folders (structure={structure!r}). Error: {error_message}")
+            return {"error": f"Failed to retrieve folders. {error_message}"}
+
+        folders = response.json()
+        count = len(folders) if isinstance(folders, list) else 1
+        self.logger.info(f"Successfully retrieved folders (structure={structure!r}, count={count}).")
+        return folders
 
     def get_navver(self) -> dict[str, Any]:
         """Retrieve the Sisense navigation tree (navver payload).
@@ -226,9 +258,7 @@ class FolderCoreMixin:
             ``folders`` and ``dashboards`` keys), or ``{"error": "..."}`` on
             failure.
         """
-        return self._get_folders_by_structure("tree")
-
-    def _get_folders_by_structure(self, structure: str) -> list[dict[str, Any]] | dict[str, Any]:
+        structure = "tree"
         endpoint = f"/api/v1/folders?structure={structure}"
         self.logger.debug(f"Getting folders with structure={structure!r}")
         response = self.api_client.get(endpoint)
@@ -243,7 +273,6 @@ class FolderCoreMixin:
             return {"error": f"Failed to retrieve folders. {error_message}"}
 
         folders = response.json()
-
         count = len(folders) if isinstance(folders, list) else 1
         self.logger.info(f"Successfully retrieved folders (structure={structure!r}, count={count}).")
         return folders
