@@ -3,6 +3,7 @@ __version__ = "0.2.2"
 # Core classes
 from .access_management import AccessManagement
 from .blox import Blox
+from .custom_code import CustomCode
 from .dashboard import Dashboard
 from .datamodel import DataModel
 from .encryption import Encryption
@@ -21,6 +22,7 @@ __all__ = [
     "SisenseClient",
     "AccessManagement",
     "Blox",
+    "CustomCode",
     "DataModel",
     "Encryption",
     "Dashboard",
