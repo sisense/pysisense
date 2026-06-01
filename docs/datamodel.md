@@ -364,6 +364,36 @@ Retrieves detailed datasecurity rules for a specific DataModel, including visibi
 
 ---
 
+### `update_datasecurity(self, datamodel_name, datasecurity)`
+
+Replaces datasecurity rules on an EXTRACT datamodel via `PUT /api/elasticubes/localhost/{datamodel_name}/datasecurity`. Use for a standalone datasecurity migration phase.
+
+#### Parameters:
+
+* `datamodel_name` (str): Title of the EXTRACT datamodel.
+* `datasecurity` (list): Full rule list in Sisense API format (`table`, `column`, `datatype`, `members`, `exclusionary`, `shares`, etc.).
+
+#### Returns:
+
+* `dict`: API response on success, or `{"error": "..."}` on failure.
+
+---
+
+### `set_live_datasecurity_add_many(self, datamodel_name, rules)`
+
+Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticubes/live/{datamodel_name}/datasecurity/addMany`.
+
+#### Parameters:
+
+* `datamodel_name` (str): Title of the LIVE datamodel.
+* `rules` (list): Rule objects to add in Sisense API format.
+
+#### Returns:
+
+* `dict`: API response on success, or `{"error": "..."}` on failure.
+
+---
+
 ### `get_model_schema(self, datamodel_name)`
 
 Retrieves the schema of a DataModel, including tables and columns.

@@ -404,6 +404,49 @@ api_client.export_to_csv(all_ds, file_name="datamodel_security.csv")
 
 ---
 
+## Example 15b: Update Datasecurity (EXTRACT)
+
+Replace datasecurity rules on an EXTRACT datamodel (standalone migration phase).
+
+```python
+# Typically sourced from GET on the source environment
+rules = [
+    {
+        "table": "orders",
+        "column": "region",
+        "datatype": "text",
+        "members": ["EMEA"],
+        "exclusionary": False,
+        "shares": [{"type": "user", "partyId": "user_oid", "partyName": "user@example.com"}],
+    }
+]
+response = datamodel.update_datasecurity("pysense_databricks", rules)
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 15c: Add Live Datasecurity Rules (Bulk)
+
+Add multiple datasecurity rules to a LIVE datamodel.
+
+```python
+rules = [
+    {
+        "table": "orders",
+        "column": "region",
+        "datatype": "text",
+        "members": ["EMEA"],
+        "exclusionary": False,
+        "shares": [{"type": "group", "partyId": "group_oid", "partyName": "Analysts"}],
+    }
+]
+response = datamodel.set_live_datasecurity_add_many("live_sales_model", rules)
+print(json.dumps(response, indent=4))
+```
+
+---
+
 ## Example 16: Get Datasecurity Information in Detail
 
 Get detailed datasecurity info for a datamodel.

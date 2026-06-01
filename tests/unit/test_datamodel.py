@@ -408,6 +408,62 @@ class TestGetDatasecurityDetail:
 
 
 # ---------------------------------------------------------------------------
+# update_datasecurity
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateDatasecurity:
+    def test_returns_response_on_success(self):
+        rules = [{"table": "orders", "column": "region", "datatype": "text", "members": [], "shares": []}]
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)},
+            put_responses={
+                "/api/elasticubes/localhost/SalesModel/datasecurity": FakeResponse(200, {"updated": True}),
+            },
+        )
+        result = dm.update_datasecurity("SalesModel", rules)
+        assert result["updated"] is True
+
+    def test_returns_error_when_not_extract(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE)})
+        result = dm.update_datasecurity("LiveModel", [])
+        assert "error" in result
+
+    def test_returns_error_when_payload_not_list(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
+        result = dm.update_datasecurity("SalesModel", {})
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# set_live_datasecurity_add_many
+# ---------------------------------------------------------------------------
+
+
+class TestSetLiveDatasecurityAddMany:
+    def test_returns_response_on_success(self):
+        rules = [{"table": "orders", "column": "region", "datatype": "text", "members": [], "shares": []}]
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE)},
+            post_responses={
+                "/api/v1/elasticubes/live/LiveModel/datasecurity/addMany": FakeResponse(200, {"added": 1}),
+            },
+        )
+        result = dm.set_live_datasecurity_add_many("LiveModel", rules)
+        assert result["added"] == 1
+
+    def test_returns_error_when_not_live(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
+        result = dm.set_live_datasecurity_add_many("SalesModel", [])
+        assert "error" in result
+
+    def test_returns_error_when_payload_not_list(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE)})
+        result = dm.set_live_datasecurity_add_many("LiveModel", {})
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
 # get_model_schema
 # ---------------------------------------------------------------------------
 

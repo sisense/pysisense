@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class SecurityMixin:
     def get_datasecurity(self, datamodel_name):
@@ -190,3 +192,126 @@ class SecurityMixin:
         self.logger.info(f"Resolved {len(detailed_rows)} datasecurity share-level entries for DataModel '{datamodel_name}'")
 
         return detailed_rows
+
+    def update_datasecurity(self, datamodel_name: str, datasecurity: list[dict[str, Any]]) -> dict[str, Any]:
+        """Replace datasecurity rules on an EXTRACT (Elasticube) datamodel.
+
+        Sends ``PUT /api/elasticubes/localhost/{datamodel_name}/datasecurity``
+        with the full datasecurity payload. Use this for a standalone
+        ``migrate_datasecurity`` phase after the datamodel exists on the target.
+
+        Parameters
+        ----------
+        datamodel_name : str
+            Title of the EXTRACT datamodel to update.
+        datasecurity : list[dict[str, Any]]
+            Complete datasecurity rule list in Sisense API format. Each rule
+            typically includes fields such as ``table``, ``column``,
+            ``datatype``, ``members``, ``exclusionary``, and ``shares``.
+
+        Returns
+        -------
+        dict[str, Any]
+            API response on success, or ``{"error": "..."}`` on failure.
+        """
+        if not isinstance(datasecurity, list):
+            self.logger.error("update_datasecurity requires datasecurity to be a list.")
+            return {"error": "datasecurity must be a list of rule objects."}
+
+        datamodel = self.get_datamodel(datamodel_name)
+        if "error" in datamodel:
+            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+            return {"error": datamodel["error"]}
+
+        title = datamodel.get("title") or datamodel_name
+        datamodel_type = datamodel.get("type", "")
+
+        if datamodel_type.upper() != "EXTRACT":
+            msg = f"update_datasecurity only supports EXTRACT datamodels; '{title}' is type '{datamodel_type}'."
+            self.logger.error(msg)
+            return {"error": msg}
+
+        endpoint = f"/api/elasticubes/localhost/{title}/datasecurity"
+        self.logger.debug(f"Updating datasecurity for EXTRACT datamodel '{title}' — {len(datasecurity)} rule(s)")
+        response = self.api_client.put(endpoint, data=datasecurity)
+
+        if response is None:
+            self.logger.error(f"PUT request to update datasecurity for '{title}' failed: No response received.")
+            return {"error": f"No response received while updating datasecurity for '{title}'."}
+
+        if not response.ok:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"Failed to update datasecurity for '{title}'. Error: {error_message}")
+            return {"error": f"Failed to update datasecurity for '{title}'. {error_message}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info(f"Successfully updated datasecurity for EXTRACT datamodel '{title}'.")
+        return result
+
+    def set_live_datasecurity_add_many(self, datamodel_name: str, rules: list[dict[str, Any]]) -> dict[str, Any]:
+        """Add multiple datasecurity rules to a LIVE datamodel.
+
+        Sends ``POST /api/v1/elasticubes/live/{datamodel_name}/datasecurity/addMany``
+        with a bulk rule payload.
+
+        Parameters
+        ----------
+        datamodel_name : str
+            Title of the LIVE datamodel to update.
+        rules : list[dict[str, Any]]
+            Datasecurity rules to add in Sisense API format. Each rule
+            typically includes fields such as ``table``, ``column``,
+            ``datatype``, ``members``, ``exclusionary``, and ``shares``.
+
+        Returns
+        -------
+        dict[str, Any]
+            API response on success, or ``{"error": "..."}`` on failure.
+        """
+        if not isinstance(rules, list):
+            self.logger.error("set_live_datasecurity_add_many requires rules to be a list.")
+            return {"error": "rules must be a list of rule objects."}
+
+        datamodel = self.get_datamodel(datamodel_name)
+        if "error" in datamodel:
+            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+            return {"error": datamodel["error"]}
+
+        title = datamodel.get("title") or datamodel_name
+        datamodel_type = datamodel.get("type", "")
+
+        if datamodel_type.upper() != "LIVE":
+            msg = f"set_live_datasecurity_add_many only supports LIVE datamodels; '{title}' is type '{datamodel_type}'."
+            self.logger.error(msg)
+            return {"error": msg}
+
+        endpoint = f"/api/v1/elasticubes/live/{title}/datasecurity/addMany"
+        self.logger.debug(f"Adding datasecurity rules to LIVE datamodel '{title}' — {len(rules)} rule(s)")
+        response = self.api_client.post(endpoint, data=rules)
+
+        if response is None:
+            self.logger.error(f"POST request to add datasecurity rules for '{title}' failed: No response received.")
+            return {"error": f"No response received while adding datasecurity rules for '{title}'."}
+
+        if not response.ok:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"Failed to add datasecurity rules for '{title}'. Error: {error_message}")
+            return {"error": f"Failed to add datasecurity rules for '{title}'. {error_message}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info(f"Successfully added datasecurity rules to LIVE datamodel '{title}'.")
+        return result

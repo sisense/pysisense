@@ -75,7 +75,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
 | | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
-| | `security.py` | `get_datasecurity`, `get_datasecurity_detail` |
+| | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity`, `set_live_datasecurity_add_many` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares` |
 | | `data.py` | `get_data`, `get_row_count` |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
