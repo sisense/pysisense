@@ -64,7 +64,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 
 | Package | File | Public methods |
 |---|---|---|
-| `blox/` | `core.py` | `get_blox_actions`, `save_blox_action` |
+| `blox/` | `core.py` | `get_blox_actions`, `save_blox_action`, `delete_blox_action` |
 | `access_management/` | `users.py` | `get_user`, `get_users_all`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
 | | `groups.py` | `get_group`, `users_per_group`, `users_per_group_all` |
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
