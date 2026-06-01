@@ -6,6 +6,7 @@ from .blox import Blox
 from .dashboard import Dashboard
 from .datamodel import DataModel
 from .folder import Folder
+from .metadata import Metadata
 from .migration import Migration
 from .plugins import Plugins
 from .sisenseclient import SisenseClient
@@ -22,6 +23,7 @@ __all__ = [
     "DataModel",
     "Dashboard",
     "Folder",
+    "Metadata",
     "Migration",
     "Plugins",
     "WellCheck",

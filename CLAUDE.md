@@ -50,6 +50,7 @@ uv run pre-commit install --hook-type commit-msg
 | `blox/` | `Blox` | Fetch and save custom Blox actions (Linux only) |
 | `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
 | `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
+| `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
@@ -75,6 +76,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
 | `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders`, `get_folder_ancestors`, `get_navver`, `get_all_folders`, `delete_folder` |
+| `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
 | | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
@@ -146,7 +148,7 @@ The SDK **must** use a Sisense admin user's API token.
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Blox, Dashboard, DataModel, Folder, Plugins, WellCheck
+from pysisense import SisenseClient, AccessManagement, Blox, Dashboard, DataModel, Folder, Metadata, Plugins, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)
