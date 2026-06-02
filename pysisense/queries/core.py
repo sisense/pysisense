@@ -27,9 +27,6 @@ class QueriesCoreMixin:
         dict[str, Any]
             Query result from the API, or ``{"error": "..."}`` on failure.
         """
-        if not isinstance(jaql_payload, dict):
-            return {"error": "jaql_payload must be a dictionary."}
-
         endpoint = f"/api/datasources/{datasource_name}/jaql"
         context = f"JAQL query on '{datasource_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
@@ -77,9 +74,6 @@ class QueriesCoreMixin:
             Parsed JSON if the response is JSON, raw CSV text if the response
             is not JSON, or ``{"error": "..."}`` on failure.
         """
-        if not isinstance(jaql_payload, dict):
-            return {"error": "jaql_payload must be a dictionary."}
-
         endpoint = f"/api/datasources/{datasource_name}/jaql/csv"
         context = f"JAQL CSV query on '{datasource_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
@@ -133,9 +127,6 @@ class QueriesCoreMixin:
         dict[str, Any]
             Query result from the API, or ``{"error": "..."}`` on failure.
         """
-        if not isinstance(sql_payload, dict):
-            return {"error": "sql_payload must be a dictionary."}
-
         endpoint = f"/api/elasticubes/{elasticube_name}/Sql"
         context = f"SQL query on '{elasticube_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
