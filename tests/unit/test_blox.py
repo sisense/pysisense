@@ -25,6 +25,7 @@ _GET_ACTIONS_EMPTY = FakeResponse(200, [])
 _SAVE_OK_200 = FakeResponse(200, {"status": "saved"})
 _SAVE_OK_201 = FakeResponse(201, {"status": "created"})
 _SAVE_FAIL = FakeResponse(500, {"error": "internal server error"})
+_DELETE_FAIL = FakeResponse(500, {"error": "internal server error"})
 
 
 def _make_blox(get_responses=None, post_responses=None):
@@ -143,3 +144,47 @@ class TestSaveBloxAction:
         b = _make_blox(post_responses={"/api/v1/blox/saveCustomAction": FakeResponseEmpty(200)})
         result = b.save_blox_action(_ACTION_A)
         assert result == {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# delete_blox_action
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteBloxAction:
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on successful delete
+        b = _make_blox(post_responses={"/api/v1/blox/deleteCustomAction": FakeResponseEmpty(200)})
+        result = b.delete_blox_action("OpenDashboard")
+        assert result == {"success": True}
+
+    def test_returns_response_json_on_200(self):
+        b = _make_blox(post_responses={"/api/v1/blox/deleteCustomAction": FakeResponse(200, {"status": "deleted"})})
+        result = b.delete_blox_action("OpenDashboard")
+        assert isinstance(result, dict)
+        assert "error" not in result
+
+    def test_returns_error_on_none_response(self):
+        b = _make_blox()  # no responses → None
+        result = b.delete_blox_action("OpenDashboard")
+        assert "error" in result
+
+    def test_returns_error_on_non_200(self):
+        b = _make_blox(post_responses={"/api/v1/blox/deleteCustomAction": _DELETE_FAIL})
+        result = b.delete_blox_action("OpenDashboard")
+        assert "error" in result
+
+    def test_returns_error_on_400(self):
+        b = _make_blox(post_responses={"/api/v1/blox/deleteCustomAction": FakeResponse(400, {"message": "bad request"})})
+        result = b.delete_blox_action("OpenDashboard")
+        assert "error" in result
+
+    def test_error_message_includes_status_code(self):
+        b = _make_blox(post_responses={"/api/v1/blox/deleteCustomAction": FakeResponse(404, {})})
+        result = b.delete_blox_action("OpenDashboard")
+        assert "404" in result["error"]
+
+    def test_error_message_includes_action_type(self):
+        b = _make_blox()  # no response → None
+        result = b.delete_blox_action("OpenDashboard")
+        assert "OpenDashboard" in result["error"]
