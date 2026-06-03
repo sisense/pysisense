@@ -59,3 +59,32 @@ class BloxCoreMixin:
 
         self.logger.info(f"Saved Blox action '{action_type}'")
         return response.json() if response.content else {"success": True}
+
+    def delete_blox_action(self, action_type: str) -> dict[str, Any]:
+        """Delete a custom Blox action from the Sisense instance.
+
+        Sends the action type to ``POST /api/v1/blox/deleteCustomAction``.
+        This endpoint is supported on Linux deployments only.
+
+        Parameters
+        ----------
+        action_type : str
+            The ``type`` identifier of the Blox action to delete.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True}`` on success, or ``{"error": "..."}`` on failure.
+        """
+        endpoint = "/api/v1/blox/deleteCustomAction"
+        self.logger.debug(f"Deleting Blox action '{action_type}'")
+        response = self.api_client.post(endpoint, data={"type": action_type})
+
+        if response is None or response.status_code not in (200, 201):
+            status = response.status_code if response is not None else "no response"
+            msg = f"Failed to delete Blox action '{action_type}' — status {status}"
+            self.logger.error(msg)
+            return {"error": msg}
+
+        self.logger.info(f"Deleted Blox action '{action_type}'")
+        return response.json() if response.content else {"success": True}
