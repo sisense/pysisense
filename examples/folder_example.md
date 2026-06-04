@@ -37,6 +37,43 @@ api_client.export_to_csv(response, "all_folders.csv")
 
 ---
 
+## Example 1b: Get Folders (Flat)
+
+Retrieve a flat folder list before migration (default ``structure=flat``).
+
+```python
+response = folder.get_folders()
+print(json.dumps(response, indent=4))
+
+# Optional structure override
+response = folder.get_folders(structure="flat")
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 1c: Get Folder Ancestors
+
+Retrieve folder data for a specific structure type.
+
+```python
+response = folder.get_folder_ancestors("ancestors")
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 1d: Get Navver Navigation
+
+Retrieve the navver navigation payload (includes ``folders``).
+
+```python
+response = folder.get_navver()
+print(json.dumps(response, indent=4))
+```
+
+---
+
 ## Example 2: Get Folder by ID
 
 Fetch a single folder by OID.

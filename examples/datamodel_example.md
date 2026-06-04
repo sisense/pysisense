@@ -63,6 +63,28 @@ print(json.dumps(response, indent=4))
 
 ---
 
+## Example 3b: List All Connections
+
+```python
+response = datamodel.get_connections()
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 3c: Update a Connection (Remapping)
+
+```python
+connection_id = "65d62c9574851800339cf49e"
+response = datamodel.update_connection(
+    connection_id,
+    {"name": "target_connection_name", "parameters": {"Server": "new-host.example.com"}},
+)
+print(json.dumps(response, indent=4))
+```
+
+---
+
 ## Example 4: Get Table Schema from DataSource
 
 Retrieve the schema for a table in a data source.
@@ -400,6 +422,49 @@ for datamodel_name in all_datamodels:
 df = api_client.to_dataframe(all_ds)
 print(df)
 api_client.export_to_csv(all_ds, file_name="datamodel_security.csv")
+```
+
+---
+
+## Example 15b: Update Datasecurity (EXTRACT)
+
+Replace datasecurity rules on an EXTRACT datamodel (standalone migration phase).
+
+```python
+# Typically sourced from GET on the source environment
+rules = [
+    {
+        "table": "orders",
+        "column": "region",
+        "datatype": "text",
+        "members": ["EMEA"],
+        "exclusionary": False,
+        "shares": [{"type": "user", "partyId": "user_oid", "partyName": "user@example.com"}],
+    }
+]
+response = datamodel.update_datasecurity("pysense_databricks", rules)
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 15c: Add Live Datasecurity Rules (Bulk)
+
+Add multiple datasecurity rules to a LIVE datamodel.
+
+```python
+rules = [
+    {
+        "table": "orders",
+        "column": "region",
+        "datatype": "text",
+        "members": ["EMEA"],
+        "exclusionary": False,
+        "shares": [{"type": "group", "partyId": "group_oid", "partyName": "Analysts"}],
+    }
+]
+response = datamodel.set_live_datasecurity_add_many("live_sales_model", rules)
+print(json.dumps(response, indent=4))
 ```
 
 ---

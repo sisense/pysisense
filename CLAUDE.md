@@ -48,11 +48,15 @@ uv run pre-commit install --hook-type commit-msg
 | `sisenseclient.py` | `SisenseClient` | Base HTTP client, auth, logging, shared session |
 | `access_management/` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
 | `blox/` | `Blox` | Fetch and save custom Blox actions (Linux only) |
+| `custom_code/` | `CustomCode` | Custom-code notebooks: CRUD, export, folder/file rename |
 | `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
 | `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
+| `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
+| `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
+| `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local` |
 
@@ -65,20 +69,23 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | Package | File | Public methods |
 |---|---|---|
 | `blox/` | `core.py` | `get_blox_actions`, `save_blox_action`, `delete_blox_action` |
-| `access_management/` | `users.py` | `get_user`, `get_users_all`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
+| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
+| `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
 | | `groups.py` | `get_group`, `users_per_group`, `users_per_group_all` |
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference` |
-| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `move_dashboard_to_folder`, `rename_dashboard`, `publish_dashboard`, `can_be_owned` |
+| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
-| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_all_folders`, `delete_folder` |
+| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders`, `get_folder_ancestors`, `get_navver`, `get_all_folders`, `delete_folder` |
+| `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
+| `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
-| | `connections.py` | `get_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `connections.py` | `get_connection`, `get_connections`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
-| | `security.py` | `get_datasecurity`, `get_datasecurity_detail` |
+| | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity`, `set_live_datasecurity_add_many` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares` |
 | | `data.py` | `get_data`, `get_row_count` |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
@@ -88,6 +95,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `base.py` | `_emit` and internal helpers (private) |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
+| `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv`, `elasticube_run_sql_query` |
 | `wellcheck/` | `dashboard_checks.py` | `check_dashboard_structure`, `check_dashboard_widget_counts`, `check_pivot_widget_fields` |
 | | `datamodel_checks.py` | `check_datamodel_custom_tables`, `check_datamodel_island_tables`, `check_datamodel_rls_datatypes`, `check_datamodel_import_queries`, `check_datamodel_m2m_relationships` |
 | | `__init__.py` | `run_full_wellcheck` (orchestrates all checks) |
@@ -146,7 +154,7 @@ The SDK **must** use a Sisense admin user's API token.
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Blox, Dashboard, DataModel, Folder, Plugins, WellCheck
+from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, Metadata, Plugins, Queries, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)

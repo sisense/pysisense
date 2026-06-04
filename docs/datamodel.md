@@ -68,6 +68,31 @@ Retrieves a Connection by its name.
 
 ---
 
+### `get_connections()`
+
+Lists all connections via `GET /api/v2/connections`.
+
+#### Returns:
+
+* `list`: Connection objects on success, or `{"error": "..."}` on failure.
+
+---
+
+### `update_connection(connection_id, connection_data)`
+
+Updates a connection via `PATCH /api/v2/connections/{connection_id}`. Only fields in `connection_data` are sent.
+
+#### Parameters:
+
+* `connection_id` (str): Connection `oid`.
+* `connection_data` (dict): Fields to update (for example `name`, `parameters`).
+
+#### Returns:
+
+* `dict`: Updated connection on success, or `{"error": "..."}` on failure.
+
+---
+
 ### `get_table_schema(self, connection_name, database_name, schema_name, table_name)`
 
 Retrieves the schema of a table in a specified connection from Data Source.
@@ -361,6 +386,36 @@ Retrieves detailed datasecurity rules for a specific DataModel, including visibi
 #### Returns:
 
 * `list`: List of dictionaries, where each dictionary represents a column-level rule repeated for each share. Includes datamodel name, table name, column name, data type, value, exclusionary flag, share type, share name, and a user-friendly rule description.
+
+---
+
+### `update_datasecurity(self, datamodel_name, datasecurity)`
+
+Replaces datasecurity rules on an EXTRACT datamodel via `PUT /api/elasticubes/localhost/{datamodel_name}/datasecurity`. Use for a standalone datasecurity migration phase.
+
+#### Parameters:
+
+* `datamodel_name` (str): Title of the EXTRACT datamodel.
+* `datasecurity` (list): Full rule list in Sisense API format (`table`, `column`, `datatype`, `members`, `exclusionary`, `shares`, etc.).
+
+#### Returns:
+
+* `dict`: API response on success, or `{"error": "..."}` on failure.
+
+---
+
+### `set_live_datasecurity_add_many(self, datamodel_name, rules)`
+
+Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticubes/live/{datamodel_name}/datasecurity/addMany`.
+
+#### Parameters:
+
+* `datamodel_name` (str): Title of the LIVE datamodel.
+* `rules` (list): Rule objects to add in Sisense API format.
+
+#### Returns:
+
+* `dict`: API response on success, or `{"error": "..."}` on failure.
 
 ---
 

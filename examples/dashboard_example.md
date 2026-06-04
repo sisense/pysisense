@@ -198,6 +198,18 @@ print(df)
 
 ---
 
+## Example 9b: Get Dashboard Shares (v1 API)
+
+Retrieve the raw shares payload from ``GET /api/v1/dashboards/{id}/shares``.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+shares = dashboard.get_dashboard_shares_v1(dashboard_id)
+print(json.dumps(shares, indent=4))
+```
+
+---
+
 ## Example 10: Resolve Dashboard Reference (ID or Name)
 
 Resolve one or more Dashboard references that may be either IDs or names.
@@ -262,6 +274,55 @@ if isinstance(widget_script_obj, dict) and "error" in widget_script_obj:
 else:
     print(widget_script_obj.to_text())
     widget_script_obj.to_file("results/widget_script.js")
+```
+
+---
+
+## Example 13: Move Dashboard to Folder
+
+Place an imported dashboard into a target folder after migration.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+folder_id = "folder_oid_here"
+result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 14: Rename Dashboard
+
+Update a dashboard title after import.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 15: Publish Dashboard
+
+Republish a dashboard (for example preflight when the user already has access).
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.publish_dashboard(dashboard_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 16: Check Can Be Owned
+
+Check whether the current user can take ownership of a dashboard.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.can_be_owned(dashboard_id)
+print(json.dumps(result, indent=4))
 ```
 
 ---

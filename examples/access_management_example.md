@@ -46,6 +46,44 @@ api_client.export_to_csv(response, file_name="user_info.csv")
 
 ---
 
+## Example 1a: Get Logged-In User (Migration Identity)
+
+Resolve the API token user's identity before migration.
+
+```python
+response = access_mgmt.get_my_user()
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 1a2: Get Roles
+
+Fetch all roles to build a name-to-ID map.
+
+```python
+roles = access_mgmt.get_roles()
+print(json.dumps(roles, indent=4))
+
+if isinstance(roles, list):
+    roles_map = {role["name"]: role["_id"] for role in roles}
+    print(roles_map)
+```
+
+---
+
+## Example 1a3: Change User Password
+
+Update a user's password by internal user ID.
+
+```python
+user_id = "65d62c9574851800339cf49e"
+response = access_mgmt.change_user_password(user_id, "NewSecurePass1!")
+print(json.dumps(response, indent=4))
+```
+
+---
+
 ## Example 1b: Get User Information with Role/Group IDs and Names
 
 Retrieve information for a specific user by their email, including both role

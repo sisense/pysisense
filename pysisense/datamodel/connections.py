@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class ConnectionsMixin:
     def get_connection(self, connection_name):
@@ -33,6 +35,81 @@ class ConnectionsMixin:
         self.logger.info(f"Successfully retrieved connections with name '{connection_name}'")
         self.logger.debug(f"Connection details: {connections}")
         return connections
+
+    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all connections.
+
+        Sends ``GET /api/v2/connections`` and returns the full connection list.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            List of connection objects on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        endpoint = "/api/v2/connections"
+        self.logger.debug("Fetching all connections.")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error("GET request to retrieve connections failed: No response received.")
+            return {"error": "No response received while retrieving connections."}
+
+        if not response.ok:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve connections. Error: {error_message}")
+            return {"error": f"Failed to retrieve connections. {error_message}"}
+
+        connections = response.json()
+        count = len(connections) if isinstance(connections, list) else 0
+        self.logger.info(f"Successfully retrieved {count} connections.")
+        return connections
+
+    def update_connection(self, connection_id: str, connection_data: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing connection.
+
+        Sends ``PATCH /api/v2/connections/{connection_id}``. Only fields present
+        in ``connection_data`` are sent in the request body; omitted fields are
+        not modified on the server. Use for connection remapping during
+        migration.
+
+        Parameters
+        ----------
+        connection_id : str
+            Connection ``oid`` to update.
+        connection_data : dict[str, Any]
+            Fields to update (for example ``name``, ``parameters``,
+            ``provider``). Supported keys depend on the Sisense connection type.
+
+        Returns
+        -------
+        dict[str, Any]
+            Updated connection object on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        if not connection_data:
+            self.logger.error("update_connection requires at least one field in connection_data.")
+            return {"error": "connection_data must contain at least one field to update."}
+
+        endpoint = f"/api/v2/connections/{connection_id}"
+        self.logger.debug(f"Updating connection {connection_id} — fields: {list(connection_data.keys())}")
+        response = self.api_client.patch(endpoint, data=connection_data)
+
+        if response is None:
+            self.logger.error(f"PATCH request to update connection {connection_id} failed: No response received.")
+            return {"error": f"No response received while updating connection ID '{connection_id}'"}
+
+        if not response.ok:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text if response else "No response text available."
+            self.logger.error(f"Failed to update connection {connection_id}. Error: {error_message}")
+            return {"error": f"Failed to update connection '{connection_id}'. {error_message}"}
+
+        updated = response.json()
+        self.logger.info(f"Successfully updated connection {connection_id}.")
+        return updated
 
     def get_table_schema(self, connection_name, database_name, schema_name, table_name):
         """

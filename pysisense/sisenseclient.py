@@ -209,35 +209,37 @@ class SisenseClient:
 
         return logger
 
-    def get(self, endpoint, params=None):
+    def get(self, endpoint, params=None, extra_headers=None):
         """
         Performs a GET request to the specified API endpoint.
 
         Parameters:
             endpoint (str): API endpoint (relative to the base URL).
             params (dict): Optional query parameters.
+            extra_headers (dict): Optional headers merged into the default request headers.
 
         Returns:
             requests.Response or None: The HTTP response object, or None if the
             request fails.
         """
-        return self._make_request("GET", endpoint, params=params)
+        return self._make_request("GET", endpoint, params=params, extra_headers=extra_headers)
 
-    def post(self, endpoint, data=None):
+    def post(self, endpoint, data=None, extra_headers=None):
         """
         Performs a POST request to the specified API endpoint.
 
         Parameters:
             endpoint (str): API endpoint (relative to the base URL).
             data (dict): Optional JSON data payload for the POST request.
+            extra_headers (dict): Optional headers merged into the default request headers.
 
         Returns:
             requests.Response or None: The HTTP response object, or None if the
             request fails.
         """
-        return self._make_request("POST", endpoint, data=data)
+        return self._make_request("POST", endpoint, data=data, extra_headers=extra_headers)
 
-    def put(self, endpoint, data=None):
+    def put(self, endpoint, data=None, extra_headers=None):
         """
         Performs a PUT request to the specified API endpoint.
 
@@ -248,9 +250,9 @@ class SisenseClient:
         Returns:
             requests.Response or None: The HTTP response object, or None if the request fails.
         """
-        return self._make_request("PUT", endpoint, data=data)
+        return self._make_request("PUT", endpoint, data=data, extra_headers=extra_headers)
 
-    def patch(self, endpoint, data=None):
+    def patch(self, endpoint, data=None, extra_headers=None):
         """
         Performs a PATCH request to the specified API endpoint.
 
@@ -261,9 +263,9 @@ class SisenseClient:
         Returns:
             requests.Response or None: The HTTP response object, or None if the request fails.
         """
-        return self._make_request("PATCH", endpoint, data=data)
+        return self._make_request("PATCH", endpoint, data=data, extra_headers=extra_headers)
 
-    def delete(self, endpoint):
+    def delete(self, endpoint, extra_headers=None):
         """
         Performs a DELETE request to the specified API endpoint.
 
@@ -273,9 +275,9 @@ class SisenseClient:
         Returns:
             requests.Response or None: The HTTP response object, or None if the request fails.
         """
-        return self._make_request("DELETE", endpoint)
+        return self._make_request("DELETE", endpoint, extra_headers=extra_headers)
 
-    def _make_request(self, method, endpoint, params=None, data=None):
+    def _make_request(self, method, endpoint, params=None, data=None, extra_headers=None):
         """
         Makes an HTTP request to the API based on the specified method.
 
@@ -285,6 +287,7 @@ class SisenseClient:
             endpoint (str): The API endpoint (relative to the base URL).
             params (dict): Optional query parameters (for GET requests).
             data (dict): Optional JSON data payload (for POST, PUT, PATCH requests).
+            extra_headers (dict): Optional headers merged into the default request headers.
 
         Returns:
             requests.Response or None: The full response object if the request succeeds,
@@ -292,6 +295,9 @@ class SisenseClient:
         """
         # Construct the full URL for the API request
         url = f"{self.base_url}{endpoint}"
+        headers = dict(self.headers)
+        if extra_headers:
+            headers.update(extra_headers)
 
         # Log the request details (method, URL, params, and data)
         self.logger.debug(f"Making {method} request to {url} with data: {data} and params: {params}")
@@ -299,15 +305,15 @@ class SisenseClient:
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
-                response = requests.get(url, headers=self.headers, params=params, verify=self.verify)
+                response = requests.get(url, headers=headers, params=params, verify=self.verify)
             elif method == "POST":
-                response = requests.post(url, headers=self.headers, json=data, verify=self.verify)
+                response = requests.post(url, headers=headers, json=data, verify=self.verify)
             elif method == "PUT":
-                response = requests.put(url, headers=self.headers, json=data, verify=self.verify)
+                response = requests.put(url, headers=headers, json=data, verify=self.verify)
             elif method == "PATCH":
-                response = requests.patch(url, headers=self.headers, json=data, verify=self.verify)
+                response = requests.patch(url, headers=headers, json=data, verify=self.verify)
             elif method == "DELETE":
-                response = requests.delete(url, headers=self.headers, verify=self.verify)
+                response = requests.delete(url, headers=headers, verify=self.verify)
             else:
                 # Raise an error for unsupported HTTP methods
                 raise ValueError(f"Unsupported HTTP method: {method}")

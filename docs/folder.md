@@ -70,6 +70,44 @@ Retrieves a single folder by OID.
 
 * * * * *
 
+### `get_folders(structure="flat")`
+
+Retrieves folders with a configurable ``structure`` query parameter (``GET /api/v1/folders?structure={structure}``). Defaults to ``"flat"``.
+
+**Parameters:**
+
+-   `structure` (str, optional): Sisense folder structure type. Default is `"flat"`.
+
+**Returns:**
+
+-   `list`: Folder data from the API, or a dict with an `"error"` key on failure.
+
+* * * * *
+
+### `get_folder_ancestors(structure)`
+
+Retrieves folder data for a given ``structure`` query parameter (``GET /api/v1/folders?structure={structure}``).
+
+**Parameters:**
+
+-   `structure` (str): Sisense folder structure type for the request.
+
+**Returns:**
+
+-   `list`: Folder data from the API, or a dict with an `"error"` key on failure.
+
+* * * * *
+
+### `get_navver()`
+
+Retrieves the Sisense navigation payload (``GET /api/v1/navver``), including the ``folders`` hierarchy.
+
+**Returns:**
+
+-   `dict`: Navver response on success, or a dict with an `"error"` key on failure.
+
+* * * * *
+
 ### `get_all_folders()`
 
 Retrieves the full folder tree (`structure=tree`).

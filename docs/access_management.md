@@ -32,6 +32,41 @@ Retrieves user details by email address and expands the response to include grou
 
 * * * * *
 
+### `get_my_user()`
+
+Retrieves the currently logged-in user for the API token (``GET /api/users/loggedin``). Use for migration user identity resolution.
+
+**Returns:**
+
+-   `dict`: Logged-in user object on success, or `{'error': 'message'}` on failure.
+
+* * * * *
+
+### `get_roles()`
+
+Retrieves all Sisense roles (``GET /api/roles``). Use to build role name-to-ID maps for multi-tenant migration.
+
+**Returns:**
+
+-   `list`: Role objects on success, or `{'error': 'message'}` on failure.
+
+* * * * *
+
+### `change_user_password(user_id, password)`
+
+Changes a user's password via ``PATCH /api/users/{user_id}``. Only the ``password`` field is sent in the request body.
+
+**Parameters:**
+
+-   `user_id` (str): Internal user ID (``_id``).
+-   `password` (str): New password (must not be empty).
+
+**Returns:**
+
+-   `dict`: Updated user object on success, or `{'error': 'message'}` on failure.
+
+* * * * *
+
 ### `get_user_with_role_and_group_names(self, user_name)`
 
 Retrieves user details by their email (username) and returns both role and

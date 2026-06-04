@@ -99,17 +99,17 @@ class FakeApiClient:
                 best, best_len = val, len(key)
         return best
 
-    def get(self, url: str, params: dict | None = None) -> FakeResponse | None:
+    def get(self, url: str, params: dict | None = None, **kwargs: Any) -> FakeResponse | None:
         return self._lookup(self._get, url)
 
-    def post(self, url: str, data: Any = None) -> FakeResponse | None:
+    def post(self, url: str, data: Any = None, **kwargs: Any) -> FakeResponse | None:
         return self._lookup(self._post, url)
 
-    def put(self, url: str, data: Any = None) -> FakeResponse | None:
+    def put(self, url: str, data: Any = None, **kwargs: Any) -> FakeResponse | None:
         return self._lookup(self._put, url)
 
-    def patch(self, url: str, data: Any = None) -> FakeResponse | None:
+    def patch(self, url: str, data: Any = None, **kwargs: Any) -> FakeResponse | None:
         return self._lookup(self._patch, url)
 
-    def delete(self, url: str) -> FakeResponse | None:
+    def delete(self, url: str, **kwargs: Any) -> FakeResponse | None:
         return self._lookup(self._delete, url)

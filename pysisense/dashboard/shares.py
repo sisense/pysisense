@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class SharesMixin:
     def add_dashboard_shares(self, dashboard_id, shares):
@@ -194,3 +196,47 @@ class SharesMixin:
 
         self.logger.info(f"Found {len(shared_list)} shares for dashboard '{dashboard_name}'.")
         return shared_list
+
+    def get_dashboard_shares_v1(
+        self,
+        dashboard_id: str,
+        *,
+        admin_access: bool = True,
+    ) -> dict[str, Any]:
+        """Retrieve share details for a dashboard using the v1 shares endpoint.
+
+        Sends ``GET /api/v1/dashboards/{dashboard_id}/shares``. This returns the
+        raw Sisense shares payload (for example ``sharesTo`` and ``owner``),
+        unlike ``get_dashboard_share`` which resolves names from the admin list.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard ``oid``.
+        admin_access : bool, optional
+            When ``True`` (default), request with ``adminAccess=true``.
+
+        Returns
+        -------
+        dict[str, Any]
+            The shares response from the API, or ``{"error": "..."}`` on failure.
+        """
+        endpoint = f"/api/v1/dashboards/{dashboard_id}/shares"
+        if admin_access:
+            endpoint += "?adminAccess=true"
+
+        self.logger.debug(f"Fetching v1 shares for dashboard {dashboard_id}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET request to retrieve v1 shares for dashboard {dashboard_id} failed: No response received.")
+            return {"error": f"No response received while retrieving shares for dashboard ID '{dashboard_id}'"}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve v1 shares for dashboard {dashboard_id}. Error: {error_message}")
+            return {"error": f"Failed to retrieve shares for dashboard '{dashboard_id}'. {error_message}"}
+
+        shares_data = response.json()
+        self.logger.info(f"Successfully retrieved v1 shares for dashboard {dashboard_id}.")
+        return shares_data

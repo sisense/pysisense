@@ -144,6 +144,107 @@ class FolderCoreMixin:
         self.logger.info(f"Successfully retrieved folder with ID {folder_id}.")
         return folder
 
+    def get_folders(self, structure: str = "flat") -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve folders using a configurable ``structure`` query parameter.
+
+        Sends ``GET /api/v1/folders?structure={structure}``. The default
+        ``structure`` is ``"flat"``, which returns a flat folder list (used
+        before migration in win2linux workflows).
+
+        Parameters
+        ----------
+        structure : str, optional
+            Sisense folder structure type (for example ``"flat"`` or ``"tree"``).
+            Default is ``"flat"``.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            Folder data from the API (typically a list), or ``{"error": "..."}``
+            on failure.
+        """
+        endpoint = f"/api/v1/folders?structure={structure}"
+        self.logger.debug(f"Getting folders with structure={structure!r}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET request to retrieve folders (structure={structure!r}) failed: No response received.")
+            return {"error": "No response received while retrieving folders."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve folders (structure={structure!r}). Error: {error_message}")
+            return {"error": f"Failed to retrieve folders. {error_message}"}
+
+        folders = response.json()
+        count = len(folders) if isinstance(folders, list) else 1
+        self.logger.info(f"Successfully retrieved folders (structure={structure!r}, count={count}).")
+        return folders
+
+    def get_folder_ancestors(self, structure: str) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve folder ancestor data for a given structure type.
+
+        Sends ``GET /api/v1/folders?structure={structure}``. The ``structure``
+        value is passed through to Sisense (for example an ancestors-specific
+        structure string used by your environment).
+
+        Parameters
+        ----------
+        structure : str
+            Sisense folder structure type for the request.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            Folder data from the API, or ``{"error": "..."}`` on failure.
+        """
+        endpoint = f"/api/v1/folders?structure={structure}"
+        self.logger.debug(f"Getting folders with structure={structure!r}")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error(f"GET request to retrieve folders (structure={structure!r}) failed: No response received.")
+            return {"error": "No response received while retrieving folders."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve folders (structure={structure!r}). Error: {error_message}")
+            return {"error": f"Failed to retrieve folders. {error_message}"}
+
+        folders = response.json()
+        count = len(folders) if isinstance(folders, list) else 1
+        self.logger.info(f"Successfully retrieved folders (structure={structure!r}, count={count}).")
+        return folders
+
+    def get_navver(self) -> dict[str, Any]:
+        """Retrieve the Sisense navigation tree (navver payload).
+
+        Sends ``GET /api/v1/navver``. The response includes a ``folders`` key
+        with the navigation folder hierarchy.
+
+        Returns
+        -------
+        dict[str, Any]
+            The navver response object on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        endpoint = "/api/v1/navver"
+        self.logger.debug("Getting navver navigation payload.")
+        response = self.api_client.get(endpoint)
+
+        if response is None:
+            self.logger.error("GET request to retrieve navver failed: No response received.")
+            return {"error": "No response received while retrieving navver."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"Failed to retrieve navver. Error: {error_message}")
+            return {"error": f"Failed to retrieve navver. {error_message}"}
+
+        navver = response.json()
+        self.logger.info("Successfully retrieved navver navigation payload.")
+        return navver
+
     def get_all_folders(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve the full folder tree.
 
@@ -157,22 +258,23 @@ class FolderCoreMixin:
             ``folders`` and ``dashboards`` keys), or ``{"error": "..."}`` on
             failure.
         """
-        endpoint = "/api/v1/folders?structure=tree"
-        self.logger.debug("Getting all folders.")
+        structure = "tree"
+        endpoint = f"/api/v1/folders?structure={structure}"
+        self.logger.debug(f"Getting folders with structure={structure!r}")
         response = self.api_client.get(endpoint)
 
         if response is None:
-            self.logger.error("GET request to retrieve all folders failed: No response received.")
-            return {"error": "No response received while retrieving all folders."}
+            self.logger.error(f"GET request to retrieve folders (structure={structure!r}) failed: No response received.")
+            return {"error": "No response received while retrieving folders."}
 
         if response.status_code != 200:
             error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve all folders. Error: {error_message}")
-            return {"error": f"Failed to retrieve all folders. {error_message}"}
+            self.logger.error(f"Failed to retrieve folders (structure={structure!r}). Error: {error_message}")
+            return {"error": f"Failed to retrieve folders. {error_message}"}
 
         folders = response.json()
-
-        self.logger.info(f"Successfully retrieved {len(folders)} folders.")
+        count = len(folders) if isinstance(folders, list) else 1
+        self.logger.info(f"Successfully retrieved folders (structure={structure!r}, count={count}).")
         return folders
 
     def delete_folder(self, folder_id: str) -> dict[str, Any]:
