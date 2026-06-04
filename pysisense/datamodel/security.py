@@ -243,7 +243,7 @@ class SecurityMixin:
             try:
                 error_message = response.json()
             except Exception:
-                error_message = response.text if response else "No response text available."
+                error_message = response.text
             self.logger.error(f"Failed to update datasecurity for '{title}'. Error: {error_message}")
             return {"error": f"Failed to update datasecurity for '{title}'. {error_message}"}
 
@@ -304,7 +304,7 @@ class SecurityMixin:
             try:
                 error_message = response.json()
             except Exception:
-                error_message = response.text if response else "No response text available."
+                error_message = response.text
             self.logger.error(f"Failed to add datasecurity rules for '{title}'. Error: {error_message}")
             return {"error": f"Failed to add datasecurity rules for '{title}'. {error_message}"}
 

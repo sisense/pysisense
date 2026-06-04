@@ -7,17 +7,20 @@ class BloxCoreMixin:
     def get_blox_actions(self) -> list[dict[str, Any]]:
         """Retrieve all custom Blox actions from the Sisense instance.
 
-        Fetches the complete list of custom Blox actions using
-        ``GET /api/v1/blox/getCustomActions``. This endpoint is supported
-        on Linux deployments only.
+        The endpoint used varies by the ``operating_system`` set on the
+        ``SisenseClient``:
+
+        - ``"linux"``: ``GET /api/v1/blox/getCustomActions``
+        - ``"windows"``: ``GET /api/v1/getCustomActions/actions``
 
         Returns
         -------
         list[dict[str, Any]]
             A list of Blox action objects, or ``[{"error": "..."}]`` on failure.
         """
-        endpoint = "/api/v1/blox/getCustomActions"
-        self.logger.debug("Fetching all custom Blox actions")
+        os = self.api_client.operating_system
+        endpoint = "/api/v1/getCustomActions/actions" if os == "windows" else "/api/v1/blox/getCustomActions"
+        self.logger.debug(f"Fetching all custom Blox actions (os={os})")
         response = self.api_client.get(endpoint)
 
         if response is None or response.status_code != 200:
@@ -26,7 +29,18 @@ class BloxCoreMixin:
             self.logger.error(msg)
             return [{"error": msg}]
 
-        actions = response.json()
+        try:
+            actions = response.json()
+        except Exception:
+            msg = "Failed to parse Blox actions response as JSON"
+            self.logger.error(msg)
+            return [{"error": msg}]
+
+        if not isinstance(actions, list):
+            msg = f"Unexpected response shape from Blox actions endpoint — got {type(actions).__name__}"
+            self.logger.error(msg)
+            return [{"error": msg}]
+
         self.logger.info(f"Retrieved {len(actions)} Blox action(s)")
         return actions
 
@@ -46,6 +60,11 @@ class BloxCoreMixin:
         dict[str, Any]
             The API response body on success, or ``{"error": "..."}`` on failure.
         """
+        if self.api_client.operating_system == "windows":
+            msg = "save_blox_action is not supported on Windows deployments."
+            self.logger.error(msg)
+            return {"error": msg}
+
         endpoint = "/api/v1/blox/saveCustomAction"
         action_type = action.get("type", "<unnamed>")
         self.logger.debug(f"Saving Blox action '{action_type}'")
@@ -76,6 +95,11 @@ class BloxCoreMixin:
         dict[str, Any]
             ``{"success": True}`` on success, or ``{"error": "..."}`` on failure.
         """
+        if self.api_client.operating_system == "windows":
+            msg = "delete_blox_action is not supported on Windows deployments."
+            self.logger.error(msg)
+            return {"error": msg}
+
         endpoint = "/api/v1/blox/deleteCustomAction"
         self.logger.debug(f"Deleting Blox action '{action_type}'")
         response = self.api_client.post(endpoint, data={"type": action_type})

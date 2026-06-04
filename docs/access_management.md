@@ -340,3 +340,25 @@ Schedules a build for a DataModel. Supports both:
 
 - `dict`: API response confirming schedule creation or error details.
 
+
+* * * * *
+
+### `get_my_user()`
+
+Retrieves the user profile for the currently authenticated API token. Sends `GET /api/users/loggedin`. Useful for resolving migration user identity (email, `_id`) without a separate lookup.
+
+**Returns:**
+
+-   `dict`: The logged-in user object from the API (includes `_id`, `email`, `userName`, `role`, and related fields), or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `get_roles()`
+
+Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Returns the raw role list used to build role name-to-ID maps.
+
+**Returns:**
+
+-   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"error": "..."}` on failure.
+
+**Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.

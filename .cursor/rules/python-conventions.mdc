@@ -90,4 +90,24 @@ if isinstance(dashboards, str):
 
 ## SSL
 
-SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845` by default; override with optional `port` in `config.yaml`.
+SSL verification is always disabled (`verify=False`). Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
+
+## OS-specific API routing
+
+Some Sisense endpoints differ between Linux and Windows deployments. When an endpoint differs by OS:
+
+- **Linux is the default path** — write the Linux case as the main branch (`else`).
+- **Windows is the conditional** — use `if self.api_client.operating_system == "windows":` to branch.
+- Always log `os=` in the debug message so the route is visible in logs.
+
+```python
+# ✅ GOOD — Linux default, Windows conditional
+os = self.api_client.operating_system
+endpoint = "/windows/endpoint" if os == "windows" else "/linux/endpoint"
+self.logger.debug(f"Fetching data (os={os})")
+
+# ❌ BAD — Windows default or no OS routing
+endpoint = "/linux/endpoint"  # silently breaks on Windows without comment
+```
+
+Methods that are Linux-only must guard the Windows case explicitly and return `{"error": "...not supported on Windows..."}` rather than silently hitting a wrong endpoint.

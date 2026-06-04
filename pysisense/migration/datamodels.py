@@ -374,14 +374,24 @@ class DatamodelsMigrationMixin:
                 },
             )
 
-            response = self.source_client.get(
-                "/api/v2/datamodel-exports/schema",
-                params={
-                    "datamodelId": datamodel_id,
-                    "type": "schema-latest",
-                    "dependenciesIdsToInclude": ",".join(api_dependencies),
-                },
-            )
+            source_os = self.source_client.operating_system
+            if source_os == "windows":
+                if api_dependencies:
+                    self.logger.warning(
+                        "Windows datamodel export does not support dependenciesIdsToInclude — dependencies (%s) will not be migrated for datamodel_id=%s.",
+                        api_dependencies,
+                        datamodel_id,
+                    )
+                response = self.source_client.get(f"/api/v1/elasticubes/{datamodel_id}/datamodel-exports/stream/schema")
+            else:
+                response = self.source_client.get(
+                    "/api/v2/datamodel-exports/schema",
+                    params={
+                        "datamodelId": datamodel_id,
+                        "type": "schema-latest",
+                        "dependenciesIdsToInclude": ",".join(api_dependencies),
+                    },
+                )
 
             # Keep existing behavior, but cover edge-case where Response is falsy for 4xx/5xx.
             if response is not None and response.status_code == 200:

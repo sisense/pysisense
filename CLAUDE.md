@@ -47,7 +47,7 @@ uv run pre-commit install --hook-type commit-msg
 |---|---|---|
 | `sisenseclient.py` | `SisenseClient` | Base HTTP client, auth, logging, shared session |
 | `access_management/` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
-| `blox/` | `Blox` | Fetch and save custom Blox actions (Linux only) |
+| `blox/` | `Blox` | Fetch custom Blox actions (Linux and Windows); save/delete Linux only |
 | `custom_code/` | `CustomCode` | Custom-code notebooks: CRUD, export, folder/file rename |
 | `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
 | `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
@@ -68,21 +68,21 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 
 | Package | File | Public methods |
 |---|---|---|
-| `blox/` | `core.py` | `get_blox_actions`, `save_blox_action`, `delete_blox_action` |
-| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
+| `blox/` | `core.py` | `get_blox_actions` (OS-routed), `save_blox_action`, `delete_blox_action` |
 | `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
+| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
 | | `groups.py` | `get_group`, `users_per_group`, `users_per_group_all` |
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `move_dashboard_to_folder`, `rename_dashboard`, `publish_dashboard`, `can_be_owned` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned` |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
-| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders`, `get_folder_ancestors`, `get_navver`, `get_all_folders`, `delete_folder` |
+| `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders` (structure param, default `"flat"`), `get_folder_ancestors`, `get_navver`, `get_all_folders` (tree shortcut), `delete_folder` |
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |
-| `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference` |
+| `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference`, `get_elasticubes`, `load_datamodel`, `delete_datamodel` |
 | | `connections.py` | `get_connection`, `get_connections`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity`, `set_live_datasecurity_add_many` |
@@ -333,7 +333,29 @@ if isinstance(dashboards, str):
 
 ### SSL
 
-SSL verification is always disabled (`verify=False`). Non-SSL instances use port `30845` by default; override with optional `port` in `config.yaml`.
+SSL verification is always disabled (`verify=False`). Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
+
+### OS-specific API routing
+
+Some Sisense API endpoints differ between Linux and Windows deployments. Follow these rules when implementing OS-specific logic:
+
+- **Linux is always the default** — write the Linux path as the `else` branch.
+- **Windows is always the conditional** — use `if self.api_client.operating_system == "windows":`.
+- Always include `os=` in the debug log so the route taken is visible.
+- Methods that are **Linux-only** must guard the Windows case explicitly and return `{"error": "...not supported on Windows..."}` rather than silently hitting a wrong endpoint.
+
+```python
+# ✅ GOOD — Linux default, Windows conditional
+os = self.api_client.operating_system
+endpoint = "/windows/endpoint" if os == "windows" else "/linux/endpoint"
+self.logger.debug(f"Fetching data (os={os})")
+
+# For Linux-only methods, guard at the top of the method:
+if self.api_client.operating_system == "windows":
+    msg = "this_method is not supported on Windows deployments."
+    self.logger.error(msg)
+    return {"error": msg}
+```
 
 ---
 
@@ -547,17 +569,26 @@ Keep fixture dicts inline in the test file rather than loading from external JSO
 
 ## Documentation Maintenance
 
-When a public method signature or documented behavior changes:
+When a public method **signature or documented behavior changes**:
 
 1. Update the relevant `docs/<module>.md` page — parameters, return shape, and semantics.
-2. Update the relevant `examples/<module>_example.md` snippet if it references the changed behavior.
+2. Update `examples/<module>_example.md` — add or edit the snippet for that method.
 
-When adding a new module or public method:
+When **adding a new public method to an existing module**:
+
+1. Add the method name to the **mixin lookup table** below (and in `.cursor/rules/project-overview.mdc`).
+2. Add a usage snippet to `examples/<module>_example.md`. **This is not optional** — every new public method needs at least a one-liner showing the call and what comes back.
+3. Update `docs/<module>.md` with the parameter table and return shape.
+
+When **adding a new module**:
 
 1. Add the module to the **Modules** table in `CLAUDE.md` and `.cursor/rules/project-overview.mdc`.
 2. Add the mixin file and its public methods to the **mixin lookup table** in both files.
 3. Add the new class to the canonical init pattern in `CLAUDE.md` if it is a top-level SDK class.
-4. Create `examples/<module>_example.md` with copy-paste usage snippets.
+4. Create `examples/<module>_example.md` with copy-paste usage snippets for every public method.
+5. Create `docs/<module>.md` with full reference documentation.
+
+> **Reminder:** `examples/*.md` files are the first place users look. Skipping them means users have no copy-paste starting point. Always update them.
 
 ### Quality bar and minimal-change policy
 

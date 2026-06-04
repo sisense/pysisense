@@ -465,3 +465,30 @@ else:
 - For more details, refer to the documentation in the `docs/` folder.
 
 ---
+
+---
+
+## Example 13: Get the Currently Authenticated User
+
+Retrieve the user profile for the API token in use. Useful for confirming which account the SDK is operating as.
+
+```python
+response = access_mgmt.get_my_user()
+print(json.dumps(response, indent=4))
+# Returns the full user object including _id, email, userName, role, etc.
+```
+
+---
+
+## Example 14: List All Sisense Roles
+
+Retrieve all available roles on the instance. Useful for building role name-to-ID maps.
+
+```python
+response = access_mgmt.get_roles()
+print(json.dumps(response, indent=4))
+
+df = api_client.to_dataframe(response)
+print(df)
+api_client.export_to_csv(response, "roles.csv")
+```

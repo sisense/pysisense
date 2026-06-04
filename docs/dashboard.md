@@ -312,3 +312,61 @@ Instances of **`SisenseScript`** are returned by `get_dashboard_script` and `get
 -   `to_text() -> str`: Full formatted JavaScript string (empty string if nothing remains after stripping).
 -   `to_md() -> str`: Markdown with an `#` title and a fenced `js` code block built from `to_text()`.
 -   `to_file(path: str) -> None`: Writes `to_text()` to the given path.
+
+* * * * *
+
+### `get_dashboards(fields=None)`
+
+Retrieves dashboards visible to the authenticated user via `GET /api/v1/dashboards`. Returns dashboards the current user owns or has been shared to, as opposed to `get_all_dashboards` which uses the admin endpoint.
+
+**Parameters:**
+
+-   `fields` (list[str], optional): Subset of fields to include in each dashboard object (e.g. `["oid", "title", "owner"]`). When omitted, all fields are returned.
+
+**Returns:**
+
+-   `list[dict]`: List of dashboard objects on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `publish_dashboard(dashboard_id)`
+
+Publishes a dashboard so it becomes visible to shared users. Sends `POST /api/v1/dashboards/{id}/publish?force=false&adminAccess=true`.
+
+**Parameters:**
+
+-   `dashboard_id` (str): The dashboard `oid` to publish.
+
+**Returns:**
+
+-   `dict`: `{"success": True}` on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `rename_dashboard(dashboard_id, title)`
+
+Renames a dashboard by sending `PATCH /api/dashboards/{id}` with only `title` in the body. Other fields are not modified.
+
+**Parameters:**
+
+-   `dashboard_id` (str): The dashboard `oid` to rename.
+-   `title` (str): The new display title.
+
+**Returns:**
+
+-   `dict`: The updated dashboard object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `move_dashboard_to_folder(dashboard_id, folder_id)`
+
+Moves a dashboard into a folder by sending `PATCH /api/dashboards/{id}` with only `parentFolder` in the body. Other fields are not modified.
+
+**Parameters:**
+
+-   `dashboard_id` (str): The dashboard `oid` to move.
+-   `folder_id` (str): The target folder `oid`.
+
+**Returns:**
+
+-   `dict`: The updated dashboard object on success, or `{"error": "..."}` on failure.
