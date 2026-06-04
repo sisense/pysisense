@@ -7,14 +7,21 @@ It supports HTTP methods, YAML-based configuration, logging, and helper function
 
 ## Class: `SisenseClient`
 
-### `__init__(self, config_file="config.yaml", debug=False)`
+### `__init__(self, config_file="config.yaml", debug=False, *, domain=None, token=None, is_ssl=None, port=None, operating_system="linux")`
 
-Initializes the Sisense client, sets up logging, and prepares headers using a YAML config file.
+Initializes the Sisense client, sets up logging, and prepares headers. Supports YAML-based config or direct inline connection.
 
 **Parameters:**
 
-- `config_file` (str): Path to the YAML config file.  
+- `config_file` (str): Path to the YAML config file. Ignored when `domain` and `token` are provided directly.
 - `debug` (bool): If True, enables debug logging.
+- `domain` (str, optional): Sisense hostname or IP. When provided together with `token`, YAML config is bypassed.
+- `token` (str, optional): Sisense admin API token for direct connection mode.
+- `is_ssl` (bool, optional): `True` for HTTPS, `False` for HTTP. Defaults to `True` in direct mode.
+- `port` (int, optional): HTTP port for non-SSL connections. Defaults to `30845` (Linux) or `8081` (Windows) when omitted.
+- `operating_system` (str): Target Sisense server OS. `"linux"` (default) or `"windows"`. Controls OS-specific API endpoint routing and default non-SSL port. Can also be set via `operating_system:` in the YAML config file — the YAML value takes precedence. Blank, `null`, `none`, or `NA` values all fall back to `"linux"`.
+
+**Note:** `from_connection(domain, token, ...)` is a classmethod alternative constructor for direct connection mode.
 
 ---
 

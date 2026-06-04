@@ -402,72 +402,6 @@ class TestGetDashboardSharesV1:
 
 
 # ---------------------------------------------------------------------------
-# move_dashboard_to_folder / rename_dashboard
-# ---------------------------------------------------------------------------
-
-
-class TestMoveDashboardToFolder:
-    def test_returns_updated_dashboard_on_success(self):
-        updated = {**_DASHBOARD, "parentFolder": "folder456"}
-        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(200, updated)})
-        result = dash.move_dashboard_to_folder("dash123", "folder456")
-        assert result["parentFolder"] == "folder456"
-
-    def test_returns_error_dict_on_failure(self):
-        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
-        result = dash.move_dashboard_to_folder("dash123", "folder456")
-        assert "error" in result
-
-
-class TestRenameDashboard:
-    def test_returns_updated_dashboard_on_success(self):
-        updated = {**_DASHBOARD, "title": "New Title"}
-        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(200, updated)})
-        result = dash.rename_dashboard("dash123", "New Title")
-        assert result["title"] == "New Title"
-
-    def test_returns_error_dict_on_failure(self):
-        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
-        result = dash.rename_dashboard("dash123", "New Title")
-        assert "error" in result
-
-
-# ---------------------------------------------------------------------------
-# publish_dashboard
-# ---------------------------------------------------------------------------
-
-
-class TestPublishDashboard:
-    def test_returns_success_on_204(self):
-        dash = _make_dash(
-            post_responses={
-                "/api/v1/dashboards/dash123/publish": FakeResponse(204, {}),
-            }
-        )
-        result = dash.publish_dashboard("dash123")
-        assert result == {"success": True}
-
-    def test_returns_json_body_on_200(self):
-        body = {"published": True}
-        dash = _make_dash(
-            post_responses={
-                "/api/v1/dashboards/dash123/publish": FakeResponse(200, body),
-            }
-        )
-        result = dash.publish_dashboard("dash123")
-        assert result == body
-
-    def test_returns_error_dict_on_failure(self):
-        dash = _make_dash(
-            post_responses={
-                "/api/v1/dashboards/dash123/publish": FakeResponse(500, {"error": "fail"}),
-            }
-        )
-        result = dash.publish_dashboard("dash123")
-        assert "error" in result
-
-
-# ---------------------------------------------------------------------------
 # can_be_owned
 # ---------------------------------------------------------------------------
 
@@ -674,3 +608,111 @@ class TestScriptRendering:
         assert output.exists()
         content = output.read_text()
         assert "console.log('x');" in content
+
+
+# ---------------------------------------------------------------------------
+# get_dashboards
+# ---------------------------------------------------------------------------
+
+
+class TestGetDashboards:
+    def test_returns_list_on_success(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards": FakeResponse(200, [_DASHBOARD])})
+        result = dash.get_dashboards()
+        assert isinstance(result, list)
+        assert result[0]["oid"] == "dash123"
+
+    def test_returns_error_on_none_response(self):
+        dash = _make_dash()
+        result = dash.get_dashboards()
+        assert "error" in result
+
+    def test_returns_error_on_non_200(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards": FakeResponse(403, {})})
+        result = dash.get_dashboards()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# publish_dashboard
+# ---------------------------------------------------------------------------
+
+
+class TestPublishDashboard:
+    def test_returns_success_on_204(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/publish": FakeResponse(204, {})})
+        result = dash.publish_dashboard("dash123")
+        assert result == {"success": True}
+
+    def test_returns_json_body_on_200(self):
+        body = {"published": True}
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/publish": FakeResponse(200, body)})
+        result = dash.publish_dashboard("dash123")
+        assert result == body
+
+    def test_returns_error_on_none_response(self):
+        dash = _make_dash()
+        result = dash.publish_dashboard("dash123")
+        assert "error" in result
+
+    def test_returns_error_on_400(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/publish": FakeResponse(400, {})})
+        result = dash.publish_dashboard("dash123")
+        assert "error" in result
+
+    def test_admin_access_false_does_not_append_param(self):
+        # Without adminAccess the endpoint key changes — no response wired means None → error
+        dash = _make_dash()
+        result = dash.publish_dashboard("dash123", admin_access=False)
+        assert "error" in result
+
+    def test_force_true_still_succeeds(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/publish": FakeResponse(200, {"published": True})})
+        result = dash.publish_dashboard("dash123", force=True)
+        assert "error" not in result
+
+
+# ---------------------------------------------------------------------------
+# rename_dashboard
+# ---------------------------------------------------------------------------
+
+
+class TestRenameDashboard:
+    def test_returns_updated_dashboard_on_success(self):
+        updated = {**_DASHBOARD, "title": "New Title"}
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(200, updated)})
+        result = dash.rename_dashboard("dash123", "New Title")
+        assert result["title"] == "New Title"
+
+    def test_returns_error_on_none_response(self):
+        dash = _make_dash()
+        result = dash.rename_dashboard("dash123", "New Name")
+        assert "error" in result
+
+    def test_returns_error_on_failure(self):
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
+        result = dash.rename_dashboard("dash123", "New Name")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# move_dashboard_to_folder
+# ---------------------------------------------------------------------------
+
+
+class TestMoveDashboardToFolder:
+    def test_returns_updated_dashboard_on_success(self):
+        updated = {**_DASHBOARD, "parentFolder": "folder456"}
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(200, updated)})
+        result = dash.move_dashboard_to_folder("dash123", "folder456")
+        assert result["parentFolder"] == "folder456"
+
+    def test_returns_error_on_none_response(self):
+        dash = _make_dash()
+        result = dash.move_dashboard_to_folder("dash123", "folder999")
+        assert "error" in result
+
+    def test_returns_error_on_failure(self):
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
+        result = dash.move_dashboard_to_folder("dash123", "folder456")
+        assert "error" in result

@@ -285,6 +285,133 @@ class DataModelCoreMixin:
         self.logger.info(f"Total columns extracted: {len(schema_info)}")
         return schema_info
 
+    def get_elasticubes(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """List all ElastiCubes using the legacy v1 endpoint.
+
+        Sends ``GET /api/v1/elasticubes/getElasticubes``. This endpoint is
+        supported on both Linux and Windows Sisense deployments and returns
+        basic ElastiCube metadata including ``title``, ``address``, and
+        ``fullname``.
+
+        Prefer ``get_all_datamodel`` for Linux deployments when richer metadata
+        (build status, size, timestamps) is needed. Use ``get_elasticubes``
+        when targeting Windows environments or when a lightweight list suffices.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            List of ElastiCube objects on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        endpoint = "/api/v1/elasticubes/getElasticubes"
+        self.logger.debug("Fetching ElastiCubes via legacy endpoint")
+        response = self.api_client.get(endpoint)
+
+        if response is None or response.status_code != 200:
+            status = response.status_code if response is not None else "no response"
+            msg = f"Failed to fetch ElastiCubes — status {status}"
+            self.logger.error(msg)
+            return {"error": msg}
+
+        cubes = response.json()
+        count = len(cubes) if isinstance(cubes, list) else 1
+        self.logger.info(f"Retrieved {count} ElastiCube(s)")
+        return cubes
+
+    def load_datamodel(self, title: str, server: str = "LocalHost") -> dict[str, Any]:
+        """Look up a data model's OID by title using the GraphQL ECM endpoint.
+
+        Sends a ``POST /api/v2/ecm/`` GraphQL query (``elasticubeByTitle``) and
+        returns the matching model's ``oid``. This is the recommended way to
+        resolve a model title to its internal identifier when the OID is not
+        already known.
+
+        Parameters
+        ----------
+        title : str
+            The exact title of the data model to look up.
+        server : str, optional
+            The server name where the model is hosted. Defaults to
+            ``"LocalHost"``.
+
+        Returns
+        -------
+        dict[str, Any]
+            A dict containing at least ``oid`` and ``__typename`` on success, or
+            ``{"error": "..."}`` on failure.
+        """
+        endpoint = "/api/v2/ecm/"
+        payload = {
+            "query": "query loadElasticube($title: String!, $server: String) {\n  elasticubeByTitle(title: $title, server: $server) {\n    oid\n    __typename\n  }\n}\n",
+            "variables": {"title": title, "server": server},
+        }
+        self.logger.debug(f"Looking up data model '{title}' on server '{server}'")
+        response = self.api_client.post(endpoint, data=payload)
+
+        if response is None or response.status_code not in (200, 201):
+            status = response.status_code if response is not None else "no response"
+            msg = f"Failed to load data model '{title}' — status {status}"
+            self.logger.error(msg)
+            return {"error": msg}
+
+        body = response.json()
+
+        # GraphQL errors arrive as HTTP 200 with an "errors" key — check before inspecting data
+        if body.get("errors"):
+            msg = f"GraphQL error loading '{title}': {body['errors'][0].get('message', body['errors'])}"
+            self.logger.error(msg)
+            return {"error": msg}
+
+        model = (body.get("data") or {}).get("elasticubeByTitle")
+        if not model:
+            msg = f"Data model '{title}' not found on server '{server}'"
+            self.logger.warning(msg)
+            return {"error": msg}
+
+        self.logger.info(f"Loaded data model '{title}' — oid={model.get('oid')}")
+        return model
+
+    def delete_datamodel(self, title: str, server: str) -> dict[str, Any]:
+        """Delete a data model by title and server using the GraphQL ECM endpoint.
+
+        Sends a ``POST /api/v2/ecm/`` GraphQL mutation (``removeElasticube``).
+
+        Parameters
+        ----------
+        title : str
+            The exact title of the data model to delete.
+        server : str
+            The server name where the model is hosted (for example
+            ``"LocalHost"``).
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True}`` on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        endpoint = "/api/v2/ecm/"
+        payload = {
+            "query": (
+                "mutation removeElasticube($title: String!, $server: String!, $replacementDataSource: DataSourceInput) {\n"
+                "  removeElasticube(title: $title, server: $server, replacementDataSource: $replacementDataSource)\n"
+                "}\n"
+            ),
+            "variables": {"title": title, "server": server},
+            "operationName": "removeElasticube",
+        }
+        self.logger.debug(f"Deleting data model '{title}' on server '{server}'")
+        response = self.api_client.post(endpoint, data=payload)
+
+        if response is None or response.status_code not in (200, 201):
+            status = response.status_code if response is not None else "no response"
+            msg = f"Failed to delete data model '{title}' — status {status}"
+            self.logger.error(msg)
+            return {"error": msg}
+
+        self.logger.info(f"Deleted data model '{title}' on server '{server}'")
+        return {"success": True}
+
     def resolve_datamodel_reference(self, datamodel_ref: str) -> dict[str, Any]:
         """
         Resolve a data model reference (ID or title) to a concrete data model ID and title.

@@ -13,24 +13,28 @@ The SDK **must** use a Sisense admin user's API token.
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Dashboard, DataModel, WellCheck
+from pysisense import SisenseClient, AccessManagement, Blox, Dashboard, DataModel, Folder, Plugins, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)
 
 access_mgmt = AccessManagement(api_client=api_client)
+blox        = Blox(api_client=api_client)
 dashboard   = Dashboard(api_client=api_client)
 datamodel   = DataModel(api_client=api_client)
+folder      = Folder(api_client=api_client)
+plugins     = Plugins(api_client=api_client)
 wellcheck   = WellCheck(api_client=api_client)
 ```
 
 ## Config file format (`config.yaml`)
 
 ```yaml
-domain: ""      # IP or domain — no protocol, no port
-is_ssl: false   # true for HTTPS, false uses HTTP (default port 30845)
-# port: 30845   # optional, HTTP port when is_ssl is false
-token: ""       # Sisense Admin API token
+domain: ""              # IP or domain — no protocol, no port
+is_ssl: false           # true for HTTPS, false uses HTTP
+# port: 30845           # optional; HTTP port override (Linux default 30845, Windows default 8081)
+token: ""               # Sisense Admin API token
+# operating_system: linux  # "linux" (default) or "windows"
 ```
 
 > Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.

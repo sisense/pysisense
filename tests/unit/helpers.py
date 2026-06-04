@@ -76,6 +76,7 @@ class FakeApiClient:
         patch_responses: dict[str, FakeResponse | None] | None = None,
         delete_responses: dict[str, FakeResponse | None] | None = None,
         logger: FakeLogger | None = None,
+        operating_system: str = "linux",
     ) -> None:
         self._get = get_responses or {}
         self._post = post_responses or {}
@@ -83,6 +84,7 @@ class FakeApiClient:
         self._patch = patch_responses or {}
         self._delete = delete_responses or {}
         self.logger = logger or FakeLogger()
+        self.operating_system = operating_system
 
     def _lookup(self, store: dict, url: str) -> FakeResponse | None:
         # 1. Exact

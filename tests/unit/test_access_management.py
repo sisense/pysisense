@@ -180,47 +180,6 @@ class TestGetUser:
 
 
 # ---------------------------------------------------------------------------
-# get_my_user
-# ---------------------------------------------------------------------------
-
-
-class TestGetMyUser:
-    def test_returns_user_on_success(self):
-        logged_in = {"_id": "user123", "email": "admin@example.com", "userName": "admin"}
-        am = _make_am(get_responses={"/api/users/loggedin": FakeResponse(200, logged_in)})
-        result = am.get_my_user()
-        assert result["email"] == "admin@example.com"
-
-    def test_returns_error_on_none_response(self):
-        am = _make_am()
-        result = am.get_my_user()
-        assert "error" in result
-
-    def test_returns_error_on_non_200(self):
-        am = _make_am(get_responses={"/api/users/loggedin": FakeResponse(401, {"message": "unauthorized"})})
-        result = am.get_my_user()
-        assert "error" in result
-
-
-# ---------------------------------------------------------------------------
-# get_roles
-# ---------------------------------------------------------------------------
-
-
-class TestGetRoles:
-    def test_returns_roles_list_on_success(self):
-        am = _make_am(get_responses={"/api/roles": FakeResponse(200, _ROLES)})
-        result = am.get_roles()
-        assert isinstance(result, list)
-        assert result[0]["name"] == "consumer"
-
-    def test_returns_error_on_failure(self):
-        am = _make_am(get_responses={"/api/roles": FakeResponse(500, {"error": "server error"})})
-        result = am.get_roles()
-        assert "error" in result
-
-
-# ---------------------------------------------------------------------------
 # change_user_password
 # ---------------------------------------------------------------------------
 
@@ -600,3 +559,49 @@ class TestCreateScheduleBuild:
         )
         result = am.create_schedule_build("MyModel", days=["MON", "FRI"], hour=9, minute=0)
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# get_my_user
+# ---------------------------------------------------------------------------
+
+
+class TestGetMyUser:
+    def test_returns_user_on_success(self):
+        logged_in = {"_id": "user123", "email": "admin@example.com", "userName": "admin"}
+        am = _make_am(get_responses={"/api/users/loggedin": FakeResponse(200, logged_in)})
+        result = am.get_my_user()
+        assert result["email"] == "admin@example.com"
+
+    def test_returns_error_on_none_response(self):
+        am = _make_am()
+        result = am.get_my_user()
+        assert "error" in result
+
+    def test_returns_error_on_non_200(self):
+        am = _make_am(get_responses={"/api/users/loggedin": FakeResponse(401, {"message": "unauthorized"})})
+        result = am.get_my_user()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_roles
+# ---------------------------------------------------------------------------
+
+
+class TestGetRoles:
+    def test_returns_roles_list_on_success(self):
+        am = _make_am(get_responses={"/api/roles": FakeResponse(200, _ROLES)})
+        result = am.get_roles()
+        assert isinstance(result, list)
+        assert result[0]["name"] == "consumer"
+
+    def test_returns_error_on_failure(self):
+        am = _make_am(get_responses={"/api/roles": FakeResponse(500, {"error": "server error"})})
+        result = am.get_roles()
+        assert "error" in result
+
+    def test_returns_error_on_none_response(self):
+        am = _make_am()
+        result = am.get_roles()
+        assert "error" in result

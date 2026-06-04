@@ -90,6 +90,11 @@ class TestGetBloxActions:
         result = b.get_blox_actions()
         assert "403" in result[0]["error"]
 
+    def test_returns_error_when_response_is_not_a_list(self):
+        b = _make_blox(get_responses={"/api/v1/blox/getCustomActions": FakeResponse(200, {"actions": []})})
+        result = b.get_blox_actions()
+        assert "error" in result[0]
+
 
 # ---------------------------------------------------------------------------
 # save_blox_action
@@ -188,3 +193,39 @@ class TestDeleteBloxAction:
         b = _make_blox()  # no response → None
         result = b.delete_blox_action("OpenDashboard")
         assert "OpenDashboard" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Windows OS guards
+# ---------------------------------------------------------------------------
+
+
+def _make_blox_windows(post_responses=None, get_responses=None):
+    logger = FakeLogger()
+    client = FakeApiClient(
+        get_responses=get_responses or {},
+        post_responses=post_responses or {},
+        logger=logger,
+        operating_system="windows",
+    )
+    return Blox(api_client=client)
+
+
+class TestWindowsGuards:
+    def test_save_blox_action_returns_error_on_windows(self):
+        b = _make_blox_windows()
+        result = b.save_blox_action({"type": "MyAction"})
+        assert "error" in result
+        assert "Windows" in result["error"]
+
+    def test_delete_blox_action_returns_error_on_windows(self):
+        b = _make_blox_windows()
+        result = b.delete_blox_action("MyAction")
+        assert "error" in result
+        assert "Windows" in result["error"]
+
+    def test_get_blox_actions_succeeds_on_windows_endpoint(self):
+        b = _make_blox_windows(get_responses={"/api/v1/getCustomActions/actions": FakeResponse(200, [{"type": "A"}])})
+        result = b.get_blox_actions()
+        assert isinstance(result, list)
+        assert len(result) == 1

@@ -10,6 +10,10 @@ from .utils import convert_to_dataframe
 from .utils import export_to_csv as export_csv_util
 
 DEFAULT_NON_SSL_PORT = 30845
+DEFAULT_NON_SSL_PORT_WINDOWS = 8081
+VALID_OPERATING_SYSTEMS = frozenset({"linux", "windows"})
+# Values from a YAML config or kwarg that are treated as "not set" → default to linux
+_OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
 
 
 class SisenseClient:
@@ -22,6 +26,7 @@ class SisenseClient:
         token: str | None = None,
         is_ssl: bool | None = None,
         port: int | None = None,
+        operating_system: str = "linux",
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -63,6 +68,12 @@ class SisenseClient:
                 If None and inline config is used, defaults to True.
             port (int | None): HTTP port for non-SSL connections. Ignored when
                 ``is_ssl`` is True. Defaults to 30845 when omitted.
+            operating_system (str): Target Sisense server OS. Accepted values are
+                ``"linux"`` and ``"windows"``. Defaults to ``"linux"``. Some API
+                endpoints and payload shapes differ between deployments; this flag
+                controls which variant is used. Can also be set via the
+                ``operating_system`` key in the YAML config file (the YAML value
+                takes precedence over this argument when both are present).
         """
         # Decide how to build the base config
         if domain is not None or token is not None or is_ssl is not None or port is not None:
@@ -83,6 +94,17 @@ class SisenseClient:
             if not config_file:
                 raise ValueError("config_file must be provided when 'domain' and 'token' are not supplied.")
             self.config = self._load_config(config_file)
+
+        # Resolve operating_system: YAML config takes precedence over the kwarg.
+        # Blank, null, "none", "NA", and similar absent-looking values all fall
+        # back to "linux" so that an unmodified config.yaml continues to work.
+        raw_os = self.config.get("operating_system", operating_system)
+        normalized_os = str(raw_os).lower().strip() if raw_os is not None else ""
+        if normalized_os in _OS_ABSENT_VALUES:
+            normalized_os = "linux"
+        if normalized_os not in VALID_OPERATING_SYSTEMS:
+            raise ValueError(f"Invalid operating_system '{raw_os}'. Must be one of: {sorted(VALID_OPERATING_SYSTEMS)}")
+        self.operating_system: str = normalized_os
 
         # Get the domain or IP address from the configuration
         raw_domain = self.config["domain"]
@@ -136,6 +158,7 @@ class SisenseClient:
         is_ssl: bool = True,
         port: int | None = None,
         debug: bool = False,
+        operating_system: str = "linux",
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -146,6 +169,7 @@ class SisenseClient:
                 token="YOUR_API_TOKEN",
                 is_ssl=True,
                 debug=True,
+                operating_system="linux",
             )
         """
         return cls(
@@ -155,13 +179,18 @@ class SisenseClient:
             token=token,
             is_ssl=is_ssl,
             port=port,
+            operating_system=operating_system,
         )
 
     def _non_ssl_port(self) -> int:
-        """Return the HTTP port for non-SSL connections (default 30845)."""
+        """Return the HTTP port for non-SSL connections.
+
+        Uses the ``port`` key from config when present. Otherwise defaults to
+        ``8081`` for Windows deployments and ``30845`` for Linux.
+        """
         raw = self.config.get("port")
         if raw is None:
-            return DEFAULT_NON_SSL_PORT
+            return DEFAULT_NON_SSL_PORT_WINDOWS if self.operating_system == "windows" else DEFAULT_NON_SSL_PORT
         return int(raw)
 
     def _load_config(self, config_file):
@@ -246,6 +275,7 @@ class SisenseClient:
         Parameters:
             endpoint (str): API endpoint (relative to the base URL).
             data (dict): Optional JSON data payload for the PUT request.
+            extra_headers (dict): Optional headers merged into the default request headers.
 
         Returns:
             requests.Response or None: The HTTP response object, or None if the request fails.
@@ -259,6 +289,7 @@ class SisenseClient:
         Parameters:
             endpoint (str): API endpoint (relative to the base URL).
             data (dict): Optional JSON data payload for the PATCH request.
+            extra_headers (dict): Optional headers merged into the default request headers.
 
         Returns:
             requests.Response or None: The HTTP response object, or None if the request fails.
@@ -271,6 +302,7 @@ class SisenseClient:
 
         Parameters:
             endpoint (str): API endpoint (relative to the base URL).
+            extra_headers (dict): Optional headers merged into the default request headers.
 
         Returns:
             requests.Response or None: The HTTP response object, or None if the request fails.

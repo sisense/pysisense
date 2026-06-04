@@ -600,3 +600,91 @@ if resolved.get("success"):
 - For more details, refer to the documentation in the `docs/` folder.
 
 ---
+
+---
+
+## Example 22: Get ElastiCubes (Legacy / Windows-Compatible)
+
+List all ElastiCubes using the legacy v1 endpoint. Works on both Linux and Windows Sisense deployments. Returns basic metadata (title, address, fullname). Prefer `get_all_datamodel` on Linux for richer metadata.
+
+```python
+response = datamodel.get_elasticubes()
+print(json.dumps(response, indent=4))
+
+df = api_client.to_dataframe(response)
+api_client.export_to_csv(response, "elasticubes.csv")
+```
+
+---
+
+## Example 23: Look Up a DataModel OID by Title
+
+Resolve a data model title to its internal OID using the GraphQL ECM endpoint. Use this when you have a model title but need the OID for other API calls.
+
+```python
+result = datamodel.load_datamodel("SalesCube")
+if "error" not in result:
+    print(f"OID: {result['oid']}")
+else:
+    print(result["error"])
+```
+
+---
+
+## Example 24: Delete a DataModel
+
+Permanently delete a data model by title and server. Use with caution — this is irreversible.
+
+```python
+response = datamodel.delete_datamodel("SalesCube", "LocalHost")
+print(response)
+# {"success": True}
+```
+
+---
+
+## Example 25: Replace Datasecurity Rules (Extract Model)
+
+Overwrite all row-level security rules on an extract (ElastiCube) data model. Pass an empty list to remove all rules.
+
+```python
+rules = [
+    {
+        "table": "Orders",
+        "column": "Region",
+        "datatype": "text",
+        "members": ["West", "North"],
+        "exclusionary": False,
+        "shares": [
+            {"type": "user", "partyId": "user_oid_here"}
+        ]
+    }
+]
+
+response = datamodel.update_datasecurity("SalesCube", rules)
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 26: Add Datasecurity Rules to a Live Model
+
+Append row-level security rules to a live data model.
+
+```python
+rules = [
+    {
+        "table": "Sales",
+        "column": "Country",
+        "datatype": "text",
+        "members": ["USA"],
+        "exclusionary": False,
+        "shares": [
+            {"type": "group", "partyId": "group_oid_here"}
+        ]
+    }
+]
+
+response = datamodel.set_live_datasecurity_add_many("LiveSalesCube", rules)
+print(json.dumps(response, indent=4))
+```

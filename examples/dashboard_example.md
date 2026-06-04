@@ -333,3 +333,58 @@ print(json.dumps(result, indent=4))
 - For more details, refer to the documentation in the `docs/` folder.
 
 ---
+
+---
+
+## Example 13: Get Dashboards (Standard Endpoint)
+
+Retrieve dashboards visible to the authenticated user. Unlike `get_all_dashboards` which uses the admin endpoint, this uses `GET /api/v1/dashboards` and returns dashboards owned by or shared with the current user.
+
+```python
+# All dashboards visible to the current user
+response = dashboard.get_dashboards()
+print(json.dumps(response, indent=4))
+
+# Limit fields returned
+response = dashboard.get_dashboards(fields=["oid", "title", "owner"])
+df = api_client.to_dataframe(response)
+print(df)
+```
+
+---
+
+## Example 14: Publish a Dashboard
+
+Publish a dashboard to make it visible to shared users after programmatic ownership or share changes.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+response = dashboard.publish_dashboard(dashboard_id)
+print(response)
+# {"success": True}
+```
+
+---
+
+## Example 15: Rename a Dashboard
+
+Update a dashboard's title.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+response = dashboard.rename_dashboard(dashboard_id, "Q4 Sales Overview")
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 16: Move a Dashboard to a Folder
+
+Place a dashboard inside a specific folder.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+folder_id    = "65d62c9wregfhg0e33bc64f0"
+response = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
+print(json.dumps(response, indent=4))
+```

@@ -129,3 +129,27 @@ Deletes a folder by OID.
 **Returns:**
 
 -   `dict`: `{"message": "..."}` on success (HTTP 204), or a dict with an `"error"` key on failure.
+
+* * * * *
+
+### `get_folders(structure="flat")`
+
+Retrieves folders using a configurable `structure` query parameter. Sends `GET /api/v1/folders?structure={structure}`. The default `"flat"` structure returns every folder as a top-level entry — useful for bulk lookups and ID mapping before migrations.
+
+**Parameters:**
+
+-   `structure` (str, optional): Sisense folder structure type. `"flat"` (default) returns a flat list. `"tree"` returns the nested hierarchy.
+
+**Returns:**
+
+-   `list[dict]`: Folder list on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `get_navver()`
+
+Retrieves the Sisense navigation tree payload. Sends `GET /api/v1/navver`. The response includes a `folders` key with the folder hierarchy as rendered in the Sisense UI.
+
+**Returns:**
+
+-   `dict`: The navver response object on success, or `{"error": "..."}` on failure.

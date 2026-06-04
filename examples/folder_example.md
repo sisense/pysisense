@@ -131,3 +131,42 @@ print(json.dumps(response, indent=4))
 - Folder operations require appropriate admin permissions.
 - Deleting a folder may fail if it still contains dashboards or subfolders.
 - For ownership transfers across a folder tree, see `AccessManagement.change_folder_and_dashboard_ownership` in [access_management_example.md](./access_management_example.md).
+
+---
+
+## Example 6: Get Folders (Flat List)
+
+Retrieve all folders as a flat list — useful for bulk lookups and ID mapping before a migration.
+
+```python
+response = folder.get_folders()          # defaults to structure="flat"
+print(json.dumps(response, indent=4))
+
+df = api_client.to_dataframe(response)
+api_client.export_to_csv(response, "folders_flat.csv")
+```
+
+---
+
+## Example 7: Get Folders (Custom Structure)
+
+Pass any structure value supported by the Sisense API.
+
+```python
+# Flat list
+flat = folder.get_folders(structure="flat")
+
+# Tree (same as get_all_folders)
+tree = folder.get_folders(structure="tree")
+```
+
+---
+
+## Example 8: Get Navigation Tree (navver)
+
+Retrieve the Sisense navigation payload, which includes the folder hierarchy as rendered in the UI.
+
+```python
+response = folder.get_navver()
+print(json.dumps(response, indent=4))
+```

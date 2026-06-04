@@ -457,62 +457,6 @@ class TestGetDatasecurityDetail:
 
 
 # ---------------------------------------------------------------------------
-# update_datasecurity
-# ---------------------------------------------------------------------------
-
-
-class TestUpdateDatasecurity:
-    def test_returns_response_on_success(self):
-        rules = [{"table": "orders", "column": "region", "datatype": "text", "members": [], "shares": []}]
-        dm = _make_dm(
-            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)},
-            put_responses={
-                "/api/elasticubes/localhost/SalesModel/datasecurity": FakeResponse(200, {"updated": True}),
-            },
-        )
-        result = dm.update_datasecurity("SalesModel", rules)
-        assert result["updated"] is True
-
-    def test_returns_error_when_not_extract(self):
-        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE)})
-        result = dm.update_datasecurity("LiveModel", [])
-        assert "error" in result
-
-    def test_returns_error_when_payload_not_list(self):
-        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
-        result = dm.update_datasecurity("SalesModel", {})
-        assert "error" in result
-
-
-# ---------------------------------------------------------------------------
-# set_live_datasecurity_add_many
-# ---------------------------------------------------------------------------
-
-
-class TestSetLiveDatasecurityAddMany:
-    def test_returns_response_on_success(self):
-        rules = [{"table": "orders", "column": "region", "datatype": "text", "members": [], "shares": []}]
-        dm = _make_dm(
-            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE)},
-            post_responses={
-                "/api/v1/elasticubes/live/LiveModel/datasecurity/addMany": FakeResponse(200, {"added": 1}),
-            },
-        )
-        result = dm.set_live_datasecurity_add_many("LiveModel", rules)
-        assert result["added"] == 1
-
-    def test_returns_error_when_not_live(self):
-        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
-        result = dm.set_live_datasecurity_add_many("SalesModel", [])
-        assert "error" in result
-
-    def test_returns_error_when_payload_not_list(self):
-        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE)})
-        result = dm.set_live_datasecurity_add_many("LiveModel", {})
-        assert "error" in result
-
-
-# ---------------------------------------------------------------------------
 # get_model_schema
 # ---------------------------------------------------------------------------
 
@@ -631,3 +575,173 @@ class TestResolveDatamodelReference:
         result = dm.resolve_datamodel_reference("dm123")
         assert result["success"] is True
         assert result["datamodel_id"] == "dm123"
+
+
+# ---------------------------------------------------------------------------
+# get_elasticubes
+# ---------------------------------------------------------------------------
+
+_ELASTICUBES = [
+    {"title": "SalesCube", "address": "LocalHost", "fullname": "LocalHost/SalesCube"},
+    {"title": "FinanceCube", "address": "LocalHost", "fullname": "LocalHost/FinanceCube"},
+]
+
+
+class TestGetElasticubes:
+    def test_returns_list_on_success(self):
+        dm = _make_dm(get_responses={"/api/v1/elasticubes/getElasticubes": FakeResponse(200, _ELASTICUBES)})
+        result = dm.get_elasticubes()
+        assert isinstance(result, list)
+        assert len(result) == 2
+
+    def test_returns_error_on_none_response(self):
+        dm = _make_dm()
+        result = dm.get_elasticubes()
+        assert "error" in result
+
+    def test_returns_error_on_non_200(self):
+        dm = _make_dm(get_responses={"/api/v1/elasticubes/getElasticubes": FakeResponse(500, {})})
+        result = dm.get_elasticubes()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# load_datamodel
+# ---------------------------------------------------------------------------
+
+_LOAD_DM_RESPONSE = {"data": {"elasticubeByTitle": {"oid": "dm_oid_abc123", "__typename": "ElasticubeMetadata"}}}
+
+
+class TestLoadDatamodel:
+    def test_returns_oid_on_success(self):
+        dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(200, _LOAD_DM_RESPONSE)})
+        result = dm.load_datamodel("SalesCube")
+        assert result.get("oid") == "dm_oid_abc123"
+
+    def test_returns_error_when_model_not_in_response(self):
+        empty = {"data": {"elasticubeByTitle": None}}
+        dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(200, empty)})
+        result = dm.load_datamodel("MissingCube")
+        assert "error" in result
+
+    def test_returns_error_on_none_response(self):
+        dm = _make_dm()
+        result = dm.load_datamodel("SalesCube")
+        assert "error" in result
+
+    def test_returns_error_on_non_200(self):
+        dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(403, {})})
+        result = dm.load_datamodel("SalesCube")
+        assert "error" in result
+
+    def test_error_includes_title(self):
+        dm = _make_dm()
+        result = dm.load_datamodel("MySpecialCube")
+        assert "MySpecialCube" in result["error"]
+
+    def test_returns_error_on_graphql_errors_in_200_response(self):
+        graphql_error = {"data": None, "errors": [{"message": "Cube not found in ECM"}]}
+        dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(200, graphql_error)})
+        result = dm.load_datamodel("MissingCube")
+        assert "error" in result
+        assert "Cube not found in ECM" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# delete_datamodel
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteDatamodel:
+    def test_returns_success_on_200(self):
+        dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(200, {"removeElasticube": True})})
+        result = dm.delete_datamodel("SalesCube", "LocalHost")
+        assert result == {"success": True}
+
+    def test_returns_success_on_201(self):
+        dm = _make_dm(post_responses={"/api/v2/ecm/": FakeResponse(201, {})})
+        result = dm.delete_datamodel("SalesCube", "LocalHost")
+        assert result == {"success": True}
+
+    def test_returns_error_on_none_response(self):
+        dm = _make_dm()
+        result = dm.delete_datamodel("SalesCube", "LocalHost")
+        assert "error" in result
+
+    def test_error_includes_title(self):
+        dm = _make_dm()
+        result = dm.delete_datamodel("ImportantCube", "LocalHost")
+        assert "ImportantCube" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# update_datasecurity
+# ---------------------------------------------------------------------------
+
+_DS_RULES = [{"table": "Orders", "column": "Region", "members": ["West"], "shares": [], "exclusionary": False}]
+
+_EXTRACT_MODEL = {"oid": "dm_extract", "title": "SalesCube", "type": "extract"}
+_LIVE_MODEL = {"oid": "dm_live", "title": "LiveModel", "type": "live"}
+
+
+class TestUpdateDatasecurity:
+    def test_returns_response_on_200(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
+            put_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, _DS_RULES)},
+        )
+        result = dm.update_datasecurity("SalesCube", _DS_RULES)
+        assert "error" not in result
+
+    def test_returns_error_when_model_not_found(self):
+        dm = _make_dm()
+        result = dm.update_datasecurity("SalesCube", _DS_RULES)
+        assert "error" in result
+
+    def test_returns_error_on_put_failure(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
+            put_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(403, {})},
+        )
+        result = dm.update_datasecurity("SalesCube", _DS_RULES)
+        assert "error" in result
+
+    def test_returns_error_on_wrong_model_type(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _LIVE_MODEL)})
+        result = dm.update_datasecurity("LiveModel", _DS_RULES)
+        assert "error" in result
+
+    def test_returns_error_when_rules_not_a_list(self):
+        dm = _make_dm()
+        result = dm.update_datasecurity("SalesCube", {"bad": "input"})
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# set_live_datasecurity_add_many
+# ---------------------------------------------------------------------------
+
+
+class TestSetLiveDatasecurityAddMany:
+    def test_returns_response_on_200(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _LIVE_MODEL)},
+            post_responses={"/api/v1/elasticubes/live/LiveModel/datasecurity/addMany": FakeResponse(200, {"ok": True})},
+        )
+        result = dm.set_live_datasecurity_add_many("LiveModel", _DS_RULES)
+        assert "error" not in result
+
+    def test_returns_error_when_model_not_found(self):
+        dm = _make_dm()
+        result = dm.set_live_datasecurity_add_many("LiveModel", _DS_RULES)
+        assert "error" in result
+
+    def test_returns_error_on_wrong_model_type(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)})
+        result = dm.set_live_datasecurity_add_many("SalesCube", _DS_RULES)
+        assert "error" in result
+
+    def test_returns_error_when_rules_not_a_list(self):
+        dm = _make_dm()
+        result = dm.set_live_datasecurity_add_many("LiveModel", {"bad": "input"})
+        assert "error" in result

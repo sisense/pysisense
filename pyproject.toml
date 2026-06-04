@@ -116,8 +116,10 @@ tag_format = "v{version}"
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "windows: marks tests that require a live Windows Sisense instance (run only on Windows test servers)",
 ]
 pythonpath = ["tests/unit"]
 filterwarnings = [
     "ignore::urllib3.exceptions.InsecureRequestWarning",
 ]
+norecursedirs = ["win2linux-merge-tool"]
