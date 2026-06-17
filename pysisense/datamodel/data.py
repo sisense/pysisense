@@ -21,7 +21,8 @@ class DataMixin:
             self.logger.error("DataModel name and table name are required.")
             return []
 
-        q = query if query else f"SELECT * FROM {table_name}"
+        safe_table_name = table_name.replace("]", "]]")
+        q = query if query else f"SELECT * FROM [{safe_table_name}]"
         self.logger.debug(f"SQL Query: {q}")
 
         url = f"/api/datasources/{datamodel_name}/sql?query={q}"
@@ -85,7 +86,8 @@ class DataMixin:
         row_info = []
 
         for table_name in table_names:
-            query = f"SELECT COUNT(*) FROM {table_name}"
+            safe_table_name = table_name.replace("]", "]]")
+            query = f"SELECT COUNT(*) FROM [{safe_table_name}]"
             self.logger.debug(f"SQL Query for table '{table_name}': {query}")
             rows = self.get_data(datamodel_name, table_name, query=query)
 
