@@ -46,6 +46,65 @@ api_client.export_to_csv(response, file_name="user_info.csv")
 
 ---
 
+## Example 1a: Get Logged-In User (Migration Identity)
+
+Resolve the API token user's identity before migration.
+
+```python
+response = access_mgmt.get_my_user()
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 1a2: Get Roles
+
+Fetch all roles to build a name-to-ID map.
+
+```python
+roles = access_mgmt.get_roles()
+print(json.dumps(roles, indent=4))
+
+if isinstance(roles, list):
+    roles_map = {role["name"]: role["_id"] for role in roles}
+    print(roles_map)
+```
+
+---
+
+## Example 1a3: Change User Password
+
+Update a user's password by internal user ID.
+
+```python
+user_id = "65d62c9574851800339cf49e"
+response = access_mgmt.change_user_password(user_id, "NewSecurePass1!")
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 1b: Get User Information with Role/Group IDs and Names
+
+Retrieve information for a specific user by their email, including both role
+and group IDs and names. This is useful when you want a richer record for
+auditing, exports, or feeding other APIs that expect IDs.
+
+```python
+user_email = 'john.doe@example.com'
+response = access_mgmt.get_user_with_role_and_group_names(user_email)
+print(json.dumps(response, indent=4))
+
+# Optional: Convert the response to a DataFrame and print
+df = api_client.to_dataframe(response)
+print(df)
+
+# Optional: Export the response to a CSV file
+api_client.export_to_csv(response, file_name="user_with_role_and_groups.csv")
+```
+
+---
+
 ## Example 2: Get All Users
 
 Fetch all users in the system.
@@ -55,6 +114,21 @@ response = access_mgmt.get_users_all()
 df = api_client.to_dataframe(response)
 print(df)
 api_client.export_to_csv(response, file_name="all_users.csv")
+```
+
+---
+
+## Example 2b: Get All Users with Role/Group IDs and Names
+
+Fetch all users in the system, including both role and group IDs and names.
+Compared to `get_users_all()`, this function provides a more complete view,
+which is ideal for exports and downstream automation.
+
+```python
+response = access_mgmt.get_users_with_role_names_and_group_names()
+df = api_client.to_dataframe(response)
+print(df)
+api_client.export_to_csv(response, file_name="all_users_with_roles_and_groups.csv")
 ```
 
 ---
@@ -133,10 +207,10 @@ with open(csv_file_path, mode="r", newline="", encoding="utf-8") as csvfile:
 
 ## Example 4: Update an Existing User
 
-Update details for an existing user.
+Update details for an existing user (the user is located by email).
 
 ```python
-user_name = "mike.jones@example.com"
+user_email = "mike.jones@example.com"
 user_data = {
     "firstName": "Mikey",                                 # Optional: Update user's first name
     "lastName": "Jonesss",                                # Optional: Update user's last name
@@ -146,7 +220,7 @@ user_data = {
         "language": "fr-FR"
     }
 }
-response = access_mgmt.update_user(user_name, user_data)
+response = access_mgmt.update_user(user_email, user_data)
 print(json.dumps(response, indent=4))
 ```
 
@@ -391,3 +465,30 @@ else:
 - For more details, refer to the documentation in the `docs/` folder.
 
 ---
+
+---
+
+## Example 13: Get the Currently Authenticated User
+
+Retrieve the user profile for the API token in use. Useful for confirming which account the SDK is operating as.
+
+```python
+response = access_mgmt.get_my_user()
+print(json.dumps(response, indent=4))
+# Returns the full user object including _id, email, userName, role, etc.
+```
+
+---
+
+## Example 14: List All Sisense Roles
+
+Retrieve all available roles on the instance. Useful for building role name-to-ID maps.
+
+```python
+response = access_mgmt.get_roles()
+print(json.dumps(response, indent=4))
+
+df = api_client.to_dataframe(response)
+print(df)
+api_client.export_to_csv(response, "roles.csv")
+```

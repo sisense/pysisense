@@ -1,0 +1,65 @@
+---
+description: DataModel-specific conventions — build behaviors, deploy params, connection types, live vs extract differences
+globs: pysisense/datamodel/**/*.py
+alwaysApply: false
+---
+
+# DataModel Conventions
+
+## Model types
+
+| Type | String | Notes |
+|---|---|---|
+| Elasticube | `"extract"` | Supports all build behaviors |
+| Live | `"live"` | `build_behavior_config` is ignored |
+
+## `build_behavior_config` modes (extract only)
+
+| Mode | Requires |
+|---|---|
+| `"replace"` | — |
+| `"replace_changes"` | — |
+| `"append"` | — |
+| `"increment"` | `column_name` (the incremental column) |
+
+## `deploy_datamodel` parameters
+
+```python
+# Extract model
+datamodel.deploy_datamodel(name, build_type="by_table", schema_origin="latest")
+# build_type:    "by_table" | "full" | "schema_changes"
+# schema_origin: "latest" | "running"
+
+# Live model — no extra params needed
+datamodel.deploy_datamodel(name)
+```
+
+## Supported connection types for `generate_connections_payload`
+
+`"Athena"`, `"RedShift"`, `"BigQuery"`, `"DataBricks"` (case-insensitive)
+
+## `setup_datamodel` — one-shot provisioning
+
+Creates model + dataset + all tables in a single call. Each table dict:
+
+```python
+{
+    "table_name": "my_table",
+    "import_query": "SELECT ...",   # optional
+    "description": "...",           # optional
+    "tags": [...],                  # optional
+    "build_behavior_config": {...}  # optional
+}
+```
+
+## `get_all_datamodel` — undocumented endpoint
+
+Uses an internal API. Returns `oid`, `title`, `type`, `status`, `sizeInMb`.
+
+## `get_datasecurity` edge case
+
+If no RLS rules exist, returns a single entry with empty values — never an empty list.
+
+## Share permissions
+
+`"EDIT"` | `"USE"` | `"READ"` (uppercase required)

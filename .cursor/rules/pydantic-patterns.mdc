@@ -1,0 +1,31 @@
+---
+description: Pydantic v2 patterns for structured payload validation in pysisense
+globs: pysisense/**/*.py
+alwaysApply: false
+---
+
+# Pydantic Patterns (v2)
+
+Use Pydantic for structured payload validation on `create`, `update`/`patch`, and migration operations.
+
+```python
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Any
+
+class UpdateUserPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    user_name: str | None = Field(None, alias="userName")
+    email: str | None = None
+    first_name: str | None = Field(None, alias="firstName")
+    last_name: str | None = Field(None, alias="lastName")
+    role: str | None = None
+    groups: list[str] | None = None
+```
+
+## Key rules
+
+- **Forbid unknown fields** on update models — use `extra="forbid"`.
+- **Safe aliases** — support common variants while emitting canonical API keys.
+- **Normalize types** — ensure `groups` is always a list when applicable using `@model_validator`.
+- **PATCH payloads** — always use `exclude_unset=True, exclude_none=True`.

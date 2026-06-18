@@ -43,3 +43,6 @@ scripts/
 
 # pytest cache
 .pytest_cache/
+
+# win2linux merge tool — local only, never committed
+win2linux-merge-tool/

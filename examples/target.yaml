@@ -1,3 +1,5 @@
-domain: ""      # Can be an IP address like "192.168.1.1" or a domain like "example.com"
-is_ssl: false   # Whether to use SSL or not 
-token: ""       #  Sisense Admin API token
+domain: ""                # IP address or hostname — no protocol, no port
+is_ssl: false             # true for HTTPS (port 443), false for HTTP (default port 30845)
+# port: 30845             # optional, HTTP port when is_ssl is false (omit to use 30845)
+token: ""                 # Sisense Admin API token
+# operating_system: linux  # "linux" (default) or "windows" — controls OS-specific API endpoints

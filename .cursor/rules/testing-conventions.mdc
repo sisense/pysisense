@@ -1,0 +1,35 @@
+---
+description: Testing patterns for pysisense — unit and integration test conventions
+globs: tests/**/*.py
+alwaysApply: false
+---
+
+# pysisense Testing Conventions
+
+## Test structure
+
+```
+tests/
+  unit/               # No real HTTP calls — use fakes/stubs
+  integration/        # Require a live Sisense instance
+```
+
+Integration tests are marked with `@pytest.mark.integration`:
+
+```bash
+uv run pytest -m "not integration"
+```
+
+## Unit test approach — fake injection
+
+Do **not** mock `SisenseClient`. Create a fake `api_client` and inject it into the class under test:
+
+```python
+class FakeApiClient:
+    def get(self, url, **kwargs):
+        return self._fixture_data.get(url, {})
+```
+
+## Fixture data
+
+Keep fixture dicts inline in the test file rather than loading from external JSON files, for readability and self-containment.

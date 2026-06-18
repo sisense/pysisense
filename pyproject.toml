@@ -4,18 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysisense"
-version = "0.2.2"
+version = "1.0.0"
 description = "A Python SDK for interacting with Sisense API"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Sisense Ltd." }]
-maintainers = [{ name = "Himanshu Negi", email = "himanshu.negi@sisense.com" }]
+maintainers = [
+  { name = "Himanshu Negi", email = "himanshu.negi@sisense.com" },
+  { name = "Jeremy Friedel", email = "jeremy.friedel@sisense.com" },
+]
 keywords = ["Sisense", "API", "SDK", "analytics", "BI"]
 dependencies = [
   "requests>=2.32.3",
   "PyYAML>=6.0.2",
   "pandas>=2.2.3",
+  "jsbeautifier>=1.15.4",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -23,10 +27,11 @@ classifiers = [
   "Topic :: Software Development :: Libraries",
   "License :: Other/Proprietary License",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Operating System :: OS Independent",
 ]
 
@@ -35,6 +40,14 @@ Homepage = "https://github.com/sisense/pysisense"
 Documentation = "https://github.com/sisense/pysisense/tree/main/docs"
 Issues = "https://github.com/sisense/pysisense/issues"
 Source = "https://github.com/sisense/pysisense"
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.1.0",
+  "pytest>=8.4.2",
+  "python-semantic-release>=10.5.3",
+  "pre-commit>=3.0.0",
+]
 
 [tool.setuptools]
 license-files = ["LICENSE"]
@@ -57,3 +70,56 @@ exclude = [
   "sisensepypi*",
 ]
 
+[dependency-groups]
+dev = [
+    "commitizen>=4.10.1",
+    "pre-commit>=4.3.0",
+    "pytest>=8.4.2",
+    "ruff>=0.15.4",
+]
+
+[tool.ruff]
+line-length = 200
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "B",  # bugbear
+    "SIM" # simplify
+]
+
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+update_changelog_on_bump = false
+
+[tool.semantic_release]
+version_variable = ["pysisense/__init__.py:__version__"]
+branch = "main"
+changelog_file = "CHANGELOG.md"
+upload_to_pypi = false
+upload_to_release = true
+commit_message = "chore(release): {version}"
+tag_format = "v{version}"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
+    "windows: marks tests that require a live Windows Sisense instance (run only on Windows test servers)",
+]
+pythonpath = ["tests/unit"]
+filterwarnings = [
+    "ignore::urllib3.exceptions.InsecureRequestWarning",
+]
+norecursedirs = ["win2linux-merge-tool"]

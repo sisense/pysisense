@@ -1,0 +1,34 @@
+---
+description: PATCH/update safety rules — field isolation, no defaults, ID resolution for pysisense
+globs: pysisense/**/*.py
+alwaysApply: false
+---
+
+# PATCH / Update Safety Rules
+
+## Only send explicitly provided fields
+
+```python
+# ✅ GOOD — only what the caller set
+payload = model.model_dump(by_alias=True, exclude_unset=True, exclude_none=True)
+
+# ❌ BAD — injects defaults the caller never intended
+payload = {"userName": user_data.get("userName", ""), "groups": user_data.get("groups", [])}
+```
+
+## Never set `groups` to `[]` unless explicitly requested
+
+An empty list clears all group memberships. If `groups` was not provided, omit it entirely.
+
+## ID resolution — only when provided
+
+| Field | Resolution rule |
+|---|---|
+| `role` (name) → `roleId` | Resolve **only** when `role` is explicitly provided |
+| `groups` (names) → group IDs | Resolve **only** when `groups` is explicitly provided |
+
+**Fail fast** if a referenced role or group cannot be resolved — return `{"error": "..."}` with a clear message. Do not silently skip or substitute.
+
+## Validate inputs before calling the API
+
+Run Pydantic validation before any HTTP call. Return a structured error immediately if validation fails.

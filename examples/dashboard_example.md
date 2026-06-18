@@ -59,7 +59,22 @@ api_client.export_to_csv(response, 'dashboard.csv')
 
 ---
 
-## Example 3: Get Dashboard by Name
+## Example 3: Get dashboard widgets from export
+
+Widget definitions come from the same admin export as `export_dashboard` (`GET /api/v1/dashboards/export` with `dashboardIds` and `adminAccess=true`): the `widgets` field on the exported dashboard object (list or object map of widget payloads).
+
+```python
+# Pass dashboard oid or title — same resolution as other dashboard helpers
+widgets = dashboard.get_dashboard_widgets("Sample ECommerce")
+if isinstance(widgets, list):
+    print(f"Widget count: {len(widgets)}")
+else:
+    print(widgets.get("error"))
+```
+
+---
+
+## Example 4: Get Dashboard by Name
 
 Fetch a dashboard using its name.
 
@@ -73,9 +88,11 @@ print(dashboard_df)
 
 ---
 
-## Example 4: Add a Custom Script to a Dashboard
+## Example 5: Add a Custom Script to a Dashboard
 
 Add a custom JavaScript script to a dashboard for UI customization.
+
+The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Only the **dashboard owner** can save scripts; pass **`executing_user`** as the Sisense **username** of your API token user to temporarily take ownership (admin), apply the script, then restore the previous owner and shares.
 
 ```python
 dashboard_id = "65d62c9574851800339cf49e"
@@ -107,9 +124,9 @@ print(response)
 
 ---
 
-## Example 5: Add Widget Script
+## Example 6: Add Widget Script
 
-Add a custom script to a specific widget in a dashboard.
+Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** often indicates an ownership issue.
 
 ```python
 dashboard_id = "67dc928ae72ce30033bc6680"
@@ -136,7 +153,7 @@ print(response)
 
 ---
 
-## Example 6: Add Dashboard Shares
+## Example 7: Add Dashboard Shares
 
 Share a dashboard with users and groups, specifying permissions.
 
@@ -153,7 +170,7 @@ print(response)
 
 ---
 
-## Example 7: Get Columns from a Dashboard
+## Example 8: Get Columns from a Dashboard
 
 Retrieve all columns from a specific dashboard.
 
@@ -167,7 +184,7 @@ print(df)
 
 ---
 
-## Example 8: Get Dashboard Shares
+## Example 9: Get Dashboard Shares
 
 Get sharing information for a dashboard by name.
 
@@ -181,7 +198,19 @@ print(df)
 
 ---
 
-## Example 9: Resolve Dashboard Reference (ID or Name)
+## Example 9b: Get Dashboard Shares (v1 API)
+
+Retrieve the raw shares payload from ``GET /api/v1/dashboards/{id}/shares``.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+shares = dashboard.get_dashboard_shares_v1(dashboard_id)
+print(json.dumps(shares, indent=4))
+```
+
+---
+
+## Example 10: Resolve Dashboard Reference (ID or Name)
 
 Resolve one or more Dashboard references that may be either IDs or names.
 
@@ -208,9 +237,154 @@ if resolved.get("success"):
 
 ---
 
+## Example 11: Get Dashboard Script
+
+Retrieve the dashboard export, wrap the dashboard script in a **`SisenseScript`** helper, then render cleaned **jsbeautifier** output (Sisense boilerplate removed, metadata footer appended).
+
+```python
+dashboard_id = "65d62c9574851800339cf49e"
+script_obj = dashboard.get_dashboard_script(dashboard_id)
+
+if isinstance(script_obj, dict) and "error" in script_obj:
+    print(script_obj["error"])
+else:
+    # Formatted JavaScript (boilerplate stripped + footer)
+    print(script_obj.to_text())
+
+    # Markdown title + fenced js block
+    print(script_obj.to_md())
+
+    # Write formatted script to disk
+    script_obj.to_file("results/dashboard_script.js")
+```
+
+---
+
+## Example 12: Get Widget Script and Save to File
+
+`get_widget_script` uses the same export as Example 10; **`widget_id`** must match a key in the exported dashboard’s **`widgets`** map. The helper strips the standard Sisense widget header comment via regex, beautifies, and appends a widget-specific footer.
+
+```python
+dashboard_id = "67dc928ae72ce30033bc6680"
+widget_id = "67dc929be72ce30033bc6682"
+widget_script_obj = dashboard.get_widget_script(dashboard_id, widget_id)
+
+if isinstance(widget_script_obj, dict) and "error" in widget_script_obj:
+    print(widget_script_obj["error"])
+else:
+    print(widget_script_obj.to_text())
+    widget_script_obj.to_file("results/widget_script.js")
+```
+
+---
+
+## Example 13: Move Dashboard to Folder
+
+Place an imported dashboard into a target folder after migration.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+folder_id = "folder_oid_here"
+result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 14: Rename Dashboard
+
+Update a dashboard title after import.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 15: Publish Dashboard
+
+Republish a dashboard (for example preflight when the user already has access).
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.publish_dashboard(dashboard_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 16: Check Can Be Owned
+
+Check whether the current user can take ownership of a dashboard.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.can_be_owned(dashboard_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
 - For more details, refer to the documentation in the `docs/` folder.
 
 ---
+
+---
+
+## Example 13: Get Dashboards (Standard Endpoint)
+
+Retrieve dashboards visible to the authenticated user. Unlike `get_all_dashboards` which uses the admin endpoint, this uses `GET /api/v1/dashboards` and returns dashboards owned by or shared with the current user.
+
+```python
+# All dashboards visible to the current user
+response = dashboard.get_dashboards()
+print(json.dumps(response, indent=4))
+
+# Limit fields returned
+response = dashboard.get_dashboards(fields=["oid", "title", "owner"])
+df = api_client.to_dataframe(response)
+print(df)
+```
+
+---
+
+## Example 14: Publish a Dashboard
+
+Publish a dashboard to make it visible to shared users after programmatic ownership or share changes.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+response = dashboard.publish_dashboard(dashboard_id)
+print(response)
+# {"success": True}
+```
+
+---
+
+## Example 15: Rename a Dashboard
+
+Update a dashboard's title.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+response = dashboard.rename_dashboard(dashboard_id, "Q4 Sales Overview")
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 16: Move a Dashboard to a Folder
+
+Place a dashboard inside a specific folder.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+folder_id    = "65d62c9wregfhg0e33bc64f0"
+response = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
+print(json.dumps(response, indent=4))
+```

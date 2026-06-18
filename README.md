@@ -40,6 +40,17 @@ is_ssl: true
 token: "<your_api_token>"
 ```
 
+For **non-SSL** connections (`is_ssl: false`), HTTP requests use port **30845** by default. You can override it with an optional `port` field (ignored when `is_ssl` is `true`):
+
+```yaml
+domain: "192.168.1.100"
+is_ssl: false
+port: 30845   # optional, omit to use the default 30845
+token: "<your_api_token>"
+```
+
+See [`config.yaml.example`](./config.yaml.example) for the template.
+
 ⚠️ **Do not commit your tokens. The provided YAMLs contain placeholder structure only.**
 
 ### ⚠️ Important: Use a Dedicated Admin Token
@@ -70,6 +81,9 @@ The [`examples/`](./examples) folder contains Markdown guides. Each guide explai
 
 - [`dashboard_example.md`](./examples/dashboard_example.md)  
   Dashboard Lifecycle — retrieve, update, reassign ownership, and manage shares of dashboards.
+
+- [`folder_example.md`](./examples/folder_example.md)  
+  Folder Management — create, list, update, and delete Sisense dashboard folders.
 
 - [`migration_example.md`](./examples/migration_example.md)  
   Environment Migration — migrate users, dashboards, and data models across environments (e.g., dev → prod).

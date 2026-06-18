@@ -1,9 +1,9 @@
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
-from pysisense.sisenseclient import SisenseClient
 from pysisense.dashboard import Dashboard
+from pysisense.sisenseclient import SisenseClient
 from pysisense.wellcheck import WellCheck
 
 
@@ -15,24 +15,21 @@ def sisense_client() -> SisenseClient:
     A lightweight connectivity check is performed; if the instance is not
     reachable or dashboards cannot be fetched, integration tests are skipped.
     """
-    client = SisenseClient(debug=False)
-
     try:
+        client = SisenseClient(debug=False)
         response = client.get("/api/v1/dashboards/admin?dashboardType=owner")
     except Exception as exc:
         pytest.skip(f"Sisense instance not reachable for integration tests: {exc}")
 
     if response is None or response.status_code != 200:
         status = getattr(response, "status_code", None)
-        pytest.skip(
-            f"Dashboards endpoint unavailable for integration tests (status={status})."
-        )
+        pytest.skip(f"Dashboards endpoint unavailable for integration tests (status={status}).")
 
     return client
 
 
 @pytest.fixture(scope="session")
-def example_dashboard(sisense_client: SisenseClient) -> Dict[str, Any]:
+def example_dashboard(sisense_client: SisenseClient) -> dict[str, Any]:
     """
     Fetch a single dashboard to serve as a test fixture.
 
@@ -45,9 +42,7 @@ def example_dashboard(sisense_client: SisenseClient) -> Dict[str, Any]:
 
     # Helper may return {"error": "..."} instead of a list.
     if isinstance(dashboards, dict) and dashboards.get("error"):
-        pytest.skip(
-            f"Unable to fetch dashboards for integration tests: {dashboards['error']}"
-        )
+        pytest.skip(f"Unable to fetch dashboards for integration tests: {dashboards['error']}")
 
     if not isinstance(dashboards, list) or not dashboards:
         pytest.skip("No dashboards available for integration tests.")
@@ -70,9 +65,10 @@ def wellcheck(sisense_client: SisenseClient) -> WellCheck:
     return WellCheck(api_client=sisense_client, debug=False)
 
 
+@pytest.mark.integration
 def test_check_dashboard_structure_with_dashboard_id(
     wellcheck: WellCheck,
-    example_dashboard: Dict[str, Any],
+    example_dashboard: dict[str, Any],
 ) -> None:
     """
     Run check_dashboard_structure with a real dashboard ID and validate
@@ -96,9 +92,10 @@ def test_check_dashboard_structure_with_dashboard_id(
         assert row[field] >= 0
 
 
+@pytest.mark.integration
 def test_check_dashboard_structure_with_dashboard_title(
     wellcheck: WellCheck,
-    example_dashboard: Dict[str, Any],
+    example_dashboard: dict[str, Any],
 ) -> None:
     """
     Run check_dashboard_structure with the dashboard title instead of the ID.

@@ -1,0 +1,113 @@
+---
+description: Coding conventions for pysisense Python modules
+globs: pysisense/**/*.py
+alwaysApply: false
+---
+
+# pysisense Coding Conventions
+
+## Shared `api_client` injection
+
+```python
+def __init__(self, api_client=None):
+    self.api_client = api_client or SisenseClient()
+    self.logger = self.api_client.logger
+```
+
+## Type hints (required)
+
+All public methods must have type hints on parameters and return values. Target Python 3.9+ — use builtin generics:
+
+```python
+# ✅ GOOD
+def get_user(self, user_id: str) -> dict[str, Any]: ...
+def list_groups(self) -> list[dict[str, Any]]: ...
+
+# ❌ BAD
+from typing import Dict, List  # don't use deprecated aliases
+```
+
+## Error handling — return dicts, don't raise
+
+Methods return `{"error": "..."}` dicts on failure. Do not raise exceptions from public methods unless the module already uses exceptions consistently.
+
+```python
+# ✅ GOOD
+response = self.api_client.get(url)
+if "error" in response:
+    self.logger.error(f"Failed to get dashboard: {response['error']}")
+    return {"error": response["error"]}
+return response
+```
+
+## Logging — levels and secrets policy
+
+Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`. **Never use `print`.**
+
+| Level | When to use |
+|---|---|
+| `debug` | Step-by-step decisions, endpoints, counts, mapping sizes |
+| `info` | Success summaries — what changed, counts, completion messages |
+| `error` | Failures with status code (if available) and a safe error summary |
+
+**Never log:** tokens, passwords, auth headers, raw cookies, or sensitive payload fields.
+
+```python
+# ✅ GOOD
+self.logger.debug(f"Resolving {len(group_names)} group names to IDs")
+self.logger.info(f"Updated user '{user_id}' — fields: {list(payload.keys())}")
+
+# ❌ BAD
+print("Done")
+self.logger.debug(f"Sending payload: {full_payload}")
+```
+
+## Smart reference resolvers
+
+Methods that accept a dashboard or data model reference handle either a 24-char ID or a title string:
+
+```python
+ref = self.resolve_dashboard_reference(dashboard)
+dashboard_id = ref["dashboard_id"]
+```
+
+## Input normalization
+
+Methods accepting `list[str]` should also tolerate a bare `str`:
+
+```python
+if isinstance(dashboards, str):
+    dashboards = [dashboards]
+```
+
+## Role name mapping
+
+| Sisense internal | User-facing |
+|---|---|
+| `consumer` | `viewer` |
+| `super` | `sysAdmin` |
+| `contributor` | `dashboardDesigner` |
+
+## SSL
+
+SSL verification is always disabled (`verify=False`). Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
+
+## OS-specific API routing
+
+Some Sisense endpoints differ between Linux and Windows deployments. When an endpoint differs by OS:
+
+- **Linux is the default path** — write the Linux case as the main branch (`else`).
+- **Windows is the conditional** — use `if self.api_client.operating_system == "windows":` to branch.
+- Always log `os=` in the debug message so the route is visible in logs.
+
+```python
+# ✅ GOOD — Linux default, Windows conditional
+os = self.api_client.operating_system
+endpoint = "/windows/endpoint" if os == "windows" else "/linux/endpoint"
+self.logger.debug(f"Fetching data (os={os})")
+
+# ❌ BAD — Windows default or no OS routing
+endpoint = "/linux/endpoint"  # silently breaks on Windows without comment
+```
+
+Methods that are Linux-only must guard the Windows case explicitly and return `{"error": "...not supported on Windows..."}` rather than silently hitting a wrong endpoint.

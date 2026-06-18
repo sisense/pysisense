@@ -1,0 +1,50 @@
+---
+description: WellCheck return structures, check thresholds, and run_full_wellcheck output shape
+globs: pysisense/wellcheck/**/*.py
+alwaysApply: false
+---
+
+# WellCheck Conventions
+
+## `run_full_wellcheck` return structure
+
+```python
+{
+    "dashboards": {
+        "structure":           [...],  # check_dashboard_structure results
+        "widget_counts":       [...],  # check_dashboard_widget_counts results
+        "pivot_widget_fields": [...],  # check_pivot_widget_fields results
+    },
+    "datamodels": {
+        "custom_tables":     [...],
+        "island_tables":     [...],
+        "rls_datatypes":     [...],
+        "import_queries":    [...],
+        "m2m_relationships": [...],
+        "unused_columns":    [...],
+    }
+}
+```
+
+## Per-check output fields
+
+| Check | Key fields |
+|---|---|
+| `check_dashboard_structure` | `pivot_count`, `tabber_count`, `jtd_count`, `accordion_count` |
+| `check_dashboard_widget_counts` | `widget_count` |
+| `check_pivot_widget_fields` | `field_count`, `has_more_fields` |
+| `check_datamodel_custom_tables` | `has_union` (`"yes"` / `"no"`) |
+| `check_datamodel_island_tables` | `relation` (`"no"` = island), `type` (`fact`/`dim`/`custom`) |
+| `check_datamodel_rls_datatypes` | `datatype` |
+| `check_datamodel_import_queries` | `has_import_query` (`"yes"` / `"no"`) |
+| `check_datamodel_m2m_relationships` | `is_m2m` (bool) — runs real SQL queries |
+
+## Thresholds and edge cases
+
+- `check_pivot_widget_fields(max_fields=20)` — triggers on `field_count > max_fields` (strictly greater, not ≥)
+- `check_datamodel_m2m_relationships` executes aggregate SQL — can be slow
+- `unused_columns` requires `access_mgmt` to be configured on the `WellCheck` instance
+
+## Inputs accept IDs or titles
+
+All check methods accept either a 24-char model/dashboard ID or a title string.

@@ -18,6 +18,10 @@ The documentation is organized by feature/module. Click on any section to learn 
   Read, export, share, and change ownership of dashboards.
   [Dashboard Examples](../examples/dashboard_example.md)
 
+- [Folder](folder.md)  
+  Create, read, update, and delete Sisense dashboard folders.
+  [Folder Examples](../examples/folder_example.md)
+
 - [Data Model](datamodel.md)  
   Inspect datasets, tables, columns, and schema definitions.
   [Data Model Examples](../examples/datamodel_example.md)
@@ -42,6 +46,8 @@ domain: "your-domain.sisense.com"
 is_ssl: true
 token: "<your_api_token>"
 ```
+
+For non-SSL (`is_ssl: false`), the default HTTP port is **30845**. Set optional `port` in the YAML to override (ignored when `is_ssl` is `true`).
 
 **Important:** It is recommended to use a new dedicated Sisense admin user's token to ensure all API methods function as expected.  
 Using restricted or scoped users may result in failures or inconsistent behavior, especially for:

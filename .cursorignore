@@ -1,0 +1,31 @@
+# Lock files — large, not useful for AI context
+uv.lock
+
+# Runtime output
+logs/
+*.log
+
+# Config files that may contain real tokens
+config.yaml
+source.yaml
+target.yaml
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
