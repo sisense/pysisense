@@ -13,10 +13,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
     environment: pypi
-    outputs:
-      released: ${{ steps.tag_check.outputs.exists == 'false' && 'true' || 'false' }}
-      version: ${{ steps.version.outputs.version }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,37 +75,3 @@ jobs:
           gh release create ${{ steps.version.outputs.tag }} \
             --title "${{ steps.version.outputs.tag }}" \
             --notes "Release ${{ steps.version.outputs.tag }}"
-
-  bump-dev:
-    needs: release
-    if: needs.release.outputs.released == 'true'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout dev branch
-        uses: actions/checkout@v4
-        with:
-          ref: dev
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute next dev version
-        id: next
-        run: |
-          VERSION="${{ needs.release.outputs.version }}"
-          NEXT=$(python -c "v='$VERSION'; p=v.split('.'); p[-1]=str(int(p[-1])+1); print('.'.join(p)+'.dev0')")
-          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
-
-      - name: Update version files
-        run: |
-          NEXT="${{ steps.next.outputs.version }}"
-          sed -i "s/^version = .*/version = \"$NEXT\"/" pyproject.toml
-          sed -i "s/__version__ = .*/__version__ = \"$NEXT\"/" pysisense/__init__.py
-
-      - name: Commit and push to dev
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add pyproject.toml pysisense/__init__.py
-          git commit -m "chore: bump dev version to ${{ steps.next.outputs.version }} [skip ci]"
-          git push origin dev
