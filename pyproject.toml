@@ -105,13 +105,20 @@ tag_format = "v$version"
 update_changelog_on_bump = false
 
 [tool.semantic_release]
-version_variable = ["pysisense/__init__.py:__version__"]
-branch = "main"
-changelog_file = "CHANGELOG.md"
-upload_to_pypi = false
-upload_to_release = true
-commit_message = "chore(release): {version}"
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["pysisense/__init__.py:__version__"]
 tag_format = "v{version}"
+commit_message = "chore(release): {version} [skip ci]"
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.changelog]
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = false
 
 [tool.pytest.ini_options]
 markers = [

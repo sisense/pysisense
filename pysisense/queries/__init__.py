@@ -5,6 +5,20 @@ from .core import QueriesCoreMixin
 
 
 class Queries(QueriesCoreMixin):
+    """Execute JAQL and SQL queries against Sisense datasources.
+
+    Provides direct query execution against elasticubes and live datasources.
+    Use for ad-hoc data retrieval and validation queries; for browsing the
+    semantic layer (measures, dimensions) use the Metadata class instead.
+
+    Modules
+    -------
+    core :
+        Query execution — run a JAQL query against an elasticube, run a
+        JAQL query and return results as CSV, run a SQL query against a
+        datasource.
+    """
+
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:
         """Initialize the Queries client for Sisense JAQL and SQL query APIs.
 

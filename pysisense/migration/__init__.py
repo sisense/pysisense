@@ -15,6 +15,32 @@ class Migration(
     DashboardsMigrationMixin,
     DatamodelsMigrationMixin,
 ):
+    """Copy Sisense content between two separate Sisense environments.
+
+    Connects to a source and a target Sisense instance (via YAML config files
+    or injected clients) and migrates groups, users, dashboards, and data
+    models from one to the other. Does not operate on a single instance —
+    use AccessManagement or Dashboard for single-environment changes.
+
+    Modules
+    -------
+    base :
+        Progress emission — internal helper for reporting migration events
+        to a caller-provided callback.
+    groups :
+        Group migration — copy specific groups or all groups from source to
+        target using the bulk group endpoint.
+    users :
+        User migration — copy specific users or all users from source to
+        target, preserving role and group assignments.
+    dashboards :
+        Dashboard migration — copy dashboards and their share entries across
+        environments; migrate all dashboards in bulk.
+    datamodels :
+        Data model migration — copy data model schemas and connection
+        definitions from source to target; supports bulk migration.
+    """
+
     def __init__(
         self,
         source_yaml: str | None = None,

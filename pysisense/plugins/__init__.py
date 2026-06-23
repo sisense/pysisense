@@ -4,6 +4,22 @@ from .snapshots import PluginsSnapshotsMixin
 
 
 class Plugins(PluginsCoreMixin, PluginsSnapshotsMixin):
+    """Manage Sisense plugin installation state and enable/disable lifecycle.
+
+    Covers listing installed plugins, toggling individual plugins or batches
+    of plugins, and capturing or restoring a full plugin state snapshot.
+    Does not install or remove plugin packages from the filesystem.
+
+    Modules
+    -------
+    core :
+        Plugin lifecycle — list all plugins, get a single plugin by name,
+        enable or disable a plugin individually, enable or disable in bulk.
+    snapshots :
+        Plugin state snapshots — capture the current enabled/disabled state
+        of all plugins; restore a previously captured snapshot.
+    """
+
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:
         """Initialize the Plugins class for managing Sisense plugin states.
 
