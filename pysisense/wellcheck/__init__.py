@@ -9,10 +9,24 @@ from .datamodel_checks import DatamodelChecksMixin
 
 
 class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
-    """
-    Collection of wellcheck / health-check methods over Sisense assets.
-    WellCheck methods typically analyze Sisense assets (dashboards,
-    widgets, data models) for complexity, best practices, and potential issues.
+    """Analyze Sisense dashboards and data models for health and complexity issues.
+
+    Runs structural and best-practice checks across dashboards (widget counts,
+    pivot field density, tabber/accordion/jump-to-dashboard usage) and data
+    models (custom table SQL, island tables, RLS column datatypes, import
+    queries, many-to-many relationships, unused columns). Results are returned
+    as structured row lists suitable for export or further analysis.
+
+    Modules
+    -------
+    dashboard_checks :
+        Dashboard health — count pivot, tabber, accordion, and
+        jump-to-dashboard widgets; flag dashboards with high widget counts;
+        identify pivot widgets that exceed a field-count threshold.
+    datamodel_checks :
+        Data model health — flag custom tables using UNION; detect island
+        tables with no relationships; report RLS column datatypes; identify
+        tables with import queries; detect many-to-many join relationships.
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

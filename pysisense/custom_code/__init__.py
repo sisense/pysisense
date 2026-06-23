@@ -5,6 +5,19 @@ from .core import CustomCodeCoreMixin
 
 
 class CustomCode(CustomCodeCoreMixin):
+    """Manage Sisense custom-code notebooks and their file system layout.
+
+    Covers the full notebook lifecycle — create, retrieve, update, export,
+    and delete notebooks — as well as renaming notebook files and folders
+    within the Sisense custom-code directory structure.
+
+    Modules
+    -------
+    core :
+        Notebook lifecycle — get, create, update, delete, and export
+        notebooks; list folder contents; rename notebook files and folders.
+    """
+
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:
         """Initialize the CustomCode client for Sisense notebook API operations.
 
