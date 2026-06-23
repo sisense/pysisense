@@ -5,6 +5,21 @@ from .core import FolderCoreMixin
 
 
 class Folder(FolderCoreMixin):
+    """Manage the Sisense folder hierarchy and individual folder records.
+
+    Covers folder CRUD (create, update, delete), lookup by name or ID,
+    navigation of the full folder tree, and retrieval of a folder's
+    ancestor chain. Does not manage dashboard content inside folders —
+    use the Dashboard class for that.
+
+    Modules
+    -------
+    core :
+        Folder operations — create, update, and delete folders; look up a
+        folder ID by name; retrieve the flat or tree folder structure;
+        get a folder's ancestor chain.
+    """
+
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:
         """Initialize the Folder client for Sisense folder API operations.
 
