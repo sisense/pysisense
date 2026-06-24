@@ -104,6 +104,54 @@ class DataModelCoreMixin:
         self.logger.info(f"Total number of datamodels: {len(new_data)}")
         return new_data
 
+    def _resolve_datamodel_structure(self, datamodel_name: str) -> dict[str, Any] | None:
+        """Fetch a data model and walk its datasets/tables into a common intermediate.
+
+        Returns ``None`` if the model is not found. Otherwise returns a dict with the
+        resolved model metadata and a normalized ``datasets`` list (each with its
+        ``tables``), from which callers build their own output shape.
+        """
+        datamodel = self.get_datamodel(datamodel_name)
+        if "error" in datamodel:
+            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+            return None
+
+        datamodel_id = datamodel.get("oid")
+        datamodel_type = datamodel.get("type")
+        resolved_name = datamodel.get("title")
+        last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
+        last_updated = datamodel.get("lastUpdated", "")
+
+        datasets_intermediate = []
+        for dataset in datamodel.get("datasets", []):
+            connection = dataset.get("connection")
+            provider = connection.get("provider", "Unknown Provider") if connection else "Unknown Provider"
+            connection_name = connection.get("name", "Unknown Connection") if connection else "Unknown Connection"
+            table_type = dataset.get("type", "Unknown Type")
+
+            tables = []
+            for table in dataset.get("schema", {}).get("tables", []):
+                tables.append({"raw": table, "table_name": table.get("name", "Unknown Table"), "table_type": table_type})
+
+            datasets_intermediate.append(
+                {
+                    "dataset_id": dataset.get("oid"),
+                    "dataset_name": dataset.get("name", "Unknown Dataset"),
+                    "provider": provider,
+                    "connection_name": connection_name,
+                    "tables": tables,
+                }
+            )
+
+        return {
+            "datamodel_id": datamodel_id,
+            "datamodel_type": datamodel_type,
+            "datamodel_name": resolved_name,
+            "last_build_publish": last_build_publish,
+            "last_updated": last_updated,
+            "datasets": datasets_intermediate,
+        }
+
     def describe_datamodel_raw(self, datamodel_name: str) -> dict[str, Any]:
         """Retrieve detailed information about a specific data model.
 
@@ -125,57 +173,41 @@ class DataModelCoreMixin:
         """
         self.logger.debug(f"[START] Describing DataModel '{datamodel_name}'")
 
-        # Step 1: Get DataModel by name
-        datamodel = self.get_datamodel(datamodel_name)
-        if "error" in datamodel:
-            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+        structure = self._resolve_datamodel_structure(datamodel_name)
+        if structure is None:
             return {"error": f"DataModel '{datamodel_name}' not found."}
 
-        datamodel_id = datamodel.get("oid")
-        datamodel_type = datamodel.get("type")
-        datamodel_name = datamodel.get("title")
+        datamodel_name = structure["datamodel_name"]
 
-        # Step 3: Resolve last build/publish time
-        last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
-
-        # Step 4: Resolve Dataset and Connections
-        datasets = datamodel.get("datasets", [])
+        # Resolve Dataset and Connections
         dataset_info = []
-
-        for dataset in datasets:
-            dataset_id = dataset.get("oid")
-            dataset_name = dataset.get("name", "Unknown Dataset")
-
-            connection = dataset.get("connection")
-            if connection:
-                provider = connection.get("provider", "Unknown Provider")
-                connection_name = connection.get("name", "Unknown Connection")
-            else:
-                provider = "Unknown Provider"
-                connection_name = "Unknown Connection"
-
-            tables = dataset.get("schema", {}).get("tables", [])
+        for dataset in structure["datasets"]:
             table_info = []
+            self.logger.debug(f"Resolving tables for dataset '{dataset['dataset_name']}'")
+            for table in dataset["tables"]:
+                self.logger.debug(table["raw"])
+                table_info.append({"table_name": table["table_name"], "table_type": table["table_type"]})
 
-            self.logger.debug(f"Resolving tables for dataset '{dataset_name}'")
-            for table in tables:
-                self.logger.debug(table)
-                table_name = table.get("name", "Unknown Table")
-                table_type = dataset.get("type", "Unknown Type")
-                table_info.append({"table_name": table_name, "table_type": table_type})
-
-            dataset_info.append({"dataset_id": dataset_id, "dataset_name": dataset_name, "provider": provider, "connection_name": connection_name, "tables": table_info})
+            dataset_info.append(
+                {
+                    "dataset_id": dataset["dataset_id"],
+                    "dataset_name": dataset["dataset_name"],
+                    "provider": dataset["provider"],
+                    "connection_name": dataset["connection_name"],
+                    "tables": table_info,
+                }
+            )
 
         self.logger.debug(f"Resolved datasets: {dataset_info}")
         self.logger.info(f"Total datasets resolved: {len(dataset_info)}")
 
-        # Step 5: Build output dictionary
+        # Build output dictionary
         datamodel_info = {
             "name": datamodel_name,
-            "id": datamodel_id,
-            "type": datamodel_type,
-            "datamodel_last_build_publish": last_build_publish,
-            "datamodel_last_updated": datamodel.get("lastUpdated", ""),
+            "id": structure["datamodel_id"],
+            "type": structure["datamodel_type"],
+            "datamodel_last_build_publish": structure["last_build_publish"],
+            "datamodel_last_updated": structure["last_updated"],
             "datasets": dataset_info,
         }
 
@@ -202,49 +234,31 @@ class DataModelCoreMixin:
         """
         self.logger.debug(f"[START] Generating flat structure for DataModel '{datamodel_name}'")
 
-        # Step 1: Get DataModel by name
-        datamodel = self.get_datamodel(datamodel_name)
-        if "error" in datamodel:
-            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+        structure = self._resolve_datamodel_structure(datamodel_name)
+        if structure is None:
             return []
-        datamodel_id = datamodel.get("oid")
-        datamodel_type = datamodel.get("type")
-        datamodel_name = datamodel.get("title")
 
-        # Step 2: Resolve last build/publish time
-        last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
+        datamodel_name = structure["datamodel_name"]
 
-        last_updated = datamodel.get("lastUpdated", "")
-
-        # Step 3: Extract datasets and tables as rows
+        # Extract datasets and tables as rows
         rows = []
-        datasets = datamodel.get("datasets", [])
-
-        for dataset in datasets:
-            dataset_id = dataset.get("oid")
-            dataset_name = dataset.get("name", "Unknown Dataset")
-            connection = dataset.get("connection")
-
-            provider = connection.get("provider", "Unknown Provider") if connection else "Unknown Provider"
-            connection_name = connection.get("name", "Unknown Connection") if connection else "Unknown Connection"
-
-            tables = dataset.get("schema", {}).get("tables", [])
-
-            for table in tables:
-                row = {
-                    "datamodel_name": datamodel_name,
-                    "datamodel_id": datamodel_id,
-                    "datamodel_type": datamodel_type,
-                    "datamodel_last_build_publish": last_build_publish,
-                    "datamodel_last_updated": last_updated,
-                    "dataset_id": dataset_id,
-                    "dataset_name": dataset_name,
-                    "provider": provider,
-                    "connection_name": connection_name,
-                    "table_name": table.get("name", "Unknown Table"),
-                    "table_type": dataset.get("type", "Unknown Type"),
-                }
-                rows.append(row)
+        for dataset in structure["datasets"]:
+            for table in dataset["tables"]:
+                rows.append(
+                    {
+                        "datamodel_name": datamodel_name,
+                        "datamodel_id": structure["datamodel_id"],
+                        "datamodel_type": structure["datamodel_type"],
+                        "datamodel_last_build_publish": structure["last_build_publish"],
+                        "datamodel_last_updated": structure["last_updated"],
+                        "dataset_id": dataset["dataset_id"],
+                        "dataset_name": dataset["dataset_name"],
+                        "provider": dataset["provider"],
+                        "connection_name": dataset["connection_name"],
+                        "table_name": table["table_name"],
+                        "table_type": table["table_type"],
+                    }
+                )
 
         self.logger.info(f"Flattened {len(rows)} rows from DataModel '{datamodel_name}'")
         return rows

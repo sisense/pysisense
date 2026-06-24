@@ -4,6 +4,39 @@ from typing import Any
 
 
 class SecurityMixin:
+    def _fetch_datasecurity(self, datamodel_name: str) -> tuple[str | None, list[dict[str, Any]] | None]:
+        """Resolve a data model and fetch its raw datasecurity rules.
+
+        Returns ``(resolved_name, rows)`` where ``resolved_name`` is ``None`` when the
+        model cannot be resolved, and ``rows`` is ``None`` when the fetch failed.
+        """
+        # Step 1: Get datamodel object
+        datamodel = self.get_datamodel(datamodel_name)
+        if "error" in datamodel:
+            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+            return None, None
+
+        resolved_name = datamodel.get("title")
+        datamodel_type = datamodel.get("type")
+
+        # Step 2: Build API URL
+        url = ""
+        if datamodel_type.upper() == "EXTRACT":
+            url = f"/api/elasticubes/localhost/{resolved_name}/datasecurity"
+        elif datamodel_type.upper() == "LIVE":
+            url = f"/api/v1/elasticubes/live/{resolved_name}/datasecurity"
+
+        # Step 3: Fetch datasecurity
+        self.logger.debug(f"Fetching datasecurity from '{url}'")
+        datasecurity_response = self.api_client.get(url)
+        if not datasecurity_response or datasecurity_response.status_code != 200:
+            self.logger.warning(f"Could not fetch datasecurity for DataModel '{resolved_name}'.")
+            return resolved_name, None
+
+        datasecurity_data = datasecurity_response.json()
+        self.logger.debug(f"Datasecurity data: {datasecurity_data}")
+        return resolved_name, datasecurity_data
+
     def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]]:
         """Retrieve datasecurity table and column entries for a given data model.
 
@@ -24,31 +57,11 @@ class SecurityMixin:
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
-        # Step 1: Get datamodel object
-        datamodel = self.get_datamodel(datamodel_name)
-        if "error" in datamodel:
-            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+        datamodel_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
+        if datamodel_name is None:
             return []
-
-        datamodel_name = datamodel.get("title")
-        datamodel_type = datamodel.get("type")
-
-        # Step 2: Build API URL
-        url = ""
-        if datamodel_type.upper() == "EXTRACT":
-            url = f"/api/elasticubes/localhost/{datamodel_name}/datasecurity"
-        elif datamodel_type.upper() == "LIVE":
-            url = f"/api/v1/elasticubes/live/{datamodel_name}/datasecurity"
-
-        # Step 3: Fetch datasecurity
-        self.logger.debug(f"Fetching datasecurity from '{url}'")
-        datasecurity_response = self.api_client.get(url)
-        if not datasecurity_response or datasecurity_response.status_code != 200:
-            self.logger.warning(f"Could not fetch datasecurity for DataModel '{datamodel_name}'.")
+        if datasecurity_data is None:
             return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
-
-        datasecurity_data = datasecurity_response.json()
-        self.logger.debug(f"Datasecurity data: {datasecurity_data}")
 
         # Step 4: Parse datasecurity
         datasecurity_info = []
@@ -100,33 +113,13 @@ class SecurityMixin:
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
-        # Step 1: Get datamodel object
-        datamodel = self.get_datamodel(datamodel_name)
-        if "error" in datamodel:
-            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+        datamodel_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
+        if datamodel_name is None:
             return []
-
-        datamodel_name = datamodel.get("title")
-        datamodel_type = datamodel.get("type")
-
-        # Step 2: Build API URL
-        url = ""
-        if datamodel_type.upper() == "EXTRACT":
-            url = f"/api/elasticubes/localhost/{datamodel_name}/datasecurity"
-        elif datamodel_type.upper() == "LIVE":
-            url = f"/api/v1/elasticubes/live/{datamodel_name}/datasecurity"
-
-        # Step 3: Fetch datasecurity
-        self.logger.debug(f"Fetching datasecurity from '{url}'")
-        datasecurity_response = self.api_client.get(url)
-        if not datasecurity_response or datasecurity_response.status_code != 200:
-            self.logger.warning(f"Could not fetch datasecurity for DataModel '{datamodel_name}'.")
+        if datasecurity_data is None:
             return [
                 {"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": "", "value": "", "exclusionary": "", "share_type": "", "share_name": "", "rule_description": ""}
             ]
-
-        datasecurity_data = datasecurity_response.json()
-        self.logger.debug(f"Datasecurity data: {datasecurity_data}")
 
         # Step 4: Parse datasecurity rules
         detailed_rows = []

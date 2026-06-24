@@ -46,6 +46,42 @@ class UsersMixin:
         self.logger.debug(f"Built role and group mappings in helper. Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
         return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
 
+    def _fetch_expanded_users(self) -> Any:
+        """Fetch the users list with ``groups`` and ``role`` expanded; returns the raw response."""
+        return self.api_client.get("/api/v1/users", params={"expand": "groups,role"})
+
+    def _map_user_role_and_groups(self, user: dict[str, Any]) -> tuple[str | None, str | None, list[str], list[str]]:
+        """Resolve a single expanded user's role/group IDs and names.
+
+        Returns ``(role_id, role_name, group_ids, group_names)``.
+        """
+        role_mapping = {
+            "consumer": "viewer",
+            "super": "sysAdmin",
+            "contributor": "dashboardDesigner",
+        }
+
+        role_obj = user.get("role") or {}
+        groups_obj = user.get("groups") or []
+
+        role_id = role_obj.get("_id")
+        role_name_raw = role_obj.get("name")
+        role_name = role_mapping.get(role_name_raw, role_name_raw)
+
+        group_ids = []
+        group_names = []
+        for g in groups_obj:
+            if not isinstance(g, dict):
+                continue
+            gid = g.get("_id")
+            gname = g.get("name")
+            if gid:
+                group_ids.append(gid)
+            if gname:
+                group_names.append(gname)
+
+        return role_id, role_name, group_ids, group_names
+
     def get_user_with_role_and_group_names(self, user_name: str) -> dict[str, Any]:
         """Retrieve a single user by email/username with role and group details.
 
@@ -68,8 +104,7 @@ class UsersMixin:
         self.logger.debug(f"Getting user with role and group IDs/names for: {user_name}")
 
         # Reuse expanded users endpoint to get role & group objects
-        params = {"expand": "groups,role"}
-        response = self.api_client.get("/api/v1/users", params=params)
+        response = self._fetch_expanded_users()
 
         if not response or not response.ok:
             error_msg = f"Failed to retrieve users from API for username: {user_name}."
@@ -82,35 +117,12 @@ class UsersMixin:
             self.logger.exception("Error decoding JSON response for user list in get_user_with_role_and_group_names.")
             return {"error": f"Failed to decode API response: {exc}"}
 
-        ROLE_MAPPING = {
-            "consumer": "viewer",
-            "super": "sysAdmin",
-            "contributor": "dashboardDesigner",
-        }
-
         for user in users:
             try:
                 if user.get("email") != user_name:
                     continue
 
-                role_obj = user.get("role") or {}
-                groups_obj = user.get("groups") or []
-
-                role_id = role_obj.get("_id")
-                role_name_raw = role_obj.get("name")
-                role_name = ROLE_MAPPING.get(role_name_raw, role_name_raw)
-
-                group_ids = []
-                group_names = []
-                for g in groups_obj:
-                    if not isinstance(g, dict):
-                        continue
-                    gid = g.get("_id")
-                    gname = g.get("name")
-                    if gid:
-                        group_ids.append(gid)
-                    if gname:
-                        group_names.append(gname)
+                role_id, role_name, group_ids, group_names = self._map_user_role_and_groups(user)
 
                 result = {
                     "USER_ID": user.get("_id"),
@@ -231,8 +243,7 @@ class UsersMixin:
         """
         self.logger.debug("Getting user with email: %s", user_email)
 
-        params = {"expand": "groups,role"}
-        response = self.api_client.get("/api/v1/users", params=params)
+        response = self._fetch_expanded_users()
 
         if not response or not response.ok:
             status = response.status_code if response else "No response"
@@ -404,11 +415,8 @@ class UsersMixin:
         """
         self.logger.debug("Getting all users")
 
-        # Query parameters to expand the response with group and role info
-        params = {"expand": "groups,role"}
-
-        # Fetch user data from the API with the specified query parameters
-        response = self.api_client.get("/api/v1/users", params=params)
+        # Fetch user data from the API with group and role info expanded
+        response = self._fetch_expanded_users()
 
         # Check if the API request failed
         if not response or not response.ok:
