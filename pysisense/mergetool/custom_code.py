@@ -19,7 +19,7 @@ def _extract_notebooks(response: Any) -> list[dict[str, Any]]:
     return []
 
 
-class CustomCodeMigrationMixin:
+class CustomCodeMergeMixin:
     def migrate_notebooks(
         self,
         notebook_ids: list[str] | None = None,
