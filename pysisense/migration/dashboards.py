@@ -1508,7 +1508,7 @@ class DashboardsMigrationMixin:
             },
         )
 
-        # Backward compatible: keep the original keys, but add counts/metadata for MCP and callers.
+        # Backward compatible: keep the original keys, but add counts/metadata for callers.
         migration_summary.update(
             {
                 "ok": ok,
