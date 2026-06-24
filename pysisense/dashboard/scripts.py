@@ -2,26 +2,39 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
 
 import jsbeautifier as beautifier
 
 
 class ScriptsMixin:
-    def add_dashboard_script(self, dashboard_id, script, executing_user=None):
-        """
-        Adds or overwrites a script to a dashboard, temporarily changing ownership if required.
+    def add_dashboard_script(self, dashboard_id: str, script: str | dict[str, Any], executing_user: str | None = None) -> str:
+        """Add or overwrite a script on a dashboard.
 
-        Parameters:
-            dashboard_id (str): The ID of the dashboard where the script will be added.
-            script (str): The JavaScript script as either:
-                        - A properly formatted JSON string.
-                        - A raw Python docstring (multi-line string).
-            executing_user (str, optional): The username of the API user. This is used to temporarily change
-                                        the owner of the dashboard, as only the owner can add scripts.
-                                        If not provided, assumes the dashboard owner is the same as the API user.
+        Adds or overwrites a script on a dashboard, temporarily changing
+        ownership to the executing user and restoring it (along with the
+        original shares) afterwards when required, as only the dashboard owner
+        can modify scripts.
 
-        Returns:
-            str: Success message or error details.
+        Parameters
+        ----------
+        dashboard_id : str
+            The ID of the dashboard where the script will be added.
+        script : str | dict[str, Any]
+            The JavaScript script to add, provided as either a properly
+            formatted JSON string, a raw multi-line script string, or a
+            pre-built payload dictionary.
+        executing_user : str | None, optional
+            The username of the API user, used to temporarily change the owner
+            of the dashboard, as only the owner can add scripts. If not
+            provided, assumes the dashboard owner is the same as the API user.
+            (format: email)
+
+        Returns
+        -------
+        str
+            A success message on success, or an error message string describing
+            the failure.
         """
 
         add_dashboard_script_endpoint = f"/api/dashboards/{dashboard_id}"
@@ -130,24 +143,36 @@ class ScriptsMixin:
 
         return "Dashboard Script added successfully."
 
-    def add_widget_script(self, dashboard_id, widget_id, script, executing_user=None):
-        """
-        Adds or overwrites a script for a specific widget within a dashboard.
+    def add_widget_script(self, dashboard_id: str, widget_id: str, script: str | dict[str, Any], executing_user: str | None = None) -> str:
+        """Add or overwrite a script for a specific widget within a dashboard.
 
-        If required, temporarily changes the dashboard ownership, as only the owner can modify widget scripts.
+        Adds or overwrites a script for a specific widget, republishing the
+        dashboard to apply the changes. If required, it temporarily changes the
+        dashboard ownership to the executing user and restores it (along with
+        the original shares) afterwards, as only the owner can modify widget
+        scripts.
 
-        Parameters:
-            dashboard_id (str): The ID of the dashboard containing the widget.
-            widget_id (str): The ID of the widget where the script will be added.
-            script (str): The JavaScript script as either:
-                        - A properly formatted JSON string.
-                        - A raw Python docstring (multi-line string).
-            executing_user (str, optional): The username of the API user. This is used to temporarily change
-                                        the owner of the dashboard, as only the owner can add scripts.
-                                        If not provided, assumes the dashboard owner is the same as the API user.
+        Parameters
+        ----------
+        dashboard_id : str
+            The ID of the dashboard containing the widget.
+        widget_id : str
+            The ID of the widget where the script will be added.
+        script : str | dict[str, Any]
+            The JavaScript script to add, provided as either a properly
+            formatted JSON string, a raw multi-line script string, or a
+            pre-built payload dictionary.
+        executing_user : str | None, optional
+            The username of the API user, used to temporarily change the owner
+            of the dashboard, as only the owner can add scripts. If not
+            provided, assumes the dashboard owner is the same as the API user.
+            (format: email)
 
-        Returns:
-            str: Success message or error details.
+        Returns
+        -------
+        str
+            A success message on success, or an error message string describing
+            the failure.
         """
 
         add_widget_script_endpoint = f"/api/dashboards/{dashboard_id}/widgets/{widget_id}"
