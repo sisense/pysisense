@@ -29,9 +29,23 @@ uv run ruff check --fix .
 # Format
 uv run ruff format .
 
-# Install pre-commit hooks
+# Check docstring conventions (whole package)
+uv run python tools/check_docstrings.py
+
+# Check docstring conventions on specific files
+uv run python tools/check_docstrings.py pysisense/queries/core.py
+
+# Install pre-commit hooks (commit-msg + the file hooks)
 uv run pre-commit install --hook-type commit-msg
+uv run pre-commit install
 ```
+
+> The docstring checker (`tools/check_docstrings.py`) enforces the NumPy
+> docstring + type-hint conventions below. It runs automatically on changed
+> files via pre-commit and CI. When you add or edit a public method, it must
+> have a docstring with `Parameters`/`Returns` sections, full type hints, only
+> approved `(format: ...)` tags (`email`, `uuid`, `date`, `ipv4`, `ipv6`), and
+> no mention of external systems.
 
 ---
 

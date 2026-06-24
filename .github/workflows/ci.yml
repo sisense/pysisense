@@ -30,6 +30,39 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check .
 
+  docstrings:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Determine changed pysisense files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=50
+            BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          else
+            BASE="HEAD~1"
+          fi
+          FILES=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- pysisense | grep '\.py$' | tr '\n' ' ' || true)
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Check docstring conventions on changed files
+        run: |
+          if [ -z "${{ steps.changed.outputs.files }}" ]; then
+            echo "No pysisense Python files changed; skipping docstring check."
+            exit 0
+          fi
+          echo "Checking: ${{ steps.changed.outputs.files }}"
+          python tools/check_docstrings.py ${{ steps.changed.outputs.files }}
+
   test:
     runs-on: ubuntu-latest
     strategy:

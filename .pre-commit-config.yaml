@@ -11,3 +11,13 @@ repos:
     hooks:
       - id: commitizen
         stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: pysisense-docstrings
+        name: pysisense docstring conventions
+        entry: uv run python tools/check_docstrings.py
+        language: system
+        types: [python]
+        files: ^pysisense/.*\.py$
+        pass_filenames: true
