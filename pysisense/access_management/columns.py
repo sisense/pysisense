@@ -4,16 +4,23 @@ from typing import Any
 
 
 class ColumnsMixin:
-    def get_datamodel_columns(self, datamodel_name):
-        """
-        Retrieves columns from a DataModel by collecting them from its datasets and tables.
+    def get_datamodel_columns(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve columns from a DataModel by collecting them from its datasets and tables.
 
-        Parameters:
-            datamodel_name (str): The name of the DataModel from which to extract columns.
+        Resolves the DataModel ID by title, then walks its datasets and tables
+        to gather every column.
 
-        Returns:
-            list: A list of dictionaries where each dictionary contains DataModel ID, DataModel name,
-            table name, and column name.
+        Parameters
+        ----------
+        datamodel_name : str
+            The name of the DataModel from which to extract columns.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of dictionaries, each containing ``datamodel_id``,
+            ``datamodel_name``, ``table``, and ``column``. An empty list is
+            returned if the DataModel cannot be found or has no columns.
         """
         all_columns = []
 
@@ -115,24 +122,31 @@ class ColumnsMixin:
 
         return all_columns
 
-    def get_unused_columns(self, datamodel_name):
-        """
-        Identify unused columns in a given DataModel by comparing all available columns against the columns
-        referenced in associated dashboards.
+    def get_unused_columns(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Identify unused columns in a DataModel by comparing all columns against dashboard usage.
 
-        Covers:
-        - Dashboard Filters: Dashboard-level filters, Widget filters, Dependent Filters.
-        - Widget Panels: Includes Row, Values, Column panels, and Measured Filters.
+        Compares every available column against the columns referenced in the
+        dashboards associated with the DataModel. Coverage includes dashboard
+        filters (dashboard-level, widget, and dependent filters) and widget
+        panels (row, values, column panels, and measured filters).
 
-        Parameters:
-            datamodel_name (str): The name of the DataModel to analyze.
+        Parameters
+        ----------
+        datamodel_name : str
+            The name of the DataModel to analyze.
 
-        Returns:
-            list: A list of dictionaries containing unused column details with a "used" field set to True or False.
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of column dictionaries, each with a ``used`` field set to
+            ``True`` or ``False``. An empty list is returned if dashboards
+            cannot be fetched.
 
-        Raises:
-            ValueError: If no columns are found for the given DataModel (for example, if it does not exist
-                        or is not accessible).
+        Raises
+        ------
+        ValueError
+            If no columns are found for the given DataModel (for example, if it
+            does not exist or is not accessible).
         """
         self.logger.info(f"Starting analysis for unused columns in DataModel: {datamodel_name}")
 

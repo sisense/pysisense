@@ -316,7 +316,7 @@ def check_file(path: Path) -> list[Violation]:
         if is_facade:
             violations.extend(_check_facade(path, node))
         for item in node.body:
-            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and not item.name.startswith("_"):
+            if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef) and not item.name.startswith("_"):
                 violations.extend(_check_method(path, node, item))
     return violations
 
@@ -339,10 +339,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="*", help="Specific files to check (defaults to the whole package).")
     args = parser.parse_args(argv)
 
-    if args.paths:
-        files = [Path(p) for p in args.paths if p.endswith(".py") and Path(p).is_file()]
-    else:
-        files = sorted(PACKAGE_ROOT.rglob("*.py"))
+    files = [Path(p) for p in args.paths if p.endswith(".py") and Path(p).is_file()] if args.paths else sorted(PACKAGE_ROOT.rglob("*.py"))
 
     all_violations: list[Violation] = []
     for path in files:

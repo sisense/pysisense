@@ -5,13 +5,17 @@ from typing import Any
 
 
 class DashboardCoreMixin:
-    def get_all_dashboards(self):
-        """
-        Retrieves all dashboards from the Sisense server.
+    def get_all_dashboards(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all dashboards from the Sisense server.
 
-        Returns:
-            list or dict: A list of dashboards if successful,
-                        or a dict containing an error message.
+        Sends ``GET /api/v1/dashboards/admin?dashboardType=owner`` using the
+        admin endpoint, which requires elevated access.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            A list of dashboard objects on success, or ``{"error": "..."}`` on
+            failure.
         """
         endpoint = "/api/v1/dashboards/admin?dashboardType=owner"
         self.logger.debug(f"Fetching all dashboards from: {endpoint}")
@@ -31,16 +35,22 @@ class DashboardCoreMixin:
         self.logger.info(f"Successfully retrieved {len(dashboards)} dashboards.")
         return dashboards
 
-    def get_dashboard_by_id(self, dashboard_id):
-        """
-        Retrieves a specific dashboard by its ID.
+    def get_dashboard_by_id(self, dashboard_id: str) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve a specific dashboard by its ID.
 
-        Parameters:
-            dashboard_id (str): The ID of the dashboard to retrieve.
+        Sends ``GET /api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}``
+        against the admin endpoint.
 
-        Returns:
-            dict: A dictionary containing dashboard details if found,
-                or a dict with an error message if the request fails.
+        Parameters
+        ----------
+        dashboard_id : str
+            The ``oid`` of the dashboard to retrieve.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            The matching dashboard objects on success, or ``{"error": "..."}``
+            when the request fails or no dashboard is found.
         """
         endpoint = f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}"
         self.logger.debug(f"Fetching dashboard with ID {dashboard_id} from: {endpoint}")
@@ -64,16 +74,22 @@ class DashboardCoreMixin:
         self.logger.info(f"Successfully retrieved dashboard with ID {dashboard_id}.")
         return dashboard_data
 
-    def get_dashboard_by_name(self, dashboard_name):
-        """
-        Retrieves a specific dashboard by its name.
+    def get_dashboard_by_name(self, dashboard_name: str) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve a specific dashboard by its name.
 
-        Parameters:
-            dashboard_name (str): The name of the dashboard to retrieve.
+        Sends ``GET /api/v1/dashboards/admin?dashboardType=owner&name={dashboard_name}``
+        against the admin endpoint.
 
-        Returns:
-            dict or list: A dictionary containing dashboard details if found,
-                        or {'error': 'message'} if not found or failed.
+        Parameters
+        ----------
+        dashboard_name : str
+            Title of the dashboard to retrieve.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            The matching dashboard objects on success, or ``{"error": "..."}``
+            when the request fails or no dashboard is found.
         """
         endpoint = f"/api/v1/dashboards/admin?dashboardType=owner&name={dashboard_name}"
         self.logger.debug(f"Fetching dashboard with name {dashboard_name} from: {endpoint}")

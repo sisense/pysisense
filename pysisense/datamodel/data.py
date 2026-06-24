@@ -1,19 +1,30 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class DataMixin:
-    def get_data(self, datamodel_name, table_name, query=None):
-        """
-        Retrieves data from a specific table in a DataModel and returns it as a list of dicts
-        (row-based format) compatible with to_dataframe.
+    def get_data(self, datamodel_name: str, table_name: str, query: str | None = None) -> list[dict[str, Any]]:
+        """Retrieve data from a specific table in a data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel.
-            table_name (str): Name of the table to retrieve data from.
-            query (str): Optional SQL query to filter the data.
+        Runs a SQL query against the data model and returns the rows in a
+        row-based format (a list of dicts) compatible with ``to_dataframe``.
 
-        Returns:
-            list: List of dictionaries where each dict represents a row.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model.
+        table_name : str
+            Name of the table to retrieve data from.
+        query : str | None, optional
+            Optional SQL query to filter the data. When omitted, all rows of the
+            table are selected.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dictionaries where each dict represents a row. Returns an empty
+            list on failure or when no data is available.
         """
         self.logger.debug(f"[START] Retrieving data from DataModel '{datamodel_name}', Table '{table_name}'")
 
@@ -50,17 +61,23 @@ class DataMixin:
             self.logger.error(f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'. Error: {error_text}")
             return []
 
-    def get_row_count(self, datamodel_name):
-        """
-        Retrieves the row count for each table in a specific DataModel
-        and returns it in a flat row-based structure suitable for tabular representation.
+    def get_row_count(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve the row count for each table in a specific data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel.
+        Resolves the data model's tables, counts rows per table, and returns the
+        results in a flat row-based structure suitable for tabular representation.
 
-        Returns:
-            list: List of dictionaries, each with 'table_name' and 'row_count'.
-                Includes an additional row for total row count.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dictionaries, each with ``"table_name"`` and ``"row_count"``,
+            plus a final entry with the total row count. Returns an empty list on
+            failure.
         """
         self.logger.debug(f"[START] Retrieving row count for DataModel '{datamodel_name}'")
 

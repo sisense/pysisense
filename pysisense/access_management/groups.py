@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class GroupsMixin:
-    def get_group(self, name):
-        """
-        Retrieves group details by their name.
+    def get_group(self, name: str) -> dict[str, Any]:
+        """Retrieve group details by name.
 
-        Parameters:
-            name (str): The name of the group to be retrieved.
+        Looks up a group by its name and returns its ID, name, and default
+        role.
 
-        Returns:
-            dict: Group details, or {'error': ...} if retrieval fails or not
-            found.
+        Parameters
+        ----------
+        name : str
+            The name of the group to be retrieved.
+
+        Returns
+        -------
+        dict[str, Any]
+            A dictionary with ``GROUP_ID``, ``GROUP_NAME``, and ``defaultRole``,
+            or ``{"error": "..."}`` if retrieval fails or the group is not found.
         """
         self.logger.debug(f"Starting 'get_group' method for group name: {name}")
 
@@ -44,16 +52,22 @@ class GroupsMixin:
         self.logger.debug(f"Group '{name}' found. ID: {group_id}")
         return {"GROUP_ID": group_id, "GROUP_NAME": group_name, "defaultRole": group.get("defaultRole", "")}
 
-    def users_per_group(self, group_name):
-        """
-        Retrieves all users within a specific group by name.
+    def users_per_group(self, group_name: str) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all users within a specific group by name.
 
-        Parameters:
-            group_name (str): The name of the group.
+        Resolves the group by name and then fetches the user objects that
+        belong to it.
 
-        Returns:
-            list or dict: A list of users in the group if successful, or a
-            dictionary containing an 'error' key if the operation fails.
+        Parameters
+        ----------
+        group_name : str
+            The name of the group whose members to list.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            A list of user objects in the group, or ``{"error": "..."}`` if
+            the operation fails.
         """
         self.logger.debug(f"Starting 'users_per_group' method for group: {group_name}")
 
@@ -86,18 +100,20 @@ class GroupsMixin:
             self.logger.error(error_msg)
             return {"error": error_msg}
 
-    def users_per_group_all(self):
-        """
-        Retrieves all groups and maps them with the users belonging to those
-        groups.
-        Groups like 'Everyone' and 'All users in system' are excluded.
-        Users with roles like 'admin', 'dataAdmin', and 'sysAdmin' are mapped
-        to the existing 'Admins' group.
-        Groups with no users are also included in the final result.
+    def users_per_group_all(self) -> list[dict[str, Any]]:
+        """Retrieve all groups mapped to the users belonging to them.
 
-        Returns:
-            list: A list of dictionaries, where each dictionary contains a
-            group name and the list of usernames in that group.
+        Groups like ``Everyone`` and ``All users in system`` are excluded.
+        Users with roles like ``admin``, ``dataAdmin``, and ``sysAdmin`` are
+        mapped to the existing ``Admins`` group. Groups with no users are also
+        included in the final result.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of dictionaries, where each dictionary contains a group name
+            and the list of usernames in that group. An empty list is returned
+            on failure.
         """
         EXCLUDED_GROUPS = {"Everyone", "All users in system"}
 

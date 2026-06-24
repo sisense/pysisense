@@ -18,6 +18,5 @@ repos:
         name: pysisense docstring conventions
         entry: uv run python tools/check_docstrings.py
         language: system
-        types: [python]
-        files: ^pysisense/.*\.py$
-        pass_filenames: true
+        always_run: true
+        pass_filenames: false

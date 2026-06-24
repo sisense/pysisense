@@ -6,22 +6,41 @@ from typing import Any, Literal
 
 
 class DashboardsMigrationMixin:
-    def migrate_dashboard_shares(self, source_dashboard_ids, target_dashboard_ids, change_ownership=False):
-        """
-        Migrates shares for specific dashboards from the source to the target environment.
+    def migrate_dashboard_shares(
+        self,
+        source_dashboard_ids: list[str],
+        target_dashboard_ids: list[str],
+        change_ownership: bool = False,
+    ) -> dict[str, Any]:
+        """Migrate shares for specific dashboards from the source to the target environment.
 
-        Parameters:
-            source_dashboard_ids (list): A list of dashboard IDs from the source environment to fetch shares from.
-            target_dashboard_ids (list): A list of dashboard IDs from the target environment to apply shares to.
-            change_ownership (bool, optional): Whether to change ownership of the target dashboard. Defaults to False.
+        Pairs source and target dashboard IDs positionally, maps source users
+        and groups to their target equivalents, and applies the resulting
+        shares to each target dashboard. Optionally transfers ownership.
 
-        Returns:
-            dict: A summary of the share migration process with counts of succeeded and failed shares,
-                and details of failed dashboards.
+        Parameters
+        ----------
+        source_dashboard_ids : list[str]
+            Dashboard IDs from the source environment to fetch shares from.
+        target_dashboard_ids : list[str]
+            Dashboard IDs from the target environment to apply shares to,
+            paired positionally with ``source_dashboard_ids``.
+        change_ownership : bool, optional
+            Whether to change ownership of the target dashboard. Defaults to
+            ``False``.
 
-        Raises:
-            ValueError: If `source_dashboard_ids` or `target_dashboard_ids` are not provided,
-                        or if their lengths do not match.
+        Returns
+        -------
+        dict[str, Any]
+            A summary of the share migration with a ``summary`` block (counts of
+            succeeded and failed shares) and ``dashboard_results`` (per-dashboard
+            outcomes).
+
+        Raises
+        ------
+        ValueError
+            If ``source_dashboard_ids`` or ``target_dashboard_ids`` are not
+            provided, or if their lengths do not match.
         """
         dashboard_results = []
 
@@ -326,6 +345,11 @@ class DashboardsMigrationMixin:
             If True, attempts to migrate shares (and optionally ownership) after dashboards are created.
         change_ownership : bool, default False
             If True and `migrate_share=True`, attempts to change ownership on the target dashboards.
+        emit : Callable[[dict[str, Any]], None] or None, default None
+            Optional callback invoked with structured progress events. If not provided, no events
+            are emitted and only the final result is returned. Event payloads carry a ``type``
+            ("started" | "progress" | "warning" | "error" | "completed"), a ``step`` identifier,
+            a human-readable ``message``, and additional step-specific fields.
 
         Returns
         -------

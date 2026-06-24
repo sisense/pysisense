@@ -1,21 +1,28 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class ColumnsMixin:
-    def get_dashboard_columns(self, dashboard_name):
-        """
-        Retrieves columns from a specific dashboard, including both widget and filter-level columns.
+    def get_dashboard_columns(self, dashboard_name: str) -> list[dict[str, Any]]:
+        """Retrieve columns referenced by a dashboard, including widget and filter columns.
 
-        This method:
-        - Uses the `get_dashboard_by_name` method to fetch the dashboard.
-        - Extracts columns from widgets and filters.
-        - Deduplicates the final column list.
+        Resolves the dashboard by title with ``get_dashboard_by_name``, exports
+        its full metadata, then extracts column references from both filters and
+        widgets. The final list is deduplicated by ``table`` and ``column``.
 
-        Parameters:
-            dashboard_name (str): The name of the dashboard to retrieve columns from.
+        Parameters
+        ----------
+        dashboard_name : str
+            Title of the dashboard to retrieve columns from.
 
-        Returns:
-            list: A list of dictionaries containing distinct table and column information from the dashboard.
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of distinct column entries. Each entry contains
+            ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``),
+            ``widget_id``, ``table``, and ``column``. Returns an empty list when
+            the dashboard is not found or its metadata cannot be retrieved.
         """
         self.logger.info(f"Starting column retrieval for dashboard: {dashboard_name}")
 

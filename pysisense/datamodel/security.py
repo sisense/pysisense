@@ -4,16 +4,23 @@ from typing import Any
 
 
 class SecurityMixin:
-    def get_datasecurity(self, datamodel_name):
-        """
-        Retrieves datasecurity table and column entries for a given DataModel in flat row format.
+    def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve datasecurity table and column entries for a given data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve datasecurity for.
+        Resolves the data model, fetches its datasecurity rules, and returns the
+        unique table/column entries in a flat row format.
 
-        Returns:
-            list: List of dicts with datamodel name, table name, column name, and security type.
-                If no rules exist, a single row is returned with empty values and the datamodel name.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to retrieve datasecurity for.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dicts, each with ``"datamodel_name"``, ``"table_name"``,
+            ``"column_name"``, and ``"data_type"``. If no rules exist, a single row
+            is returned with empty values and the data model name.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
@@ -64,21 +71,32 @@ class SecurityMixin:
         self.logger.info(f"Resolved {len(datasecurity_info)} datasecurity entries for DataModel '{datamodel_name}'")
         return datasecurity_info
 
-    def get_datasecurity_detail(self, datamodel_name):
-        """
-        Retrieves detailed datasecurity rules for a specific DataModel, including share-level visibility.
-        Each row represents a unique column-level rule and is repeated per share for clarity.
+    def get_datasecurity_detail(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve detailed datasecurity rules for a data model, including share-level visibility.
 
-        Special handling is applied to interpret member values:
-        - If "members" is an empty list and "exclusionary" is missing/null => interpreted as "Nothing"
-        - If "members" is empty and "exclusionary" is False => interpreted as "Everything"
-        - If values exist and "exclusionary" is True => treated as restricted subset
+        Each row represents a unique column-level rule and is repeated per share for
+        clarity. Special handling is applied to interpret member values:
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve datasecurity rules for.
+        - If ``members`` is an empty list and ``exclusionary`` is missing/null, it is
+          interpreted as "Nothing".
+        - If ``members`` is empty and ``exclusionary`` is ``False``, it is interpreted
+          as "Everything".
+        - If values exist and ``exclusionary`` is ``True``, it is treated as a
+          restricted subset.
 
-        Returns:
-            list: A list of dictionaries representing datasecurity rules in flat, share-resolved format.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to retrieve datasecurity rules for.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dicts representing datasecurity rules in flat, share-resolved
+            format, each with ``"datamodel_name"``, ``"table_name"``,
+            ``"column_name"``, ``"data_type"``, ``"value"``, ``"exclusionary"``,
+            ``"share_type"``, ``"share_name"``, and ``"rule_description"``. Returns a
+            single default row when no rules exist or on failure.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
