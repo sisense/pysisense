@@ -5,15 +5,23 @@ from typing import Any
 
 
 class UsersMigrationMixin:
-    def migrate_users(self, user_name_list):
-        """
-        Migrates specific users from the source environment to the target environment.
+    def migrate_users(self, user_name_list: list[str]) -> dict[str, Any] | list[dict[str, Any]]:
+        """Migrate specific users from the source environment to the target environment.
 
-        Parameters:
-            user_name_list (list): A list of user names to migrate.
+        Fetches users from the source environment, maps their role and group
+        names to target environment IDs, and creates them in the target.
 
-        Returns:
-            list: A list of user migration results, including any errors encountered during the process.
+        Parameters
+        ----------
+        user_name_list : list[str]
+            The user identifiers (email addresses) to migrate. (format: email)
+
+        Returns
+        -------
+        dict[str, Any] | list[dict[str, Any]]
+            A result payload with per-user migration statuses and any raw error
+            encountered, or a list with an informational message when there are
+            no users to migrate.
         """
         self.logger.info("Starting user migration from source to target.")
 
@@ -136,7 +144,7 @@ class UsersMigrationMixin:
         """
         Migrate all eligible users from the source environment to the target environment using the bulk endpoint.
 
-        This method is designed to support MCP-style streaming by optionally emitting structured
+        This method supports streaming progress by optionally emitting structured
         progress events via the ``emit`` callback. It remains synchronous, but callers can run it
         in a worker thread and forward events to an event stream.
 

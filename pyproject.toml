@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysisense"
-version = "1.0.1"
+version = "1.0.2"
 description = "A Python SDK for interacting with Sisense API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -59,6 +59,7 @@ exclude = [
   "docs*",
   "examples*",
   "scripts*",
+  "tools*",
   "logs*",
   "dist*",
   "build*",

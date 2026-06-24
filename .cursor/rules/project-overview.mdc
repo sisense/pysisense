@@ -92,7 +92,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `base.py` | `_emit` and internal helpers (private) |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
-| `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv`, `elasticube_run_sql_query` |
+| `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |
 | `wellcheck/` | `dashboard_checks.py` | `check_dashboard_structure`, `check_dashboard_widget_counts`, `check_pivot_widget_fields` |
 | | `datamodel_checks.py` | `check_datamodel_custom_tables`, `check_datamodel_island_tables`, `check_datamodel_rls_datatypes`, `check_datamodel_import_queries`, `check_datamodel_m2m_relationships` |
 | | `__init__.py` | `run_full_wellcheck` (orchestrates all checks) |

@@ -1,7 +1,7 @@
 Queries Class Documentation
 ===========================
 
-The `Queries` class runs JAQL and SQL queries against Sisense datasources and elasticubes.
+The `Queries` class runs JAQL queries against Sisense datasources and elasticubes.
 
 * * * * *
 
@@ -36,18 +36,3 @@ Runs a JAQL query returning CSV via `POST /api/datasources/{name}/jaql/csv`.
 **Returns:**
 
 - `dict` or `str`: JSON result, raw CSV text, or `{"error": "..."}` on failure.
-
-* * * * *
-
-### `elasticube_run_sql_query(elasticube_name, sql_payload)`
-
-Runs SQL via `POST /api/elasticubes/{name}/Sql`.
-
-**Parameters:**
-
-- `elasticube_name` (str): Elasticube name.
-- `sql_payload` (dict): SQL request body (for example `{"query": "SELECT ..."}`).
-
-**Returns:**
-
-- `dict`: Query result on success, or `{"error": "..."}` on failure.

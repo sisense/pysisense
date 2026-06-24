@@ -49,12 +49,3 @@ else:
     print(json.dumps(csv_result, indent=4))
 ```
 
----
-
-## Example 3: Run SQL on an Elasticube
-
-```python
-sql_payload = {"query": "SELECT COUNT(*) FROM Orders"}
-result = queries.elasticube_run_sql_query("SalesModel", sql_payload)
-print(json.dumps(result, indent=4))
-```

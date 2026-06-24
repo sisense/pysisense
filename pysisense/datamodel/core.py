@@ -4,15 +4,22 @@ from typing import Any
 
 
 class DataModelCoreMixin:
-    def get_datamodel(self, datamodel_name):
-        """
-        Retrieves a DataModel by its name.
+    def get_datamodel(self, datamodel_name: str) -> dict[str, Any]:
+        """Retrieve a data model by its title.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve.
+        Sends ``GET /api/v2/datamodels/schema?title=<name>`` and returns the
+        matching data model schema object.
 
-        Returns:
-            dict: DataModel details if found, or a dictionary with an error message.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name (title) of the data model to retrieve.
+
+        Returns
+        -------
+        dict[str, Any]
+            The data model schema object if found, or ``{"error": "..."}`` on
+            failure or when no match is found.
         """
         self.logger.debug(f"Fetching DataModel with title: '{datamodel_name}'")
 
@@ -36,14 +43,20 @@ class DataModelCoreMixin:
         self.logger.debug(f"DataModel details: {datamodels}")
         return datamodels
 
-    def get_all_datamodel(self):
-        """
-        Retrieves metadata details of all DataModels using an undocumented internal API.
-        This includes additional fields like build status, size, and timestamps that may
-        not be available through the standard public endpoints.
+    def get_all_datamodel(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve metadata for all data models using an internal API.
 
-        Returns:
-            dict: Parsed metadata details of all DataModels, or a dictionary with an error message.
+        Sends a ``POST /api/v2/ecm/`` GraphQL query (``elasticubesMetadata``).
+        This includes additional fields such as build status, size, and
+        timestamps that may not be available through the standard public
+        endpoints.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            List of data model metadata objects (each with ``oid``, ``title``,
+            ``type``, ``status``, ``sizeInMb``) on success, or
+            ``{"error": "..."}`` on failure.
         """
         self.logger.debug("Fetching all DataModel metadata using undocumented API.")
 
@@ -91,144 +104,183 @@ class DataModelCoreMixin:
         self.logger.info(f"Total number of datamodels: {len(new_data)}")
         return new_data
 
-    def describe_datamodel_raw(self, datamodel_name):
+    def _resolve_datamodel_structure(self, datamodel_name: str) -> dict[str, Any] | None:
+        """Fetch a data model and walk its datasets/tables into a common intermediate.
+
+        Returns ``None`` if the model is not found. Otherwise returns a dict with the
+        resolved model metadata and a normalized ``datasets`` list (each with its
+        ``tables``), from which callers build their own output shape.
         """
-        Retrieve detailed information about a specific DataModel, including share details.
-
-        Parameters:
-            datamodel_name (str): Name of the DataModel to describe.
-
-        Returns:
-            dict: Detailed information about the DataModel, or an error message if not found.
-        """
-        self.logger.debug(f"[START] Describing DataModel '{datamodel_name}'")
-
-        # Step 1: Get DataModel by name
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return None
 
         datamodel_id = datamodel.get("oid")
         datamodel_type = datamodel.get("type")
-        datamodel_name = datamodel.get("title")
-
-        # Step 3: Resolve last build/publish time
+        resolved_name = datamodel.get("title")
         last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
+        last_updated = datamodel.get("lastUpdated", "")
 
-        # Step 4: Resolve Dataset and Connections
-        datasets = datamodel.get("datasets", [])
-        dataset_info = []
-
-        for dataset in datasets:
-            dataset_id = dataset.get("oid")
-            dataset_name = dataset.get("name", "Unknown Dataset")
-
+        datasets_intermediate = []
+        for dataset in datamodel.get("datasets", []):
             connection = dataset.get("connection")
-            if connection:
-                provider = connection.get("provider", "Unknown Provider")
-                connection_name = connection.get("name", "Unknown Connection")
-            else:
-                provider = "Unknown Provider"
-                connection_name = "Unknown Connection"
+            provider = connection.get("provider", "Unknown Provider") if connection else "Unknown Provider"
+            connection_name = connection.get("name", "Unknown Connection") if connection else "Unknown Connection"
+            table_type = dataset.get("type", "Unknown Type")
 
-            tables = dataset.get("schema", {}).get("tables", [])
+            tables = []
+            for table in dataset.get("schema", {}).get("tables", []):
+                tables.append({"raw": table, "table_name": table.get("name", "Unknown Table"), "table_type": table_type})
+
+            datasets_intermediate.append(
+                {
+                    "dataset_id": dataset.get("oid"),
+                    "dataset_name": dataset.get("name", "Unknown Dataset"),
+                    "provider": provider,
+                    "connection_name": connection_name,
+                    "tables": tables,
+                }
+            )
+
+        return {
+            "datamodel_id": datamodel_id,
+            "datamodel_type": datamodel_type,
+            "datamodel_name": resolved_name,
+            "last_build_publish": last_build_publish,
+            "last_updated": last_updated,
+            "datasets": datasets_intermediate,
+        }
+
+    def describe_datamodel_raw(self, datamodel_name: str) -> dict[str, Any]:
+        """Retrieve detailed information about a specific data model.
+
+        Resolves the data model by name, then builds a nested structure
+        containing model metadata along with its datasets, connections, and
+        tables.
+
+        Parameters
+        ----------
+        datamodel_name : str
+            Name (title) of the data model to describe.
+
+        Returns
+        -------
+        dict[str, Any]
+            A nested dict with keys ``name``, ``id``, ``type``,
+            ``datamodel_last_build_publish``, ``datamodel_last_updated``, and
+            ``datasets`` on success, or ``{"error": "..."}`` if not found.
+        """
+        self.logger.debug(f"[START] Describing DataModel '{datamodel_name}'")
+
+        structure = self._resolve_datamodel_structure(datamodel_name)
+        if structure is None:
+            return {"error": f"DataModel '{datamodel_name}' not found."}
+
+        datamodel_name = structure["datamodel_name"]
+
+        # Resolve Dataset and Connections
+        dataset_info = []
+        for dataset in structure["datasets"]:
             table_info = []
+            self.logger.debug(f"Resolving tables for dataset '{dataset['dataset_name']}'")
+            for table in dataset["tables"]:
+                self.logger.debug(table["raw"])
+                table_info.append({"table_name": table["table_name"], "table_type": table["table_type"]})
 
-            self.logger.debug(f"Resolving tables for dataset '{dataset_name}'")
-            for table in tables:
-                self.logger.debug(table)
-                table_name = table.get("name", "Unknown Table")
-                table_type = dataset.get("type", "Unknown Type")
-                table_info.append({"table_name": table_name, "table_type": table_type})
-
-            dataset_info.append({"dataset_id": dataset_id, "dataset_name": dataset_name, "provider": provider, "connection_name": connection_name, "tables": table_info})
+            dataset_info.append(
+                {
+                    "dataset_id": dataset["dataset_id"],
+                    "dataset_name": dataset["dataset_name"],
+                    "provider": dataset["provider"],
+                    "connection_name": dataset["connection_name"],
+                    "tables": table_info,
+                }
+            )
 
         self.logger.debug(f"Resolved datasets: {dataset_info}")
         self.logger.info(f"Total datasets resolved: {len(dataset_info)}")
 
-        # Step 5: Build output dictionary
+        # Build output dictionary
         datamodel_info = {
             "name": datamodel_name,
-            "id": datamodel_id,
-            "type": datamodel_type,
-            "datamodel_last_build_publish": last_build_publish,
-            "datamodel_last_updated": datamodel.get("lastUpdated", ""),
+            "id": structure["datamodel_id"],
+            "type": structure["datamodel_type"],
+            "datamodel_last_build_publish": structure["last_build_publish"],
+            "datamodel_last_updated": structure["last_updated"],
             "datasets": dataset_info,
         }
 
         self.logger.info(f"DataModel '{datamodel_name}' described successfully.")
         return datamodel_info
 
-    def describe_datamodel(self, datamodel_name):
-        """
-        Retrieve detailed datamodel structure in a flat, row-based format suitable for DataFrame or CSV export.
+    def describe_datamodel(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve data model structure in a flat, row-based format.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to describe.
+        Resolves the data model by name and flattens its datasets and tables
+        into one row per table, suitable for DataFrame or CSV export.
 
-        Returns:
-            list: List of dictionaries, each representing a single table row with context (datamodel, dataset, table).
+        Parameters
+        ----------
+        datamodel_name : str
+            Name (title) of the data model to describe.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of row dicts, each representing a single table with model,
+            dataset, connection, and table context. Returns an empty list if
+            the data model is not found.
         """
         self.logger.debug(f"[START] Generating flat structure for DataModel '{datamodel_name}'")
 
-        # Step 1: Get DataModel by name
-        datamodel = self.get_datamodel(datamodel_name)
-        if "error" in datamodel:
-            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+        structure = self._resolve_datamodel_structure(datamodel_name)
+        if structure is None:
             return []
-        datamodel_id = datamodel.get("oid")
-        datamodel_type = datamodel.get("type")
-        datamodel_name = datamodel.get("title")
 
-        # Step 2: Resolve last build/publish time
-        last_build_publish = datamodel.get("lastBuildTime") if datamodel_type.upper() == "EXTRACT" else datamodel.get("lastPublishTime")
+        datamodel_name = structure["datamodel_name"]
 
-        last_updated = datamodel.get("lastUpdated", "")
-
-        # Step 3: Extract datasets and tables as rows
+        # Extract datasets and tables as rows
         rows = []
-        datasets = datamodel.get("datasets", [])
-
-        for dataset in datasets:
-            dataset_id = dataset.get("oid")
-            dataset_name = dataset.get("name", "Unknown Dataset")
-            connection = dataset.get("connection")
-
-            provider = connection.get("provider", "Unknown Provider") if connection else "Unknown Provider"
-            connection_name = connection.get("name", "Unknown Connection") if connection else "Unknown Connection"
-
-            tables = dataset.get("schema", {}).get("tables", [])
-
-            for table in tables:
-                row = {
-                    "datamodel_name": datamodel_name,
-                    "datamodel_id": datamodel_id,
-                    "datamodel_type": datamodel_type,
-                    "datamodel_last_build_publish": last_build_publish,
-                    "datamodel_last_updated": last_updated,
-                    "dataset_id": dataset_id,
-                    "dataset_name": dataset_name,
-                    "provider": provider,
-                    "connection_name": connection_name,
-                    "table_name": table.get("name", "Unknown Table"),
-                    "table_type": dataset.get("type", "Unknown Type"),
-                }
-                rows.append(row)
+        for dataset in structure["datasets"]:
+            for table in dataset["tables"]:
+                rows.append(
+                    {
+                        "datamodel_name": datamodel_name,
+                        "datamodel_id": structure["datamodel_id"],
+                        "datamodel_type": structure["datamodel_type"],
+                        "datamodel_last_build_publish": structure["last_build_publish"],
+                        "datamodel_last_updated": structure["last_updated"],
+                        "dataset_id": dataset["dataset_id"],
+                        "dataset_name": dataset["dataset_name"],
+                        "provider": dataset["provider"],
+                        "connection_name": dataset["connection_name"],
+                        "table_name": table["table_name"],
+                        "table_type": table["table_type"],
+                    }
+                )
 
         self.logger.info(f"Flattened {len(rows)} rows from DataModel '{datamodel_name}'")
         return rows
 
-    def get_model_schema(self, datamodel_name):
-        """
-        Retrieves the schema of a DataModel, including tables and columns.
+    def get_model_schema(self, datamodel_name: str) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve the schema of a data model, including tables and columns.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve the schema for.
+        Resolves the data model by name and emits one row per column, mapping
+        Sisense numeric column type codes to readable type names.
 
-        Returns:
-            list: A list of dictionaries containing schema information (one per column),
-                or an error message if not found.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name (title) of the data model to retrieve the schema for.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            A list of dicts (one per column) with ``datamodel_name``,
+            ``datamodel_type``, ``dataset_name``, ``table_name``,
+            ``column_name``, and ``column_type`` on success, or
+            ``{"error": "..."}`` if the data model is not found.
         """
         self.logger.debug(f"[START] Resolving schema for DataModel '{datamodel_name}'")
 

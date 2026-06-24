@@ -11,8 +11,6 @@ _JAQL_PAYLOAD = {
 
 _JAQL_RESULT = {"headers": ["Amount"], "values": [[100]]}
 
-_SQL_PAYLOAD = {"query": "SELECT 1"}
-
 
 def _make_queries(post_responses=None):
     logger = FakeLogger()
@@ -61,24 +59,3 @@ class TestElasticubesRunJaqlCsv:
         )
         result = q.elasticubes_run_jaql_csv("SalesModel", _JAQL_PAYLOAD)
         assert result["csv"] == "data"
-
-
-class TestElasticubeRunSqlQuery:
-    def test_returns_result_on_success(self):
-        sql_result = {"headers": ["col"], "values": [[1]]}
-        q = _make_queries(
-            post_responses={
-                "/api/elasticubes/SalesModel/Sql": FakeResponse(200, sql_result),
-            },
-        )
-        result = q.elasticube_run_sql_query("SalesModel", _SQL_PAYLOAD)
-        assert result["headers"] == ["col"]
-
-    def test_returns_error_on_failure(self):
-        q = _make_queries(
-            post_responses={
-                "/api/elasticubes/SalesModel/Sql": FakeResponse(500, {"message": "error"}),
-            },
-        )
-        result = q.elasticube_run_sql_query("SalesModel", _SQL_PAYLOAD)
-        assert "error" in result

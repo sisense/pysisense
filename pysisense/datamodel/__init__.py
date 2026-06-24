@@ -39,8 +39,8 @@ class DataModel(
         Data model access — get and add share entries (users and groups)
         with READ, USE, or EDIT permission levels.
     data :
-        Data retrieval — query table contents via SQL; get row counts for
-        a table within a data model.
+        Data retrieval — query table contents via SQL; get row counts per
+        table across an entire data model (``get_data``, ``get_row_count``).
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

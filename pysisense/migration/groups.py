@@ -5,15 +5,23 @@ from typing import Any
 
 
 class GroupsMigrationMixin:
-    def migrate_groups(self, group_name_list):
-        """
-        Migrates specific groups from the source environment to the target environment using the bulk endpoint.
+    def migrate_groups(self, group_name_list: list[str]) -> dict[str, Any] | list[dict[str, Any]]:
+        """Migrate specific groups from the source environment to the target environment.
 
-        Parameters:
-            group_name_list (list): A list of group names to migrate.
+        Fetches groups from the source environment, filters to the requested
+        names, and submits them to the target environment's bulk endpoint.
 
-        Returns:
-            list: A list of group migration results, including any errors encountered during the process.
+        Parameters
+        ----------
+        group_name_list : list[str]
+            The group names to migrate.
+
+        Returns
+        -------
+        dict[str, Any] | list[dict[str, Any]]
+            A result payload with per-group migration statuses and any raw error
+            encountered, or a list with an informational message when no groups
+            match the requested names.
         """
         self.logger.info("Starting group migration from source to target.")
 
@@ -104,8 +112,8 @@ class GroupsMigrationMixin:
         Migrate groups from the source environment to the target environment using the bulk endpoint.
 
         This method supports optional progress emission via the ``emit`` callback. If provided,
-        the method will publish structured progress events at key milestones so a caller (for
-        example an MCP server) can stream updates to a UI while the migration is running.
+        the method will publish structured progress events at key milestones so a caller can
+        stream updates to a user interface while the migration is running.
 
         Parameters
         ----------
