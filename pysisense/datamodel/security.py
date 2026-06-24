@@ -4,44 +4,64 @@ from typing import Any
 
 
 class SecurityMixin:
-    def get_datasecurity(self, datamodel_name):
+    def _fetch_datasecurity(self, datamodel_name: str) -> tuple[str | None, list[dict[str, Any]] | None]:
+        """Resolve a data model and fetch its raw datasecurity rules.
+
+        Returns ``(resolved_name, rows)`` where ``resolved_name`` is ``None`` when the
+        model cannot be resolved, and ``rows`` is ``None`` when the fetch failed.
         """
-        Retrieves datasecurity table and column entries for a given DataModel in flat row format.
-
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve datasecurity for.
-
-        Returns:
-            list: List of dicts with datamodel name, table name, column name, and security type.
-                If no rules exist, a single row is returned with empty values and the datamodel name.
-        """
-        self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
-
         # Step 1: Get datamodel object
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return []
+            return None, None
 
-        datamodel_name = datamodel.get("title")
+        resolved_name = datamodel.get("title")
         datamodel_type = datamodel.get("type")
 
         # Step 2: Build API URL
         url = ""
         if datamodel_type.upper() == "EXTRACT":
-            url = f"/api/elasticubes/localhost/{datamodel_name}/datasecurity"
+            url = f"/api/elasticubes/localhost/{resolved_name}/datasecurity"
         elif datamodel_type.upper() == "LIVE":
-            url = f"/api/v1/elasticubes/live/{datamodel_name}/datasecurity"
+            url = f"/api/v1/elasticubes/live/{resolved_name}/datasecurity"
 
         # Step 3: Fetch datasecurity
         self.logger.debug(f"Fetching datasecurity from '{url}'")
         datasecurity_response = self.api_client.get(url)
         if not datasecurity_response or datasecurity_response.status_code != 200:
-            self.logger.warning(f"Could not fetch datasecurity for DataModel '{datamodel_name}'.")
-            return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
+            self.logger.warning(f"Could not fetch datasecurity for DataModel '{resolved_name}'.")
+            return resolved_name, None
 
         datasecurity_data = datasecurity_response.json()
         self.logger.debug(f"Datasecurity data: {datasecurity_data}")
+        return resolved_name, datasecurity_data
+
+    def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve datasecurity table and column entries for a given data model.
+
+        Resolves the data model, fetches its datasecurity rules, and returns the
+        unique table/column entries in a flat row format.
+
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to retrieve datasecurity for.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dicts, each with ``"datamodel_name"``, ``"table_name"``,
+            ``"column_name"``, and ``"data_type"``. If no rules exist, a single row
+            is returned with empty values and the data model name.
+        """
+        self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
+
+        datamodel_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
+        if datamodel_name is None:
+            return []
+        if datasecurity_data is None:
+            return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
 
         # Step 4: Parse datasecurity
         datasecurity_info = []
@@ -64,51 +84,42 @@ class SecurityMixin:
         self.logger.info(f"Resolved {len(datasecurity_info)} datasecurity entries for DataModel '{datamodel_name}'")
         return datasecurity_info
 
-    def get_datasecurity_detail(self, datamodel_name):
-        """
-        Retrieves detailed datasecurity rules for a specific DataModel, including share-level visibility.
-        Each row represents a unique column-level rule and is repeated per share for clarity.
+    def get_datasecurity_detail(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve detailed datasecurity rules for a data model, including share-level visibility.
 
-        Special handling is applied to interpret member values:
-        - If "members" is an empty list and "exclusionary" is missing/null => interpreted as "Nothing"
-        - If "members" is empty and "exclusionary" is False => interpreted as "Everything"
-        - If values exist and "exclusionary" is True => treated as restricted subset
+        Each row represents a unique column-level rule and is repeated per share for
+        clarity. Special handling is applied to interpret member values:
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve datasecurity rules for.
+        - If ``members`` is an empty list and ``exclusionary`` is missing/null, it is
+          interpreted as "Nothing".
+        - If ``members`` is empty and ``exclusionary`` is ``False``, it is interpreted
+          as "Everything".
+        - If values exist and ``exclusionary`` is ``True``, it is treated as a
+          restricted subset.
 
-        Returns:
-            list: A list of dictionaries representing datasecurity rules in flat, share-resolved format.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to retrieve datasecurity rules for.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dicts representing datasecurity rules in flat, share-resolved
+            format, each with ``"datamodel_name"``, ``"table_name"``,
+            ``"column_name"``, ``"data_type"``, ``"value"``, ``"exclusionary"``,
+            ``"share_type"``, ``"share_name"``, and ``"rule_description"``. Returns a
+            single default row when no rules exist or on failure.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
-        # Step 1: Get datamodel object
-        datamodel = self.get_datamodel(datamodel_name)
-        if "error" in datamodel:
-            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+        datamodel_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
+        if datamodel_name is None:
             return []
-
-        datamodel_name = datamodel.get("title")
-        datamodel_type = datamodel.get("type")
-
-        # Step 2: Build API URL
-        url = ""
-        if datamodel_type.upper() == "EXTRACT":
-            url = f"/api/elasticubes/localhost/{datamodel_name}/datasecurity"
-        elif datamodel_type.upper() == "LIVE":
-            url = f"/api/v1/elasticubes/live/{datamodel_name}/datasecurity"
-
-        # Step 3: Fetch datasecurity
-        self.logger.debug(f"Fetching datasecurity from '{url}'")
-        datasecurity_response = self.api_client.get(url)
-        if not datasecurity_response or datasecurity_response.status_code != 200:
-            self.logger.warning(f"Could not fetch datasecurity for DataModel '{datamodel_name}'.")
+        if datasecurity_data is None:
             return [
                 {"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": "", "value": "", "exclusionary": "", "share_type": "", "share_name": "", "rule_description": ""}
             ]
-
-        datasecurity_data = datasecurity_response.json()
-        self.logger.debug(f"Datasecurity data: {datasecurity_data}")
 
         # Step 4: Parse datasecurity rules
         detailed_rows = []

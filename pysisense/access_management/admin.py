@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class AdminMixin:
-    def get_all_dashboard_shares(self):
-        """
-        Method to retrieve all dashboard shares, including user and group details for each shared dashboard.
+    def get_all_dashboard_shares(self) -> list[dict[str, Any]]:
+        """Retrieve all dashboard shares, including user and group details for each shared dashboard.
 
-        This method uses pagination to retrieve all dashboards and their share information, and it collects
-        corresponding user and group details for each share.
+        Uses pagination to retrieve all dashboards and their share information,
+        and collects the corresponding user and group details for each share.
 
-        Returns:
-            list: A list of dictionaries containing the dashboard title, share type (user or group),
-            and share name (email or group name).
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of dictionaries containing the dashboard title, share type
+            (``user`` or ``group``), and share name (email or group name). An
+            empty list is returned if users or groups cannot be fetched.
         """
         limit = 50
         skip = 0
@@ -91,27 +95,53 @@ class AdminMixin:
         # Return the result as a list of dictionaries
         return shared_list
 
-    def create_schedule_build(self, datamodel_name, build_type="ACCUMULATE", *, days=None, hour=None, minute=None, interval_days=None, interval_hours=None, interval_minutes=None):
-        """
-        Method to create a schedule build for a DataModel.
+    def create_schedule_build(
+        self,
+        datamodel_name: str,
+        build_type: str = "ACCUMULATE",
+        *,
+        days: list[str] | None = None,
+        hour: int | None = None,
+        minute: int | None = None,
+        interval_days: int | None = None,
+        interval_hours: int | None = None,
+        interval_minutes: int | None = None,
+    ) -> dict[str, Any]:
+        """Create a schedule build for a DataModel.
 
-        Supports both cron-based schedules (e.g., every Monday at 9:00 UTC)
-        and interval-based schedules (e.g., every 2 days, 1 hour, 30 minutes).
+        Supports both cron-based schedules (e.g. every Monday at 9:00 UTC) and
+        interval-based schedules (e.g. every 2 days, 1 hour, 30 minutes). An
+        interval-based schedule is created when any of the ``interval_*``
+        parameters are provided; otherwise a cron-based schedule is created from
+        ``days``, ``hour``, and ``minute``.
 
-        Parameters:
-            datamodel_name (str): The name of the DataModel.
-            build_type (str): Optional. Type of the build (e.g., "ACCUMULATE", "FULL",
-            "SCHEMA_CHANGES"). Defaults to "ACCUMULATE".
-            days (list, optional): List of days for cron schedule. Eg.: ["SUN", "MON", "TUE", "WED", "THU", "FRI",
-            "SAT"] or ["*"] for all days.
-            hour (int, optional): Hour in 24-hour format (UTC).
-            minute (int, optional): Minute of the hour (UTC).
-            interval_days (int, optional): Interval in days.
-            interval_hours (int, optional): Interval in hours.
-            interval_minutes (int, optional): Interval in minutes.
+        Parameters
+        ----------
+        datamodel_name : str
+            The name of the DataModel.
+        build_type : str, optional
+            Type of the build, one of ``"ACCUMULATE"``, ``"FULL"``, or
+            ``"SCHEMA_CHANGES"``. Defaults to ``"ACCUMULATE"``.
+        days : list[str] | None, optional
+            Keyword-only. List of days for a cron schedule, e.g.
+            ``["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]`` or ``["*"]``
+            for all days.
+        hour : int | None, optional
+            Keyword-only. Hour in 24-hour format (UTC) for a cron schedule.
+        minute : int | None, optional
+            Keyword-only. Minute of the hour (UTC) for a cron schedule.
+        interval_days : int | None, optional
+            Keyword-only. Interval in days for an interval-based schedule.
+        interval_hours : int | None, optional
+            Keyword-only. Interval in hours for an interval-based schedule.
+        interval_minutes : int | None, optional
+            Keyword-only. Interval in minutes for an interval-based schedule.
 
-        Returns:
-            dict: API response or error.
+        Returns
+        -------
+        dict[str, Any]
+            The API response on success, or ``{"error": "..."}`` on failure or
+            invalid schedule configuration.
         """
         self.logger.debug(f"Fetching DataModel ID for '{datamodel_name}'")
         schema_url = f"/api/v2/datamodels/schema?title={datamodel_name}"

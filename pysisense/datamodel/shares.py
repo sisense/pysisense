@@ -1,16 +1,27 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class SharesMixin:
-    def get_datamodel_shares(self, datamodel_name):
-        """
-        Retrieves all share entries (users and groups) for a given DataModel in flat row format.
+    def get_datamodel_shares(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Retrieve all share entries (users and groups) for a given data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to retrieve shares for.
+        Resolves user and group identifiers to names/emails and returns the shares
+        in a flat row format. Permission codes are mapped to ``"EDIT"``, ``"READ"``,
+        or ``"USE"``.
 
-        Returns:
-            list: List of dicts with datamodel name, party name, type, and permission.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to retrieve shares for.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of dicts, each with ``"datamodel_name"``, ``"datamodel_id"``,
+            ``"party_name"``, ``"party_type"``, and ``"permission"``. Returns an
+            empty list on failure.
         """
         self.logger.debug(f"[START] Resolving share info for DataModel '{datamodel_name}'")
 
@@ -66,19 +77,26 @@ class SharesMixin:
         self.logger.info(f"Resolved {len(resolved_shares)} share entries for DataModel '{datamodel_name}'")
         return resolved_shares
 
-    def add_datamodel_shares(self, datamodel_name, shares):
-        """
-        Adds share entries (users and groups) to a DataModel.
+    def add_datamodel_shares(self, datamodel_name: str, shares: list[dict[str, Any]]) -> dict[str, Any]:
+        """Add share entries (users and groups) to a data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel to add shares to.
-            shares (list): List of dictionaries containing share details. Each dictionary should have:
-                - name: Name of the user or group
-                - type: Type of the party (user or group)
-                - permission: Permission level (EDIT, READ, USE)
+        Resolves each share's user email or group name to its identifier, merges
+        the new shares with the existing ones, and submits the combined share list.
 
-        Returns:
-            dict: Result of the share addition operation.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to add shares to.
+        shares : list[dict[str, Any]]
+            List of share definitions to add. Each dictionary should include:
+            ``name`` (user email or group name), ``type`` (``"user"`` or
+            ``"group"``), and ``permission`` (one of ``"EDIT"``, ``"READ"``,
+            ``"USE"``).
+
+        Returns
+        -------
+        dict[str, Any]
+            API response on success, or ``{"error": "..."}`` on failure.
         """
         self.logger.debug(f"[START] Adding shares to DataModel '{datamodel_name}'")
 

@@ -63,7 +63,7 @@ class Migration(
                 debug=False,
             )
 
-        2) Client-based (for agent app / inline connections):
+        2) Client-based (for inline / runtime connections):
             src_client = SisenseClient.from_connection(
                 domain="https://source.sisense.com",
                 token="SRC_TOKEN",
@@ -86,7 +86,7 @@ class Migration(
         - Either both source_client and target_client
         - Or both source_yaml and target_yaml
         """
-        # Prefer explicit clients if provided (agent / runtime connections)
+        # Prefer explicit clients if provided (inline / runtime connections)
         if source_client is not None and target_client is not None:
             self.source_client = source_client
             self.target_client = target_client

@@ -4,19 +4,35 @@ from typing import Any
 
 
 class SharesMixin:
-    def add_dashboard_shares(self, dashboard_id, shares):
-        """
-        Adds or updates shares for a dashboard, specifying users and groups along with their access rules.
+    def add_dashboard_shares(self, dashboard_id: str, shares: list[dict[str, Any]]) -> str:
+        """Add or update shares for a dashboard for the given users and groups.
 
-        Parameters:
-            dashboard_id (str): The ID of the dashboard to which the shares will be added.
-            shares (list of dicts): A list of dictionaries, each containing:
-                - "name" (str): The username or group name.
-                - "type" (str): Either "user" or "group" to indicate the share type.
-                - "rule" (str): The access level (e.g., "view", "edit").
+        Resolves each share's ``name`` to its user or group ``shareId``, compares
+        against the dashboard's existing shares, and posts only new shares and
+        shares whose ``rule`` changed. Existing shares that are unaffected are
+        preserved in the payload.
 
-        Returns:
-            str: Success message or error details.
+        Parameters
+        ----------
+        dashboard_id : str
+            The ``oid`` of the dashboard to which the shares will be applied.
+        shares : list[dict[str, Any]]
+            A list of share entries. Each entry must contain:
+
+            - ``name`` (str): The username (email) or group name.
+            - ``type`` (str): Either ``"user"`` or ``"group"``.
+            - ``rule`` (str): The access level (for example ``"view"`` or
+              ``"edit"``).
+
+            The ``name`` is resolved to ``shareId`` internally; entries that
+            cannot be resolved are skipped.
+
+        Returns
+        -------
+        str
+            A success message summarizing the new and updated shares, a message
+            indicating no changes were needed, or an error description on
+            failure.
         """
 
         endpoint = f"/api/shares/dashboard/{dashboard_id}?adminAccess=true"
@@ -137,16 +153,25 @@ class SharesMixin:
             self.logger.exception(f"Exception while adding/updating shares for dashboard {dashboard_id}: {e}")
             return f"Exception: {str(e)}"
 
-    def get_dashboard_share(self, dashboard_name):
-        """
-        Retrieves share details (users and groups) for a specific dashboard by title.
+    def get_dashboard_share(self, dashboard_name: str) -> list[dict[str, Any]]:
+        """Retrieve share details (users and groups) for a dashboard by title.
 
-        Parameters:
-            dashboard_name (str): The title of the dashboard to retrieve share information for.
+        Resolves the dashboard by title, then maps each share's ``shareId`` to a
+        readable name using the users and groups lists: user shares resolve to
+        the user's ``email`` and group shares to the group ``name``.
 
-        Returns:
-            list: A list of dictionaries containing share type (user or group), and share name (email or group name),
-                or an empty list if the dashboard is not found or has no shares.
+        Parameters
+        ----------
+        dashboard_name : str
+            Title of the dashboard to retrieve share information for.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of share entries, each containing ``type`` (``"user"`` or
+            ``"group"``) and ``name`` (email or group name). Returns an empty
+            list when the dashboard is not found, has no shares, or the users or
+            groups lookup fails.
         """
         self.logger.info(f"Fetching share details for dashboard: '{dashboard_name}'")
 
