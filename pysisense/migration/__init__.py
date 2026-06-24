@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..sisenseclient import SisenseClient
 from .base import MigrationBaseMixin
+from .custom_code import CustomCodeMigrationMixin
 from .dashboards import DashboardsMigrationMixin
 from .datamodels import DatamodelsMigrationMixin
 from .groups import GroupsMigrationMixin
@@ -14,6 +15,7 @@ class Migration(
     UsersMigrationMixin,
     DashboardsMigrationMixin,
     DatamodelsMigrationMixin,
+    CustomCodeMigrationMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
 
@@ -39,6 +41,9 @@ class Migration(
     datamodels :
         Data model migration — copy data model schemas and connection
         definitions from source to target; supports bulk migration.
+    custom_code :
+        Notebook migration — copy custom-code notebooks from source to
+        target with skip, overwrite, or duplicate conflict handling.
     """
 
     def __init__(

@@ -54,7 +54,7 @@ uv run pre-commit install --hook-type commit-msg
 | `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
-| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
+| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models, notebooks) |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
@@ -92,6 +92,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
 | | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
+| | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
 | | `base.py` | `_emit` and internal helpers (private) |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
