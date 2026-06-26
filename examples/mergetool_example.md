@@ -70,9 +70,67 @@ print(json.dumps(results, indent=4))
 
 ---
 
+## Example 4: Migrate Specific Folders by Name (with subtree)
+
+```python
+folder_names = [
+    "Analytics",
+    "Finance Reports",
+]
+results = merge.migrate_folders(
+    folder_names=folder_names,
+    action="skip",               # Child folders are included automatically
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 5: Migrate Specific Folders by ID (with subtree)
+
+```python
+folder_ids = [
+    "folder-oid-1",
+    "folder-oid-2",
+]
+results = merge.migrate_folders(
+    folder_ids=folder_ids,
+    action="overwrite",          # Deletes existing folder on target then recreates
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 6: Migrate All Folders
+
+```python
+results = merge.migrate_all_folders(
+    action="skip",               # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 7: Using an emit callback for progress tracking
+
+```python
+def on_progress(event: dict) -> None:
+    print(f"[{event.get('type', '').upper()}] {event.get('step')} — {event.get('message')}")
+
+results = merge.migrate_all_folders(action="skip", emit=on_progress)
+print(json.dumps(results, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
+- Folder migration preserves the full hierarchy — child folders are always created under their parent.
+- Folders whose parent is not in the migration list are created at the root level on the target.
+- `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating — use with caution.
 - For more details, refer to `docs/mergetool.md`.
 
 ---
