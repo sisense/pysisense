@@ -29,9 +29,24 @@ uv run ruff check --fix .
 # Format
 uv run ruff format .
 
-# Install pre-commit hooks
+# Check docstring conventions (whole package)
+uv run python tools/check_docstrings.py
+
+# Check docstring conventions on specific files
+uv run python tools/check_docstrings.py pysisense/queries/core.py
+
+# Install pre-commit hooks (commit-msg + the file hooks)
 uv run pre-commit install --hook-type commit-msg
+uv run pre-commit install
 ```
+
+> The docstring checker (`tools/check_docstrings.py`) enforces the NumPy
+> docstring + type-hint conventions below across the whole package, and runs
+> automatically via pre-commit and CI. Every public method must have a docstring
+> with `Parameters`/`Returns` sections, full type hints, only approved
+> `(format: ...)` tags (`email`, `uuid`, `date`, `ipv4`, `ipv6`), and no mention
+> of external systems; every facade class (in an `__init__.py`) must have a
+> `Modules` section.
 
 ---
 
@@ -97,7 +112,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `mergetool/` | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
-| `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv`, `elasticube_run_sql_query` |
+| `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |
 | `wellcheck/` | `dashboard_checks.py` | `check_dashboard_structure`, `check_dashboard_widget_counts`, `check_pivot_widget_fields` |
 | | `datamodel_checks.py` | `check_datamodel_custom_tables`, `check_datamodel_island_tables`, `check_datamodel_rls_datatypes`, `check_datamodel_import_queries`, `check_datamodel_m2m_relationships` |
 | | `__init__.py` | `run_full_wellcheck` (orchestrates all checks) |

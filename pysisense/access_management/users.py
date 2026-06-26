@@ -46,33 +46,65 @@ class UsersMixin:
         self.logger.debug(f"Built role and group mappings in helper. Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
         return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
 
-    def get_user_with_role_and_group_names(self, user_name: str) -> dict[str, Any]:
+    def _fetch_expanded_users(self) -> Any:
+        """Fetch the users list with ``groups`` and ``role`` expanded; returns the raw response."""
+        return self.api_client.get("/api/v1/users", params={"expand": "groups,role"})
+
+    def _map_user_role_and_groups(self, user: dict[str, Any]) -> tuple[str | None, str | None, list[str], list[str]]:
+        """Resolve a single expanded user's role/group IDs and names.
+
+        Returns ``(role_id, role_name, group_ids, group_names)``.
         """
-        Retrieves a single user by email/username and returns both role and
-        group IDs and names.
+        role_mapping = {
+            "consumer": "viewer",
+            "super": "sysAdmin",
+            "contributor": "dashboardDesigner",
+        }
 
-        Parameters:
-            user_name (str): The email or username of the user to be retrieved.
+        role_obj = user.get("role") or {}
+        groups_obj = user.get("groups") or []
 
-        Returns:
-            dict: User details including:
-                - USER_ID
-                - USER_NAME
-                - FIRST_NAME
-                - LAST_NAME
-                - EMAIL
-                - IS_ACTIVE
-                - ROLE_ID
-                - ROLE_NAME
-                - GROUP_IDS (list of group IDs)
-                - GROUP_NAMES (list of group names)
-            or {"error": "..."} on failure.
+        role_id = role_obj.get("_id")
+        role_name_raw = role_obj.get("name")
+        role_name = role_mapping.get(role_name_raw, role_name_raw)
+
+        group_ids = []
+        group_names = []
+        for g in groups_obj:
+            if not isinstance(g, dict):
+                continue
+            gid = g.get("_id")
+            gname = g.get("name")
+            if gid:
+                group_ids.append(gid)
+            if gname:
+                group_names.append(gname)
+
+        return role_id, role_name, group_ids, group_names
+
+    def get_user_with_role_and_group_names(self, user_name: str) -> dict[str, Any]:
+        """Retrieve a single user by email/username with role and group details.
+
+        Fetches the expanded users list and returns the matching user enriched
+        with both the role and group IDs and their resolved names.
+
+        Parameters
+        ----------
+        user_name : str
+            The email or username of the user to be retrieved. (format: email)
+
+        Returns
+        -------
+        dict[str, Any]
+            User details including ``USER_ID``, ``USER_NAME``, ``FIRST_NAME``,
+            ``LAST_NAME``, ``EMAIL``, ``IS_ACTIVE``, ``ROLE_ID``, ``ROLE_NAME``,
+            ``GROUP_IDS`` (list of group IDs), and ``GROUP_NAMES`` (list of group
+            names), or ``{"error": "..."}`` on failure.
         """
         self.logger.debug(f"Getting user with role and group IDs/names for: {user_name}")
 
         # Reuse expanded users endpoint to get role & group objects
-        params = {"expand": "groups,role"}
-        response = self.api_client.get("/api/v1/users", params=params)
+        response = self._fetch_expanded_users()
 
         if not response or not response.ok:
             error_msg = f"Failed to retrieve users from API for username: {user_name}."
@@ -85,35 +117,12 @@ class UsersMixin:
             self.logger.exception("Error decoding JSON response for user list in get_user_with_role_and_group_names.")
             return {"error": f"Failed to decode API response: {exc}"}
 
-        ROLE_MAPPING = {
-            "consumer": "viewer",
-            "super": "sysAdmin",
-            "contributor": "dashboardDesigner",
-        }
-
         for user in users:
             try:
                 if user.get("email") != user_name:
                     continue
 
-                role_obj = user.get("role") or {}
-                groups_obj = user.get("groups") or []
-
-                role_id = role_obj.get("_id")
-                role_name_raw = role_obj.get("name")
-                role_name = ROLE_MAPPING.get(role_name_raw, role_name_raw)
-
-                group_ids = []
-                group_names = []
-                for g in groups_obj:
-                    if not isinstance(g, dict):
-                        continue
-                    gid = g.get("_id")
-                    gname = g.get("name")
-                    if gid:
-                        group_ids.append(gid)
-                    if gname:
-                        group_names.append(gname)
+                role_id, role_name, group_ids, group_names = self._map_user_role_and_groups(user)
 
                 result = {
                     "USER_ID": user.get("_id"),
@@ -138,28 +147,19 @@ class UsersMixin:
         return {"error": f"User '{user_name}' not found."}
 
     def get_users_with_role_names_and_group_names(self) -> list[dict[str, Any]]:
-        """
-        Retrieves all users from Sisense and enriches them with role names and
-        group names by resolving the raw role and group IDs via the roles and
-        groups APIs.
+        """Retrieve all users enriched with role names and group names.
 
-        This uses the users API (with raw IDs), then looks up:
-          - role names from `/api/roles`
-          - group names from `/api/v1/groups`
+        Fetches users from the users API (with raw IDs), then resolves role
+        names from ``/api/roles`` and group names from ``/api/v1/groups`` to
+        enrich each user entry.
 
-        Returns:
-            list[dict]: A list where each entry contains:
-                - USER_ID
-                - USER_NAME
-                - FIRST_NAME
-                - LAST_NAME
-                - EMAIL
-                - IS_ACTIVE
-                - ROLE_ID
-                - ROLE_NAME
-                - GROUP_IDS
-                - GROUP_NAMES
-            If any API call fails, a single-item list with an ``error`` key is returned.
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list where each entry contains ``USER_ID``, ``USER_NAME``,
+            ``FIRST_NAME``, ``LAST_NAME``, ``EMAIL``, ``IS_ACTIVE``, ``ROLE_ID``,
+            ``ROLE_NAME``, ``GROUP_IDS``, and ``GROUP_NAMES``. If any API call
+            fails, a single-item list with an ``error`` key is returned.
         """
         self.logger.debug("Fetching users with raw role/group IDs to enrich with names.")
 
@@ -233,7 +233,7 @@ class UsersMixin:
         Parameters
         ----------
         user_email : str
-            Email address of the user to retrieve.
+            Email address of the user to retrieve. (format: email)
 
         Returns
         -------
@@ -243,8 +243,7 @@ class UsersMixin:
         """
         self.logger.debug("Getting user with email: %s", user_email)
 
-        params = {"expand": "groups,role"}
-        response = self.api_client.get("/api/v1/users", params=params)
+        response = self._fetch_expanded_users()
 
         if not response or not response.ok:
             status = response.status_code if response else "No response"
@@ -401,23 +400,23 @@ class UsersMixin:
         self.logger.info(f"Successfully changed password for user ID {user_id}.")
         return response_data
 
-    def get_users_all(self):
-        """
-        Retrieves user details along with tenant, group, and role information.
-        Removes "Everyone" group from users if they belong to other groups, but
-        keeps the "Everyone" group if it's the only group the user belongs to.
+    def get_users_all(self) -> list[dict[str, Any]]:
+        """Retrieve all users with group and role information.
 
-        Returns:
-            list: List of user details dicts, or [{'error': ...}] if retrieval
+        Retrieves user details along with group and role information. Removes
+        the "Everyone" group from users if they belong to other groups, but
+        keeps the "Everyone" group if it is the only group the user belongs to.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            List of user details dicts, or ``[{"error": "..."}]`` if retrieval
             fails.
         """
         self.logger.debug("Getting all users")
 
-        # Query parameters to expand the response with group and role info
-        params = {"expand": "groups,role"}
-
-        # Fetch user data from the API with the specified query parameters
-        response = self.api_client.get("/api/v1/users", params=params)
+        # Fetch user data from the API with group and role info expanded
+        response = self._fetch_expanded_users()
 
         # Check if the API request failed
         if not response or not response.ok:
@@ -471,20 +470,34 @@ class UsersMixin:
 
         return data_list
 
-    def create_user(self, user_data):
-        """
-        Creates a new user by processing the provided user data to replace role
-        names and group names with their corresponding IDs, then sends a POST
-        request to create the user.
+    def create_user(self, user_data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new user in Sisense.
 
-        Parameters:
-            user_data (dict): A dictionary containing user details such as
-            email, firstName, lastName, role (role name), groups (list of group
-            names), and preferences.
+        Processes the provided user data to resolve the role name and group
+        names to their corresponding IDs, then sends a POST request to create
+        the user. The ``role`` field is matched case-insensitively (with
+        ``"VIEWER"`` mapped to ``"CONSUMER"`` and ``"DESIGNER"`` to
+        ``"CONTRIBUTOR"``) and replaced with the resolved ``roleId``; group
+        names in ``groups`` are resolved to group IDs.
 
-        Returns:
-            dict: The response from the API if successful,
-                or a dictionary with an 'error' key if the operation fails.
+        Parameters
+        ----------
+        user_data : dict[str, Any]
+            Dictionary containing the user details. Supported fields use
+            canonical Sisense payload field names:
+
+            - ``email`` : str — the user's email address.
+            - ``firstName`` : str — the user's first name.
+            - ``lastName`` : str — the user's last name.
+            - ``role`` : str — role name to assign (resolved to ``roleId``).
+            - ``groups`` : list[str] — group names to assign (resolved to IDs).
+            - ``preferences`` : dict — user preference settings.
+
+        Returns
+        -------
+        dict[str, Any]
+            The created user object returned by the API if successful, or a
+            dictionary with an ``error`` key if the operation fails.
         """
         self.logger.debug(f"Creating user with data: {user_data}")
 
@@ -574,7 +587,7 @@ class UsersMixin:
         Parameters
         ----------
         user_email : str
-            Email address of the user to update (used to locate the user).
+            Email address of the user to update (used to locate the user). (format: email)
         user_data : dict[str, Any]
             Dictionary of fields to update. Only include fields you want to change.
 
@@ -692,16 +705,22 @@ class UsersMixin:
         self.logger.error("Failed to update user. Error: %s", error_message)
         return {"error": error_message}
 
-    def delete_user(self, user_name):
-        """
-        Deletes a user by their email (username).
+    def delete_user(self, user_name: str) -> dict[str, Any]:
+        """Delete a user by their email (username).
 
-        Parameters:
-            user_name (str): The email or username of the user to be deleted.
+        Resolves the user by email/username and sends a DELETE request to remove
+        the account.
 
-        Returns:
-            dict: Response from the API if successful,
-                or an error message dict.
+        Parameters
+        ----------
+        user_name : str
+            The email or username of the user to be deleted. (format: email)
+
+        Returns
+        -------
+        dict[str, Any]
+            A success message dict from the API if successful, or an
+            ``{"error": "..."}`` dict on failure.
         """
         self.logger.debug(f"Starting 'delete_user' method for username: {user_name}")
 

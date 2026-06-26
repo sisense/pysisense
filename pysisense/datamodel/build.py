@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class BuildMixin:
-    def create_datamodel(self, datamodel_name, datamodel_type):
-        """
-        Creates a new DataModel in Sisense.
+    def create_datamodel(self, datamodel_name: str, datamodel_type: str) -> dict[str, Any]:
+        """Create a new data model in Sisense.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel.
-            datamodel_type (str): Type of the DataModel. Should be either "extract" (for Elasticube)
-                or "live" (for Live).
+        Normalizes and validates the model type, then sends a request to create
+        the data model and returns its assigned ID.
 
-        Returns:
-            dict: Dictionary with the DataModel ID if created successfully, or an error message.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model.
+        datamodel_type : str
+            Type of the data model. Should be either ``"extract"`` (for Elasticube)
+            or ``"live"`` (for Live).
+
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary with the data model ID under ``"datamodel_id"`` on success,
+            or ``{"error": "..."}`` on failure.
         """
         self.logger.debug(f"Attempting to create DataModel '{datamodel_name}' with type '{datamodel_type}'")
 
@@ -40,19 +50,29 @@ class BuildMixin:
         self.logger.info(f"Successfully created DataModel '{datamodel_name}' with ID: {datamodel_id}")
         return {"datamodel_id": datamodel_id}
 
-    def create_dataset(self, datamodel_name, connection_name, database_name, schema_name, dataset_name=None):
-        """
-        Creates a new dataset in the specified DataModel.
+    def create_dataset(self, datamodel_name: str, connection_name: str, database_name: str, schema_name: str, dataset_name: str | None = None) -> dict[str, Any]:
+        """Create a new dataset in the specified data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel where the dataset will be created.
-            connection_name (str): Name of the connection to use.
-            database_name (str): Name of the data source database.
-            schema_name (str): Name of the data source schema.
-            dataset_name (str, optional): Name of the dataset. Defaults to schema name if not provided.
+        Resolves the data model and connection by name, then sends a request to
+        create a dataset. When ``dataset_name`` is omitted, the schema name is used.
 
-        Returns:
-            dict: A dictionary containing the full dataset object on success, or an error message on failure.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model where the dataset will be created.
+        connection_name : str
+            Name of the connection to use.
+        database_name : str
+            Name of the data source database.
+        schema_name : str
+            Name of the data source schema.
+        dataset_name : str | None, optional
+            Name of the dataset. Defaults to the schema name if not provided.
+
+        Returns
+        -------
+        dict[str, Any]
+            The full dataset object on success, or ``{"error": "..."}`` on failure.
         """
         self.logger.debug(f"Creating dataset in DataModel '{datamodel_name}' with connection '{connection_name}', database '{database_name}', and schema '{schema_name}'")
 
@@ -111,26 +131,56 @@ class BuildMixin:
 
         return {"error": f"Failed to create dataset: {error_detail}"}
 
-    def create_table(self, datamodel_name, table_name, database_name=None, schema_name=None, dataset_id=None, import_query=None, description="", tags=None, build_behavior_config=None):
-        """
-        Create a new table in the specified DataModel.
+    def create_table(
+        self,
+        datamodel_name: str,
+        table_name: str,
+        database_name: str | None = None,
+        schema_name: str | None = None,
+        dataset_id: str | None = None,
+        import_query: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+        build_behavior_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new table in the specified data model.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel where the table will be created.
-            table_name (str): Name of the table to create.
-            database_name (str, optional): Name of the data source database.
-                If not provided, will try to infer from the DataModel.
-            schema_name (str, optional): Name of the data source schema.
-                If not provided, will try to infer from the DataModel.
-            dataset_id (str, optional): ID of the dataset where the table will be created.
-                If not provided, will try to infer from the DataModel.
-            import_query (str, optional): SQL statement used as custom import query. Defaults to None.
-            description (str, optional): Description for the table. Defaults to an empty string.
-            tags (list, optional): List of tags to apply to the table. Defaults to None.
-            build_behavior_config (dict, optional): Configuration for table build behavior.
+        Resolves the data model and dataset (inferring database, schema, and
+        connection when not provided), fetches the table schema, and creates the
+        table. For EXTRACT models, applies an optional build behavior configuration.
 
-        Returns:
-            dict: Table object if created successfully or an error message.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model where the table will be created.
+        table_name : str
+            Name of the table to create.
+        database_name : str | None, optional
+            Name of the data source database. If not provided, inferred from the
+            data model's dataset.
+        schema_name : str | None, optional
+            Name of the data source schema. If not provided, inferred from the
+            data model's dataset.
+        dataset_id : str | None, optional
+            ID of the dataset where the table will be created. If not provided,
+            inferred from the data model (requires a single dataset).
+        import_query : str | None, optional
+            SQL statement used as a custom import query. Defaults to ``None``.
+        description : str, optional
+            Description for the table. Defaults to an empty string.
+        tags : list[str] | None, optional
+            List of tags to apply to the table. Defaults to ``None``.
+        build_behavior_config : dict[str, Any] | None, optional
+            Build behavior configuration applied for EXTRACT models. Supported fields:
+            ``mode`` (one of ``"replace"``, ``"replace_changes"``, ``"append"``,
+            ``"increment"``) and, when ``mode`` is ``"increment"``, ``column_name``
+            (the incremental column).
+
+        Returns
+        -------
+        dict[str, Any]
+            The created (or build-behavior-updated) table object on success, or
+            ``{"error": "..."}`` on failure.
         """
         self.logger.debug(f"[START] Creating table '{table_name}' in DataModel '{datamodel_name}'")
 
@@ -315,27 +365,48 @@ class BuildMixin:
         self.logger.error(f"Failed to create table '{table_name}' in DataModel '{datamodel_name}'. Error: {error_msg}")
         return {"error": "Failed to create table"}
 
-    def setup_datamodel(self, datamodel_name, datamodel_type, connection_name, database_name, schema_name, tables, dataset_name=None):
-        """
-        Setup a DataModel using existing connection and by creating a datamodel, dataset, and table.
+    def setup_datamodel(
+        self,
+        datamodel_name: str,
+        datamodel_type: str,
+        connection_name: str,
+        database_name: str,
+        schema_name: str,
+        tables: list[dict[str, Any]],
+        dataset_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Set up a data model end to end using an existing connection.
 
-        Parameters:
-            datamodel_name (str): Name of the DataModel.
-            datamodel_type (str): Type of DataModel. Should be either "extract" (for Elasticube) or "live" (for Live).
-            connection_name (str): Name of the connection to use.
-            database_name (str): Name of the data source database.
-            schema_name (str): Name of the data source schema.
-            dataset_name (str, optional): Name of the dataset. Defaults to schema name if not provided.
-            tables (list): List of tables to create in the DataModel.
-                Each table should be a dictionary with keys:
-                "table_name", "import_query", "description", "tags", and "build_behavior_config".
-                import_query (str, optional): SQL statement used as custom import query. Defaults to None.
-                description (str, optional): Description for the table. Defaults to an empty string.
-                tags (list, optional): List of tags to apply to the table. Defaults to None.
-                build_behavior_config (dict, optional): Configuration for table build behavior.
+        Creates the data model, a dataset, and the requested tables in sequence,
+        reusing the supplied connection.
 
-        Returns:
-            dict: A dictionary containing the full DataModel object on success or an error message on failure.
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model.
+        datamodel_type : str
+            Type of the data model. Should be either ``"extract"`` (for Elasticube)
+            or ``"live"`` (for Live).
+        connection_name : str
+            Name of the connection to use.
+        database_name : str
+            Name of the data source database.
+        schema_name : str
+            Name of the data source schema.
+        tables : list[dict[str, Any]]
+            List of table definitions to create in the data model. Each table is a
+            dictionary that may include the fields: ``table_name``, ``schema_name``,
+            ``database_name``, ``import_query`` (SQL custom import query),
+            ``description``, ``tags`` (list of tags), and ``build_behavior_config``
+            (build behavior configuration).
+        dataset_name : str | None, optional
+            Name of the dataset. Defaults to the schema name if not provided.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dictionary with ``"datamodel_id"``, ``"dataset_id"``, and ``"tables"``
+            (list of created table names) on success, or ``{"error": "..."}`` on failure.
         """
         self.logger.debug(f"[START] Setup DataModel '{datamodel_name}'")
 
@@ -394,35 +465,37 @@ class BuildMixin:
         self.logger.debug(f"[END] Setup DataModel '{datamodel_name}'")
         return {"datamodel_id": datamodel_id, "dataset_id": dataset_id, "tables": created_tables}
 
-    def deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest"):
-        """
-        Deploy (build or publish) the specified DataModel based on its type.
+    def deploy_datamodel(self, datamodel_name: str, build_type: str = "full", row_limit: int = 0, schema_origin: str = "latest") -> dict[str, Any]:
+        """Deploy (build or publish) the specified data model based on its type.
 
-        This method supports both Elasticube (EXTRACT) and Live models.
-        The behavior and required parameters differ based on model type:
+        Supports both Elasticube (EXTRACT) and Live models. For EXTRACT models a
+        build is triggered using ``build_type``, ``row_limit``, and ``schema_origin``.
+        For LIVE models a publish is triggered and ``row_limit`` and
+        ``schema_origin`` are ignored.
 
-        - For Elasticube models:
-            - build_type (str): Type of deployment. Options:
-                * "schema_changes" — Build only schema changes
-                * "by_table" — Build based on each table's config (e.g. incremental, accumulative)
-                * "full" — Rebuild the entire model from scratch (default)
-            - row_limit (int): Maximum number of rows to process. Defaults to 0 (no limit).
-            - schema_origin (str): Schema source. Options:
-                * "latest" — Build the schema as seen in the Data page (default)
-                * "running" — Build from the last successfully built version
+        Parameters
+        ----------
+        datamodel_name : str
+            Name of the data model to deploy.
+        build_type : str, optional
+            Type of deployment for EXTRACT models. One of ``"schema_changes"``
+            (build only schema changes), ``"by_table"`` (build per each table's
+            config, e.g. incremental/accumulative), or ``"full"`` (rebuild the
+            entire model, the default). For LIVE models this is overridden to
+            ``"publish"``.
+        row_limit : int, optional
+            Maximum number of rows to process for EXTRACT builds. Defaults to ``0``
+            (no limit). Ignored for LIVE models.
+        schema_origin : str, optional
+            Schema source for EXTRACT builds. One of ``"latest"`` (schema as seen
+            in the Data page, the default) or ``"running"`` (last successfully built
+            version). Ignored for LIVE models.
 
-        - For Live models:
-            - Only the `build_type` parameter is used internally and will be set to "publish"
-            - `row_limit` and `schema_origin` are ignored
-
-        Parameters:
-            datamodel_name (str): Name of the DataModel to deploy.
-            build_type (str): Type of deployment. Required for EXTRACT only.
-            row_limit (int): Row limit for build. Applicable only for EXTRACT.
-            schema_origin (str): Schema origin for build. Applicable only for EXTRACT.
-
-        Returns:
-            dict: Deployment result including status, or error details.
+        Returns
+        -------
+        dict[str, Any]
+            Deployment result including status on success, or ``{"error": "..."}``
+            on failure.
         """
         self.logger.debug(f"[START] Deploying DataModel '{datamodel_name}'")
 

@@ -1,29 +1,48 @@
 from __future__ import annotations
 
+from typing import Any
+
 
 class OwnershipMixin:
-    def change_folder_and_dashboard_ownership(self, executing_user, folder_name, new_owner_name, original_owner_rule="edit", change_dashboard_ownership=True):
-        """
-        Method to change the ownership of folders and optionally dashboards.
-        This method changes the ownership of a target folder and the entire
-        tree structure surrounding it, including subfolders, sibling folders,
-        and parent folders.
-        Optionally, it will also change the ownership of dashboards associated
-        with these folders.
+    def change_folder_and_dashboard_ownership(
+        self,
+        executing_user: str,
+        folder_name: str,
+        new_owner_name: str,
+        original_owner_rule: str = "edit",
+        change_dashboard_ownership: bool = True,
+    ) -> dict[str, Any] | None:
+        """Change the ownership of folders and optionally dashboards.
 
-        Parameters:
-            user_name (str): The user running the tool. This is necessary for
-            API access checks.
-            folder_name (str): The target folder whose ownership needs to be
-            changed.
-            new_owner_name (str): The new owner to whom the folder (and
-            optionally dashboards) ownership will be transferred.
-            original_owner_rule (str, optional): Specifies the ownership rule
-            to set original owner after changing ownership('edit' or 'view').
-            Default is 'edit'.
-            change_dashboard_ownership (bool, optional): Specifies whether to
-            also change the ownership of dashboards in the folder tree. Default
-            is True.
+        Changes the ownership of a target folder and the entire tree structure
+        surrounding it, including subfolders, sibling folders, and parent
+        folders. Optionally, it also changes the ownership of dashboards
+        associated with these folders.
+
+        Parameters
+        ----------
+        executing_user : str
+            The user running the operation. This is necessary for API access
+            checks. (format: email)
+        folder_name : str
+            The target folder whose ownership needs to be changed.
+        new_owner_name : str
+            The new owner to whom the folder (and optionally dashboards)
+            ownership will be transferred. (format: email)
+        original_owner_rule : str, optional
+            The ownership rule to set for the original owner after changing
+            ownership (``"edit"`` or ``"view"``). Default is ``"edit"``.
+        change_dashboard_ownership : bool, optional
+            Whether to also change the ownership of dashboards in the folder
+            tree. Default is ``True``.
+
+        Returns
+        -------
+        dict[str, Any] | None
+            A dictionary with ``total_folders_changed`` and
+            ``total_dashboards_changed`` counts on success, ``{"error": "..."}``
+            if the executing user or new owner cannot be resolved, or ``None``
+            when there are no folders or dashboards to change.
         """
         folder_details = set()
         dashboard_details = set()

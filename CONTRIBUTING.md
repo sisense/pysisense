@@ -60,13 +60,15 @@ Here are some resources to help you get started:
    ```
 
 4. **Set up pre-commit hooks**:
-   Before you start committing, install pre-commit hooks to automatically check your code quality:
+   Before you start committing, install the hooks so quality checks run automatically:
    ```bash
    uv run setup
-   # or manually:
-   pre-commit install
+   # or manually (install BOTH hook types):
+   pre-commit install                          # ruff + docstring checker (pre-commit stage)
+   pre-commit install --hook-type commit-msg   # conventional-commit message check
    ```
-   This ensures that linting and code formatting checks run automatically before each commit.
+   This ensures linting, docstring conventions, and commit-message format are all
+   checked automatically before each commit.
 
 ### General Guidelines
 
@@ -193,87 +195,120 @@ ruff check pysisense/ tests/
 
 # Run all tests
 pytest tests/
+
+# Check docstring conventions (also runs in pre-commit and CI)
+uv run python tools/check_docstrings.py
 ```
+
+All three run automatically: Ruff and the docstring checker on every commit via
+pre-commit, and again on every pull request in CI. A failing docstring check
+blocks the merge, so it is worth running locally first.
 
 ## Documentation Guidelines
 
-Python code should be well-documented with clear docstrings following the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings). Documentation is generated using pydocs.
+Public methods, classes, and modules must be documented with **NumPy-style**
+docstrings. This convention is enforced automatically — see
+[Docstring Conventions and the Checker](#docstring-conventions-and-the-checker)
+below. A pull request that does not satisfy it cannot merge.
 
-### Docstring Style
+### Docstring Conventions and the Checker
 
-We use Google-style docstrings for all public functions, classes, and methods. This style is compatible with documentation generation tools like Sphinx.
+The `tools/check_docstrings.py` script validates every public method (any method
+whose name does **not** start with `_`) and every facade class. It runs on every
+commit (pre-commit) and every pull request (CI). Run it yourself any time:
 
-#### Module-Level Docstring
+```bash
+# Whole package
+uv run python tools/check_docstrings.py
 
-Every module should start with a module-level docstring:
-
-```python
-"""Access management utilities for Sisense API.
-
-This module provides functions for managing user access and permissions
-within Sisense dashboards and data models.
-"""
+# Just the files you changed
+uv run python tools/check_docstrings.py pysisense/queries/core.py
 ```
 
-#### Function and Method Docstrings
+It enforces these rules:
+
+| Rule | What it requires |
+|---|---|
+| Docstring present | Every public method and facade class has a docstring. |
+| `Parameters` section | A method that takes arguments has a NumPy `Parameters` section (header + dashed underline). |
+| Parameter coverage | Every parameter in the signature is documented, and no documented parameter is missing from the signature. |
+| `Returns` section | A method that returns a value (anything other than `-> None`) has a NumPy `Returns` section. |
+| Type hints | Every parameter and the return value is annotated. Use builtin generics (`dict[str, Any]`, `list[str]`, `str \| None`). |
+| Format tags | Any `(format: X)` marker uses only the approved vocabulary: `email`, `uuid`, `date`, `ipv4`, `ipv6`. |
+| No external systems | Docstrings must not mention external systems, and must not contain `Example`/`Examples` blocks. |
+| Facade `Modules` section | A class defined in a package `__init__.py` documents a `Modules` section listing its mixin files. |
+
+Private helpers (names starting with `_`) are **not** checked — extract shared
+logic into `_`-prefixed helpers when it does not belong in the public API.
+
+### The Pattern to Follow
+
+A public method that passes the checker:
 
 ```python
-def create_user(name: str, email: str, role: str = "viewer") -> dict:
+def create_user(self, name: str, email: str, role: str = "viewer") -> dict[str, Any]:
     """Create a new user in Sisense.
-    
-    Args:
-        name: The full name of the user.
-        email: The email address of the user.
-        role: The role to assign to the user. Defaults to "viewer".
-            Valid roles are: "viewer", "editor", "admin".
-    
-    Returns:
-        A dictionary containing the created user's information.
-        
-    Raises:
-        ValueError: If email format is invalid.
-        APIError: If the API request fails.
-        
-    Example:
-        >>> user = create_user("John Doe", "john@example.com", role="editor")
-        >>> print(user['id'])
+
+    Sends a POST request to create a user account. The role name is resolved
+    to its internal Sisense role ID before submission.
+
+    Parameters
+    ----------
+    name : str
+        The full name of the user.
+    email : str
+        The email address of the user. (format: email)
+    role : str, optional
+        Role to assign. One of ``"viewer"``, ``"dashboardDesigner"``,
+        ``"sysAdmin"``. Default is ``"viewer"``.
+
+    Returns
+    -------
+    dict[str, Any]
+        The created user object, or ``{"error": "..."}`` on failure.
     """
-    pass
+    ...
 ```
 
-#### Class Docstrings
+A facade class (in a package `__init__.py`) must include a `Modules` section:
 
 ```python
-class SisenseClient:
-    """A client for interacting with the Sisense API.
-    
-    This class provides methods for authentication, data retrieval, and
-    resource management within Sisense.
-    
-    Attributes:
-        domain (str): The Sisense instance domain.
-        api_token (str): The API token for authentication.
-        ssl_enabled (bool): Whether to use SSL for API calls.
-    
-    Example:
-        >>> client = SisenseClient(domain="example.com", api_token="token", ssl_enabled=True)
-        >>> user = client.get_user("user_id")
+class AccessManagement(UsersMixin, GroupsMixin, ColumnsMixin, OwnershipMixin, AdminMixin):
+    """Manage Sisense users, groups, permissions, and access control.
+
+    Covers user lifecycle, group membership, role assignment, ownership
+    transfer, and column-level security.
+
+    Modules
+    -------
+    users :
+        User CRUD — get, create, update, and deactivate users.
+    groups :
+        Group membership — list groups, list members per group.
+    ...
     """
-    pass
 ```
+
+Every module should also start with a module-level docstring describing its
+purpose.
 
 ### Documentation Best Practices
 
-- **Be concise but complete**: Provide enough detail for users to understand how to use your code.
-- **Use type hints**: Always include type hints for function parameters and return values.
-- **Document exceptions**: Clearly specify which exceptions can be raised and under what conditions.
-- **Include examples**: For complex functions, include usage examples in the docstring.
-- **Update documentation**: When you modify code, update the corresponding docstrings.
-- **Avoid obvious docstrings**: Don't write docstrings that just repeat the code.
-  
-  Bad: `def get_name(self): """Get the name.""" return self.name`
-  
-  Good: `def get_name(self) -> str: """Get the user's full name as displayed in the system.""" return self.name`
+- **Use NumPy sections**: `Parameters` and `Returns` with dashed underlines —
+  not Google-style `Args:`/`Returns:`. Optionally add `Raises` or `Notes`.
+- **Always type-hint**: every parameter and the return value.
+- **Tag known formats**: append `(format: email)` (or `uuid`/`date`/`ipv4`/`ipv6`)
+  to a parameter's description when it has that exact format.
+- **No `Example` blocks**: the checker rejects them; show usage in
+  [examples/](examples/) instead.
+- **Keep docs in sync**: when you change a public method's signature or behavior,
+  update its docstring, the relevant [docs/](docs/) page, and
+  [examples/](examples/).
+- **Avoid obvious docstrings**: don't just repeat the code.
+
+  Bad: `"""Get the name."""`
+
+  Good: `"""Get the user's full name as displayed in the system."""`
 
 ### README and Examples
 

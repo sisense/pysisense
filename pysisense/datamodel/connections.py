@@ -4,15 +4,22 @@ from typing import Any
 
 
 class ConnectionsMixin:
-    def get_connection(self, connection_name):
-        """
-        Retrieves a Connection by its name.
+    def get_connection(self, connection_name: str) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve connections matching a name.
 
-        Parameters:
-            connection_name (str): Name of the connection to filter by.
+        Sends ``GET /api/v2/connections?name=<connection_name>`` and returns the
+        matching connection list.
 
-        Returns:
-            List: Connection details if found, or a dictionary with an error message.
+        Parameters
+        ----------
+        connection_name : str
+            Name of the connection to filter by.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            List of matching connection objects if found, or
+            ``{"error": "..."}`` on failure or when no match is found.
         """
         self.logger.debug(f"Attempting to retrieve connections with name: '{connection_name}'")
 
@@ -111,21 +118,33 @@ class ConnectionsMixin:
         self.logger.info(f"Successfully updated connection {connection_id}.")
         return updated
 
-    def get_table_schema(self, connection_name, database_name, schema_name, table_name):
-        """
-        Retrieves the schema of a table in a specified connection from Data Source.
-        This method uses an undocumented Sisense API endpoint to fetch the table schema details.
-        NOTE: This endpoint is undocumented and may change in future versions of Sisense.
-        It is recommended to use this method with caution.
+    def get_table_schema(self, connection_name: str, database_name: str, schema_name: str, table_name: str) -> dict[str, Any]:
+        """Retrieve the schema of a table within a connection's data source.
 
-        Parameters:
-            connection_name (str): Name of the connection.
-            database_name (str): Name of the database.
-            schema_name (str): Name of the schema.
-            table_name (str): Name of the table.
+        Resolves the connection by name to obtain its ``oid`` and ``provider``,
+        then sends ``POST /api/v1/connection/{id}/table_schema_details``.
 
-        Returns:
-            dict: Table schema details if found, or a dictionary with an error message.
+        Parameters
+        ----------
+        connection_name : str
+            Name of the connection.
+        database_name : str
+            Name of the database (sent as ``Database``).
+        schema_name : str
+            Name of the schema (sent as ``schema``).
+        table_name : str
+            Name of the table (sent as ``table``).
+
+        Returns
+        -------
+        dict[str, Any]
+            Table schema details if found, or ``{"error": "..."}`` on failure or
+            when no schema is found.
+
+        Notes
+        -----
+        This endpoint is undocumented and may change in future Sisense versions.
+        Use with caution.
         """
         self.logger.debug(f"Fetching schema for table '{table_name}' in connection '{connection_name}'")
 
@@ -163,16 +182,50 @@ class ConnectionsMixin:
         self.logger.debug(f"Table schema details: {schema}")
         return schema
 
-    def generate_connections_payload(self, datasource_type, connection_params):
-        """
-        Generates the appropriate connections payload based on the datasource type.
+    def generate_connections_payload(self, datasource_type: str, connection_params: dict[str, Any]) -> dict[str, Any]:
+        """Generate a connection payload for a given data source type.
 
-        Parameters:
-            datasource_type (str): Type of datasource (e.g., "ATHENA", "SNOWFLAKE", "ORACLE").
-            connection_params (dict): Connection details for the datasource.
+        Builds the provider-specific request body consumed by
+        ``create_connections``. The ``datasource_type`` is matched
+        case-insensitively. Supported types are ``"Athena"``, ``"RedShift"``,
+        ``"BigQuery"``, and ``"DataBricks"``.
 
-        Returns:
-            dict: Connections payload.
+        Parameters
+        ----------
+        datasource_type : str
+            Type of data source. One of ``"Athena"``, ``"RedShift"``,
+            ``"BigQuery"``, ``"DataBricks"`` (case-insensitive).
+        connection_params : dict[str, Any]
+            Connection details. Supported keys depend on ``datasource_type``:
+
+            - Athena: ``name`` (required), ``region`` (required),
+              ``s3_output_location`` (required), ``aws_access_key`` (required),
+              ``aws_secret_key`` (required), ``description``, ``schema``,
+              ``additional_parameters``.
+            - DataBricks: ``name`` (required), ``connection_string`` (required),
+              ``token`` (required), ``description``, ``use_dynamic_schema``,
+              ``schema``.
+            - BigQuery: ``name`` (required), ``service_account_key_path``
+              (required), ``description``, ``use_service_account``,
+              ``use_proxy_server``, ``use_dynamic_schema``,
+              ``record_field_flattening_level``, ``unnest_arrays``,
+              ``allow_large_results``, ``use_storage_api``,
+              ``additional_parameters``, ``database``.
+            - RedShift: ``server`` (required), ``username`` (required),
+              ``password`` (required), ``name``, ``description``,
+              ``default_database``, ``additional_parameters``.
+
+        Returns
+        -------
+        dict[str, Any]
+            The provider-specific connection payload.
+
+        Raises
+        ------
+        KeyError
+            If a required connection parameter is missing.
+        ValueError
+            If ``datasource_type`` is not supported.
         """
         datasource_type = datasource_type.upper()
         self.logger.debug(f"Generating connection payload for datasource type: {datasource_type}")
@@ -292,15 +345,24 @@ class ConnectionsMixin:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def create_connections(self, connection_payload):
-        """
-        Creates a new connection using the provided payload.
+    def create_connections(self, connection_payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Create a new connection using the provided payload.
 
-        Parameters:
-            connection_payload (dict): The configuration payload for the connection.
+        Sends ``POST /api/v2/connections`` with the given payload, which is
+        typically produced by ``generate_connections_payload``.
 
-        Returns:
-            dict or None: JSON response with connection details if successful, otherwise None.
+        Parameters
+        ----------
+        connection_payload : dict[str, Any]
+            The configuration payload for the connection. Canonical fields
+            include ``provider``, ``name``, ``description``, ``parameters``,
+            ``enabled``, ``createdByUser``, and ``supportedModelTypes``.
+
+        Returns
+        -------
+        dict[str, Any] | None
+            JSON response with the created connection details on success
+            (HTTP 201), otherwise ``None``.
         """
         endpoint = "/api/v2/connections"
         self.logger.debug(f"Creating connection with payload: {connection_payload}")

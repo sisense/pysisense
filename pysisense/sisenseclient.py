@@ -43,7 +43,7 @@ class SisenseClient:
              - is_ssl: true  # optional, defaults to True
              - port: 30845  # optional; HTTP port when is_ssl is false (default 30845)
 
-        2) Direct connection (no YAML, ideal for agent/inline usage):
+        2) Direct connection (no YAML, ideal for inline/runtime usage):
             client = SisenseClient(
                 domain="https://your-domain.sisense.com",
                 token="YOUR_API_TOKEN",
