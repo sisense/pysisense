@@ -3,11 +3,13 @@ from __future__ import annotations
 from ..migration.base import MigrationBaseMixin
 from ..sisenseclient import SisenseClient
 from .custom_code import CustomCodeMergeMixin
+from .folder import FolderMergeMixin
 
 
 class MergeTool(
     MigrationBaseMixin,
     CustomCodeMergeMixin,
+    FolderMergeMixin,
 ):
     """Copy Sisense custom-code content between two separate Sisense environments.
 
@@ -20,6 +22,9 @@ class MergeTool(
     -------
     custom_code :
         Notebook migration — copy custom-code notebooks from source to
+        target with skip, overwrite, or duplicate conflict handling.
+    folder :
+        Folder migration — recreate the folder hierarchy from source on the
         target with skip, overwrite, or duplicate conflict handling.
     """
 
