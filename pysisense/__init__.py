@@ -8,6 +8,7 @@ from .dashboard import Dashboard
 from .datamodel import DataModel
 from .encryption import Encryption
 from .folder import Folder
+from .mergetool import MergeTool
 from .metadata import Metadata
 from .migration import Migration
 from .plugins import Plugins
@@ -29,6 +30,7 @@ __all__ = [
     "Dashboard",
     "Folder",
     "Metadata",
+    "MergeTool",
     "Migration",
     "Plugins",
     "Queries",

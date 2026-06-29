@@ -70,6 +70,7 @@ uv run pre-commit install
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
+| `mergetool/` | `MergeTool` | Cross-environment custom-code notebook and folder migration |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
@@ -108,6 +109,8 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
 | | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
 | | `base.py` | `_emit` and internal helpers (private) |
+| `mergetool/` | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
+| | `folder.py` | `migrate_folders`, `migrate_all_folders` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
 | `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |
@@ -169,7 +172,7 @@ The SDK **must** use a Sisense admin user's API token.
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, Metadata, Plugins, Queries, WellCheck
+from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, MergeTool, Metadata, Plugins, Queries, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)
