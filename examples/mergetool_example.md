@@ -125,12 +125,40 @@ print(json.dumps(results, indent=4))
 
 ---
 
+## Example 8: Migrate Specific Blox Actions by Type
+
+```python
+action_types = [
+    "Send Email Notification",
+    "Refresh Dashboard",
+]
+results = merge.migrate_blox_actions(
+    action_types=action_types,
+    action="skip",               # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 9: Migrate All Blox Actions
+
+```python
+results = merge.migrate_all_blox_actions(
+    action="overwrite",          # Deletes existing action on target then recreates from source
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
 - Folder migration preserves the full hierarchy — child folders are always created under their parent.
 - Folders whose parent is not in the migration list are created at the root level on the target.
 - `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating — use with caution.
+- Blox action migration requires the target environment to be a Linux deployment — saving and deleting Blox actions is not supported on Windows.
 - For more details, refer to `docs/mergetool.md`.
 
 ---

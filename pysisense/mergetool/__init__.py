@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..migration.base import MigrationBaseMixin
 from ..sisenseclient import SisenseClient
+from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
 from .folder import FolderMergeMixin
 
@@ -10,6 +11,7 @@ class MergeTool(
     MigrationBaseMixin,
     CustomCodeMergeMixin,
     FolderMergeMixin,
+    BloxMergeMixin,
 ):
     """Copy Sisense custom-code content between two separate Sisense environments.
 
@@ -26,6 +28,10 @@ class MergeTool(
     folder :
         Folder migration — recreate the folder hierarchy from source on the
         target with skip, overwrite, or duplicate conflict handling.
+    blox :
+        Blox action migration — copy custom Blox actions from source to
+        target with skip, overwrite, or duplicate conflict handling.
+        Target must be a Linux deployment.
     """
 
     def __init__(
