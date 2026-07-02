@@ -123,3 +123,52 @@ Migrates all folders from the source to the target environment, preserving the f
 #### Returns:
 
 -   `dict`: Same structure as `migrate_folders`.
+
+* * * * *
+
+Blox Action Migration
+----------------------
+
+### `migrate_blox_actions(self, action_types=None, action="skip", emit=None)`
+
+Migrates specific Blox actions from the source to the target environment. Each action is fetched from the source, transformed into a save-ready payload, and created (or replaced) on the target. Conflict detection is based on the action's `type` field. Saving and deleting Blox actions is Linux-only, so the target environment must be a Linux deployment.
+
+#### Parameters:
+
+-   `action_types` (list, optional): The `type` identifiers of the Blox actions to migrate. If omitted, every Blox action on the source is migrated.
+
+-   `action` (str, optional): Conflict strategy for actions that already exist on the target:
+
+    -   `"skip"` — leave the existing action unchanged (default).
+
+    -   `"overwrite"` — delete the existing action on the target, then recreate from source.
+
+    -   `"duplicate"` — always create, regardless of existing actions.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{type}`)
+    -   `skipped` (list of `{type, reason}`)
+    -   `failed` (list of `{type, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+* * * * *
+
+### `migrate_all_blox_actions(self, action="skip", emit=None)`
+
+Migrates all Blox actions from the source to the target environment.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every action (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_blox_actions`.
