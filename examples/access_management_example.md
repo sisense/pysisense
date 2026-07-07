@@ -289,6 +289,49 @@ api_client.export_to_csv(response, file_name="group_user_associations.csv")
 
 ---
 
+## Example 7a: Get All Groups
+
+```python
+response = access_mgmt.get_groups()
+
+if isinstance(response, list):
+    print(f"Found {len(response)} group(s).")
+    df = api_client.to_dataframe(response)
+    print(df)
+else:
+    print(f"Failed to retrieve groups. Error: {response.get('error')}")
+```
+
+---
+
+## Example 7b: Create Multiple Groups in Bulk
+
+```python
+groups_to_create = [
+    {"name": "Sales Team"},
+    {"name": "Finance Team"},
+]
+response = access_mgmt.create_groups_bulk(groups_to_create)
+
+if isinstance(response, list):
+    print(f"Created {len(response)} group(s).")
+else:
+    print(f"Failed to create groups. Error: {response.get('error')}")
+```
+
+---
+
+## Example 7c: Delete a Group
+
+```python
+group = access_mgmt.get_group("Sales Team")
+if "error" not in group:
+    response = access_mgmt.delete_group(group["GROUP_ID"])
+    print(response)
+```
+
+---
+
 ## Example 8: Change Ownership of Folders and Dashboards
 
 Transfer ownership of a folder and its dashboards.
@@ -491,4 +534,21 @@ print(json.dumps(response, indent=4))
 df = api_client.to_dataframe(response)
 print(df)
 api_client.export_to_csv(response, "roles.csv")
+```
+
+---
+
+## Example 15: List All Tenants
+
+Retrieve all tenants on the instance. Only meaningful on multi-tenant deployments.
+
+```python
+response = access_mgmt.get_tenants()
+
+if isinstance(response, list):
+    print(f"Found {len(response)} tenant(s).")
+    df = api_client.to_dataframe(response)
+    print(df)
+else:
+    print(f"Failed to retrieve tenants. Error: {response.get('error')}")
 ```

@@ -5,6 +5,7 @@ from ..sisenseclient import SisenseClient
 from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
 from .folder import FolderMergeMixin
+from .groups import GroupsMergeMixin
 
 
 class MergeTool(
@@ -12,12 +13,14 @@ class MergeTool(
     CustomCodeMergeMixin,
     FolderMergeMixin,
     BloxMergeMixin,
+    GroupsMergeMixin,
 ):
-    """Copy Sisense custom-code content between two separate Sisense environments.
+    """Copy Sisense content between two separate Sisense environments.
 
     Connects to a source and a target Sisense instance (via YAML config files
-    or injected clients) and merges custom-code notebooks from one to the
-    other. Does not operate on a single instance — use CustomCode for
+    or injected clients) and merges custom-code notebooks, folders, Blox
+    actions, and groups from one to the other. Does not operate on a single
+    instance — use CustomCode, Folder, Blox, or AccessManagement for
     single-environment changes.
 
     Modules
@@ -32,6 +35,9 @@ class MergeTool(
         Blox action migration — copy custom Blox actions from source to
         target with skip, overwrite, or duplicate conflict handling.
         Target must be a Linux deployment.
+    groups :
+        Group migration — copy groups from source to target with skip,
+        overwrite, or duplicate conflict handling.
     """
 
     def __init__(

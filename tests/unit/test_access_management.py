@@ -264,6 +264,90 @@ class TestGetGroup:
 
 
 # ---------------------------------------------------------------------------
+# get_groups
+# ---------------------------------------------------------------------------
+
+
+class TestGetGroups:
+    def test_returns_group_list_on_success(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, _GROUPS)})
+        result = am.get_groups()
+        assert result == _GROUPS
+
+    def test_returns_empty_list_when_no_groups(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [])})
+        result = am.get_groups()
+        assert result == []
+
+    def test_returns_error_on_api_failure(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(500, {"error": "boom"})})
+        result = am.get_groups()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# create_groups_bulk
+# ---------------------------------------------------------------------------
+
+
+class TestCreateGroupsBulk:
+    def test_returns_created_groups_on_success(self):
+        am = _make_am(post_responses={"/api/v1/groups/bulk": FakeResponse(201, _GROUPS)})
+        result = am.create_groups_bulk([{"name": "Engineers"}, {"name": "Admins"}])
+        assert result == _GROUPS
+
+    def test_returns_error_on_non_201_status(self):
+        am = _make_am(post_responses={"/api/v1/groups/bulk": FakeResponse(400, {"error": "bad request"})})
+        result = am.create_groups_bulk([{"name": "Engineers"}])
+        assert "error" in result
+
+    def test_returns_error_when_no_response(self):
+        am = _make_am(post_responses={})
+        result = am.create_groups_bulk([{"name": "Engineers"}])
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# delete_group
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteGroup:
+    def test_returns_message_on_204(self):
+        am = _make_am(delete_responses={"/api/v1/groups/grp_engineers": FakeResponse(204, {})})
+        result = am.delete_group("grp_engineers")
+        assert result == {"message": "Group deleted successfully."}
+
+    def test_returns_error_on_failure(self):
+        am = _make_am(delete_responses={"/api/v1/groups/grp_engineers": FakeResponse(500, {"error": "cannot delete"})})
+        result = am.delete_group("grp_engineers")
+        assert "error" in result
+
+    def test_returns_error_when_no_response(self):
+        am = _make_am(delete_responses={})
+        result = am.delete_group("grp_engineers")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_tenants
+# ---------------------------------------------------------------------------
+
+
+class TestGetTenants:
+    def test_returns_tenant_list_on_success(self):
+        tenants = [{"_id": "tenant-system", "name": "system"}]
+        am = _make_am(get_responses={"/api/v1/tenants": FakeResponse(200, tenants)})
+        result = am.get_tenants()
+        assert result == tenants
+
+    def test_returns_error_on_api_failure(self):
+        am = _make_am(get_responses={"/api/v1/tenants": FakeResponse(404, {"error": "not found"})})
+        result = am.get_tenants()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
 # create_user
 # ---------------------------------------------------------------------------
 

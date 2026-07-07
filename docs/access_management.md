@@ -157,6 +157,44 @@ Retrieves group details by name.
 
 * * * * *
 
+### `get_groups(self)`
+
+Retrieves the full list of groups.
+
+**Returns:**
+
+-   `list` | `dict`: A list of raw group objects, or an error message.
+
+* * * * *
+
+### `create_groups_bulk(self, groups)`
+
+Creates multiple groups in a single bulk request.
+
+**Parameters:**
+
+-   `groups` (list): Group definitions to create. Each dictionary should use canonical Sisense group fields, at minimum `name`.
+
+**Returns:**
+
+-   `list` | `dict`: The list of created group objects on success, or an error message.
+
+* * * * *
+
+### `delete_group(self, group_id)`
+
+Deletes a group by ID.
+
+**Parameters:**
+
+-   `group_id` (str): The ID of the group to delete.
+
+**Returns:**
+
+-   `dict`: Success or error message.
+
+* * * * *
+
 ### `create_user(self, user_data)`
 
 Creates a new user by converting group and role names into IDs.
@@ -362,3 +400,16 @@ Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Retur
 -   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"error": "..."}` on failure.
 
 **Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.
+
+* * * * *
+
+Tenant Management
+------------------
+
+### `get_tenants(self)`
+
+Retrieves the full list of tenants. Only meaningful on multi-tenant deployments.
+
+**Returns:**
+
+-   `list` | `dict`: A list of raw tenant objects, or an error message (for example, on a single-tenant deployment where the tenants endpoint is unavailable).

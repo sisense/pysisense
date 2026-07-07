@@ -172,3 +172,52 @@ Migrates all Blox actions from the source to the target environment.
 #### Returns:
 
 -   `dict`: Same structure as `migrate_blox_actions`.
+
+* * * * *
+
+Group Migration
+----------------
+
+### `migrate_groups(self, group_names=None, action="skip", emit=None)`
+
+Migrates specific groups from the source to the target environment via the bulk group endpoint. Conflict detection is based on the group's `name` field.
+
+#### Parameters:
+
+-   `group_names` (list, optional): Group names to migrate. If omitted, every group on the source is migrated.
+
+-   `action` (str, optional): Conflict strategy for groups that already exist on the target:
+
+    -   `"skip"` — leave the existing group unchanged (default).
+
+    -   `"overwrite"` — delete the existing group on the target, then recreate from source. **Warning:** this can disrupt user/group associations still referencing the deleted group on the target.
+
+    -   `"duplicate"` — always create, regardless of existing groups.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{name}`)
+    -   `skipped` (list of `{name, reason}`)
+    -   `failed` (list of `{name, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+* * * * *
+
+### `migrate_all_groups(self, action="skip", emit=None)`
+
+Migrates all eligible groups from the source to the target environment. Excludes the built-in `Admins`, `All users in system`, and `Everyone` groups, and — when the source environment exposes tenant information — restricts migration to groups belonging to the system tenant. If `/api/v1/tenants` is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every group (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_groups`.

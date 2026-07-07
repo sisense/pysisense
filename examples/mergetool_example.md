@@ -152,6 +152,33 @@ print(json.dumps(results, indent=4))
 
 ---
 
+## Example 10: Migrate Specific Groups by Name
+
+```python
+group_names = [
+    "Sales Team",
+    "Finance Team",
+]
+results = merge.migrate_groups(
+    group_names=group_names,
+    action="skip",               # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 11: Migrate All Groups
+
+```python
+results = merge.migrate_all_groups(
+    action="skip",                # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
@@ -159,6 +186,7 @@ print(json.dumps(results, indent=4))
 - Folders whose parent is not in the migration list are created at the root level on the target.
 - `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating — use with caution.
 - Blox action migration requires the target environment to be a Linux deployment — saving and deleting Blox actions is not supported on Windows.
+- Group migration excludes the built-in `Admins`, `All users in system`, and `Everyone` groups when using `migrate_all_groups`.
 - For more details, refer to `docs/mergetool.md`.
 
 ---
