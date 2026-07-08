@@ -223,6 +223,85 @@ class UsersMixin:
         self.logger.info(f"Resolved users with role and group names. Total users processed: {len(enriched_users)}")
         return enriched_users
 
+    def get_users_expanded(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all users with raw, unmodified role and group objects.
+
+        Fetches ``GET /api/v1/users`` with ``groups`` and ``role`` expanded.
+        Unlike ``get_users_all`` and ``get_user_with_role_and_group_names``,
+        role and group names are returned exactly as stored (no display-name
+        aliasing), which is required when resolving role/group mappings
+        across two separate Sisense environments.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            The raw list of user objects, or ``{"error": "..."}`` if
+            retrieval fails.
+        """
+        self.logger.debug("Starting 'get_users_expanded' method.")
+
+        response = self._fetch_expanded_users()
+
+        if not response or not response.ok:
+            status_code = response.status_code if response else "No response"
+            self.logger.error(f"Failed to retrieve users. Status Code: {status_code}")
+            return {"error": "Failed to retrieve users."}
+
+        try:
+            users = response.json()
+        except Exception as e:
+            self.logger.exception("Failed to parse users response JSON.")
+            return {"error": f"Failed to parse users response JSON: {str(e)}"}
+
+        self.logger.debug(f"Retrieved {len(users or [])} user(s).")
+        return users or []
+
+    def create_users_bulk(self, users: list[dict[str, Any]]) -> list[dict[str, Any]] | dict[str, Any]:
+        """Create multiple users in a single bulk request.
+
+        Sends the provided user definitions to the bulk user creation
+        endpoint. Each entry must already carry a resolved ``roleId`` and
+        ``groups`` (list of group IDs) — no name-to-ID resolution is
+        performed by this method.
+
+        Parameters
+        ----------
+        users : list[dict[str, Any]]
+            User definitions to create. Each dictionary should use canonical
+            Sisense user fields (at minimum ``email``, ``firstName``, and
+            ``roleId``).
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            The list of created user objects on success, or
+            ``{"error": "..."}`` on failure.
+        """
+        self.logger.debug(f"Starting 'create_users_bulk' method for {len(users)} user(s).")
+
+        response = self.api_client.post("/api/v1/users/bulk", data=users)
+
+        if response is None:
+            self.logger.error("No response received while creating users in bulk.")
+            return {"error": "No response received while creating users in bulk."}
+
+        if response.status_code != 201:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text or "Unknown error"
+            self.logger.error(f"Failed to create users in bulk. Error: {error_message}")
+            return {"error": f"Failed to create users in bulk. {error_message}"}
+
+        try:
+            created_users = response.json()
+        except Exception as e:
+            self.logger.exception("Failed to parse bulk user creation response JSON.")
+            return {"error": f"Failed to parse bulk user creation response JSON: {str(e)}"}
+
+        self.logger.info(f"Successfully created {len(created_users or [])} user(s).")
+        return created_users or []
+
     def get_user(self, user_email: str) -> dict[str, Any]:
         """
         Retrieve a user's details by email address, expanding group and role information.

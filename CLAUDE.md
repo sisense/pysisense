@@ -70,7 +70,7 @@ uv run pre-commit install
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
-| `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, and group migration |
+| `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, group, and user migration |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
@@ -85,7 +85,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | Package | File | Public methods |
 |---|---|---|
 | `blox/` | `core.py` | `get_blox_actions` (OS-routed), `save_blox_action`, `delete_blox_action` |
-| `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
+| `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_users_expanded`, `create_users_bulk`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
 | | `groups.py` | `get_group`, `get_groups`, `create_groups_bulk`, `delete_group`, `users_per_group`, `users_per_group_all` |
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
@@ -114,6 +114,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `folder.py` | `migrate_folders`, `migrate_all_folders` |
 | | `blox.py` | `migrate_blox_actions`, `migrate_all_blox_actions` |
 | | `groups.py` | `migrate_groups`, `migrate_all_groups` |
+| | `users.py` | `migrate_users`, `migrate_all_users` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
 | `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |

@@ -289,6 +289,42 @@ api_client.export_to_csv(response, file_name="group_user_associations.csv")
 
 ---
 
+## Example 6a: Get All Users with Raw Role/Group Data
+
+Fetch users with unmodified role and group objects — useful when you need the raw role/group names (not the display-name aliases used by `get_users_all`).
+
+```python
+response = access_mgmt.get_users_expanded()
+
+if isinstance(response, list):
+    print(f"Found {len(response)} user(s).")
+    df = api_client.to_dataframe(response)
+    print(df)
+else:
+    print(f"Failed to retrieve users. Error: {response.get('error')}")
+```
+
+---
+
+## Example 6b: Create Multiple Users in Bulk
+
+Each entry must already carry a resolved `roleId` and `groups` (list of group IDs) — no name-to-ID resolution is performed by this method.
+
+```python
+users_to_create = [
+    {"email": "alice@example.com", "firstName": "Alice", "roleId": "role_id_here", "groups": []},
+    {"email": "bob@example.com", "firstName": "Bob", "roleId": "role_id_here", "groups": []},
+]
+response = access_mgmt.create_users_bulk(users_to_create)
+
+if isinstance(response, list):
+    print(f"Created {len(response)} user(s).")
+else:
+    print(f"Failed to create users. Error: {response.get('error')}")
+```
+
+---
+
 ## Example 7a: Get All Groups
 
 ```python

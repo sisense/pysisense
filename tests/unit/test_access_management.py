@@ -241,6 +241,50 @@ class TestGetUsersAll:
 
 
 # ---------------------------------------------------------------------------
+# get_users_expanded
+# ---------------------------------------------------------------------------
+
+
+class TestGetUsersExpanded:
+    def test_returns_raw_user_list_on_success(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
+        result = am.get_users_expanded()
+        assert result == [_USER_EXPANDED]
+
+    def test_returns_empty_list_when_no_users(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
+        result = am.get_users_expanded()
+        assert result == []
+
+    def test_returns_error_on_api_failure(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(500, {"error": "boom"})})
+        result = am.get_users_expanded()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# create_users_bulk
+# ---------------------------------------------------------------------------
+
+
+class TestCreateUsersBulk:
+    def test_returns_created_users_on_success(self):
+        am = _make_am(post_responses={"/api/v1/users/bulk": FakeResponse(201, [_USER_RAW])})
+        result = am.create_users_bulk([{"email": "jdoe@example.com", "firstName": "John", "roleId": "role_consumer"}])
+        assert result == [_USER_RAW]
+
+    def test_returns_error_on_non_201_status(self):
+        am = _make_am(post_responses={"/api/v1/users/bulk": FakeResponse(400, {"error": "bad request"})})
+        result = am.create_users_bulk([{"email": "jdoe@example.com"}])
+        assert "error" in result
+
+    def test_returns_error_when_no_response(self):
+        am = _make_am(post_responses={})
+        result = am.create_users_bulk([{"email": "jdoe@example.com"}])
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
 # get_group
 # ---------------------------------------------------------------------------
 
