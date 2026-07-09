@@ -143,6 +143,30 @@ in-memory without per-user API calls.
   **richer export** for all users that includes both IDs and names for roles
   and groups (for reporting, audit, synchronization, or feeding other APIs).
 
+### `get_users_expanded(self)`
+
+Retrieves all users with raw, unmodified role and group objects (``GET /api/v1/users`` with ``groups`` and ``role`` expanded). Unlike `get_users_all` and `get_user_with_role_and_group_names`, role and group names are returned exactly as stored — no display-name aliasing — which is required when resolving role/group mappings across two separate Sisense environments.
+
+**Returns:**
+
+-   `list` | `dict`: The raw list of user objects, or an error message.
+
+* * * * *
+
+### `create_users_bulk(self, users)`
+
+Creates multiple users in a single bulk request. Each entry must already carry a resolved `roleId` and `groups` (list of group IDs) — no name-to-ID resolution is performed.
+
+**Parameters:**
+
+-   `users` (list): User definitions to create. Each dictionary should use canonical Sisense user fields, at minimum `email`, `firstName`, and `roleId`.
+
+**Returns:**
+
+-   `list` | `dict`: The list of created user objects on success, or an error message.
+
+* * * * *
+
 ### `get_group(self, name)`
 
 Retrieves group details by name.
@@ -154,6 +178,44 @@ Retrieves group details by name.
 **Returns:**
 
 -   `dict`: Group details or error message.
+
+* * * * *
+
+### `get_groups(self)`
+
+Retrieves the full list of groups.
+
+**Returns:**
+
+-   `list` | `dict`: A list of raw group objects, or an error message.
+
+* * * * *
+
+### `create_groups_bulk(self, groups)`
+
+Creates multiple groups in a single bulk request.
+
+**Parameters:**
+
+-   `groups` (list): Group definitions to create. Each dictionary should use canonical Sisense group fields, at minimum `name`.
+
+**Returns:**
+
+-   `list` | `dict`: The list of created group objects on success, or an error message.
+
+* * * * *
+
+### `delete_group(self, group_id)`
+
+Deletes a group by ID.
+
+**Parameters:**
+
+-   `group_id` (str): The ID of the group to delete.
+
+**Returns:**
+
+-   `dict`: Success or error message.
 
 * * * * *
 
@@ -362,3 +424,16 @@ Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Retur
 -   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"error": "..."}` on failure.
 
 **Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.
+
+* * * * *
+
+Tenant Management
+------------------
+
+### `get_tenants(self)`
+
+Retrieves the full list of tenants. Only meaningful on multi-tenant deployments.
+
+**Returns:**
+
+-   `list` | `dict`: A list of raw tenant objects, or an error message (for example, on a single-tenant deployment where the tenants endpoint is unavailable).

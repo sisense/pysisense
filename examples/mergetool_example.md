@@ -152,6 +152,63 @@ print(json.dumps(results, indent=4))
 
 ---
 
+## Example 10: Migrate Specific Groups by Name
+
+```python
+group_names = [
+    "Sales Team",
+    "Finance Team",
+]
+results = merge.migrate_groups(
+    group_names=group_names,
+    action="skip",               # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 11: Migrate All Groups
+
+```python
+results = merge.migrate_all_groups(
+    action="skip",                # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 12: Migrate Specific Users by Email
+
+Migrate groups before users — user payloads reference target group IDs.
+
+```python
+user_emails = [
+    "alice@example.com",
+    "bob@example.com",
+]
+results = merge.migrate_users(
+    user_emails=user_emails,
+    action="skip",                # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 13: Migrate All Users
+
+```python
+results = merge.migrate_all_users(
+    action="skip",                 # Options: "skip", "overwrite", "duplicate"
+    ignore_custom_roles=False,     # Set True to strip a "custom_" prefix when matching roles
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
@@ -159,6 +216,9 @@ print(json.dumps(results, indent=4))
 - Folders whose parent is not in the migration list are created at the root level on the target.
 - `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating — use with caution.
 - Blox action migration requires the target environment to be a Linux deployment — saving and deleting Blox actions is not supported on Windows.
+- Group migration excludes the built-in `Admins`, `All users in system`, and `Everyone` groups when using `migrate_all_groups`.
+- User migration excludes users with the built-in `super` role when using `migrate_all_users`, and resolves roles across environments (including multi-tenant `tenantAdmin` and Windows `admin` remapping).
+- Migrate groups before users, and users before dashboards — user payloads reference target group IDs, and dashboard shares reference target user/group IDs.
 - For more details, refer to `docs/mergetool.md`.
 
 ---

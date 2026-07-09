@@ -172,3 +172,109 @@ Migrates all Blox actions from the source to the target environment.
 #### Returns:
 
 -   `dict`: Same structure as `migrate_blox_actions`.
+
+* * * * *
+
+Group Migration
+----------------
+
+### `migrate_groups(self, group_names=None, action="skip", emit=None)`
+
+Migrates specific groups from the source to the target environment via the bulk group endpoint. Conflict detection is based on the group's `name` field.
+
+#### Parameters:
+
+-   `group_names` (list, optional): Group names to migrate. If omitted, every group on the source is migrated.
+
+-   `action` (str, optional): Conflict strategy for groups that already exist on the target:
+
+    -   `"skip"` — leave the existing group unchanged (default).
+
+    -   `"overwrite"` — delete the existing group on the target, then recreate from source. **Warning:** this can disrupt user/group associations still referencing the deleted group on the target.
+
+    -   `"duplicate"` — always create, regardless of existing groups.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{name}`)
+    -   `skipped` (list of `{name, reason}`)
+    -   `failed` (list of `{name, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+* * * * *
+
+### `migrate_all_groups(self, action="skip", emit=None)`
+
+Migrates all eligible groups from the source to the target environment. Excludes the built-in `Admins`, `All users in system`, and `Everyone` groups, and — when the source environment exposes tenant information — restricts migration to groups belonging to the system tenant. If `/api/v1/tenants` is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every group (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_groups`.
+
+* * * * *
+
+User Migration
+---------------
+
+### `migrate_users(self, user_emails=None, action="skip", ignore_custom_roles=False, emit=None)`
+
+Migrates specific users from the source to the target environment via the bulk user endpoint. Resolves each user's role and group assignments to target environment IDs before creating them. Conflict detection is based on the user's `email` field.
+
+Role resolution mirrors the legacy Win2Linux merge tool: when the target environment is multi-tenant (its role list includes `tenantAdmin`), source `super`/`admin` roles are mapped to `tenantAdmin`; when the target is a Windows deployment, source `tenantAdmin` is mapped back to `admin`.
+
+#### Parameters:
+
+-   `user_emails` (list, optional): Email addresses of the users to migrate. If omitted, every user on the source is migrated.
+
+-   `action` (str, optional): Conflict strategy for users that already exist on the target:
+
+    -   `"skip"` — leave the existing user unchanged (default).
+
+    -   `"overwrite"` — delete the existing user on the target, then recreate from source.
+
+    -   `"duplicate"` — always create, regardless of existing users.
+
+-   `ignore_custom_roles` (bool, optional): When `True`, strips a `custom_` prefix from source role names before matching them against target roles (and matches target roles with the same prefix stripped). Default is `False`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{email}`)
+    -   `skipped` (list of `{email, reason}`)
+    -   `failed` (list of `{email, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+* * * * *
+
+### `migrate_all_users(self, action="skip", ignore_custom_roles=False, emit=None)`
+
+Migrates all eligible users from the source to the target environment. Excludes users with the built-in `super` role (the source and target super admin accounts are expected to already exist independently on each environment), and — when the source environment exposes tenant information — restricts migration to users belonging to the system tenant. If tenant information is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every user (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `ignore_custom_roles` (bool, optional): Same as in `migrate_users`. Default is `False`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_users`.
+
+**Note:** Migrate groups before users — user payloads reference target group IDs, and groups not yet present on the target will be silently omitted from the user's group list.
