@@ -173,3 +173,20 @@ Exports structured data to CSV using the internal utility function.
 
 - Internally uses `utils.export_to_csv()` for flattening and writing.  
 - Automatically applies class-level logging.
+
+---
+
+### `decode_bearer_token(self)`
+
+Decodes the JWT bearer token stored on this client. Extracts the payload segment, base64url-decodes it, and returns all claims as a plain dictionary. No network request is made; decoding is performed locally.
+
+This is an inspection utility: the signature is not verified, and the claim names are internal details of the Sisense token format. To resolve the API token user's ID for other SDK calls, prefer `AccessManagement.get_my_user()`, which asks the server directly.
+
+**Returns:**
+
+- `dict`: All JWT payload claims. Common keys:
+  - `"user"` (str): Sisense user ID of the token owner.
+  - `"exp"` (int): Token expiry as a Unix timestamp.
+  - `"iat"` (int): Token issued-at as a Unix timestamp.
+
+  Returns `{"error": "..."}` when the token is missing, malformed, or cannot be decoded.

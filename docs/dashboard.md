@@ -370,3 +370,73 @@ Moves a dashboard into a folder by sending `PATCH /api/dashboards/{id}` with onl
 **Returns:**
 
 -   `dict`: The updated dashboard object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `change_dashboard_owner(dashboard_id, new_owner_id, admin_access=True, original_owner_rule="edit")`
+
+Transfers ownership of a dashboard to a different user via `POST /api/v1/dashboards/{dashboard_id}/change_owner`. The outgoing owner is demoted to a share entry.
+
+Used directly when you know the new owner's user ID. Also called internally by `add_dashboard_script` and `add_widget_script` when `executing_user` is provided.
+
+**Parameters:**
+
+-   `dashboard_id` (str): The `oid` of the dashboard.
+-   `new_owner_id` (str): The Sisense user ID (`_id`) of the new owner.
+-   `admin_access` (bool, optional): Append `?adminAccess=true`. Default `True`. Pass `False` when restoring ownership back from a temporary holder.
+-   `original_owner_rule` (str, optional): Share rule assigned to the outgoing owner. Default `"edit"`.
+
+**Returns:**
+
+-   `dict`: API response body on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `get_widget_by_id(dashboard_id, widget_id, admin_access=True)`
+
+Retrieves a single widget by its dashboard and widget IDs via `GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}`.
+
+**Parameters:**
+
+-   `dashboard_id` (str): The `oid` of the dashboard.
+-   `widget_id` (str): The `oid` of the widget.
+-   `admin_access` (bool, optional): Append `?adminAccess=true`. Default `True`.
+
+**Returns:**
+
+-   `dict`: The full widget object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `update_widget(dashboard_id, widget_id, widget_data)`
+
+Writes updated widget data back to Sisense via `PUT /api/dashboards/{dashboard_id}/widgets/{widget_id}`. Server-managed fields (`oid`, `_id`, `owner`, `userId`, `created`, `lastUpdated`, `instanceType`, `dashboardid`) are stripped automatically before the request.
+
+Only the dashboard owner can write widgets. Pair with `change_dashboard_owner` if the API token user is not the owner.
+
+**Parameters:**
+
+-   `dashboard_id` (str): The `oid` of the dashboard.
+-   `widget_id` (str): The `oid` of the widget.
+-   `widget_data` (dict): Full widget payload with the desired changes applied. Obtain the current widget from `get_widget_by_id`, modify the relevant fields, and pass the result here.
+
+**Returns:**
+
+-   `dict`: The updated widget object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `find_widgets_by_type(widget_type, dashboards=None, admin_access=True, max_results=None)`
+
+Searches for all widgets matching a given type across one or more dashboards.
+
+**Parameters:**
+
+-   `widget_type` (str): The widget type to match (for example `"BloX"`, `"chart"`, `"pivot"`). Case-sensitive.
+-   `dashboards` (list[str] | str | None, optional): Dashboard IDs or titles to search. A bare string is treated as a single-item list. When `None` (default), all dashboards on the instance are searched.
+-   `admin_access` (bool, optional): When `True` (default), enumerates all dashboards on the instance via the admin endpoint and fetches widgets using `adminAccess=true`, including dashboards owned by other users. When `False`, only dashboards visible to the API token user are scanned.
+-   `max_results` (int | None, optional): Stop after this many matches. Default `None` (no limit).
+
+**Returns:**
+
+-   `list[dict]`: Match records, each containing `dashboard_id`, `dashboard_title`, `widget_id`, `widget_title`, and `widget_type`. Returns an empty list when no matches are found.

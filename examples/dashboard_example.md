@@ -388,3 +388,81 @@ folder_id    = "65d62c9wregfhg0e33bc64f0"
 response = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
 print(json.dumps(response, indent=4))
 ```
+
+---
+
+## Example 17: Change Dashboard Owner
+
+Transfer ownership of a dashboard to a different user. Pass the Sisense user ID (not email). Use `AccessManagement.get_user(email)` to look up the user ID.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+new_owner_id = "65ab1234567890abcdef0001"
+response = dashboard.change_dashboard_owner(dashboard_id, new_owner_id)
+print(response)
+```
+
+When restoring ownership back (the API token user already owns the dashboard), pass `admin_access=False`:
+
+```python
+response = dashboard.change_dashboard_owner(dashboard_id, original_owner_id, admin_access=False)
+```
+
+---
+
+## Example 18: Get a Widget by ID
+
+Fetch the full widget object for a single widget.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+widget_id    = "65e890abcdef1234567890ab"
+widget = dashboard.get_widget_by_id(dashboard_id, widget_id)
+print(json.dumps(widget, indent=4))
+```
+
+---
+
+## Example 19: Update a Widget
+
+Read a widget, change a field, and write it back. Server-managed fields are stripped automatically.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+widget_id    = "65e890abcdef1234567890ab"
+
+widget = dashboard.get_widget_by_id(dashboard_id, widget_id)
+widget["title"] = "Updated Widget Title"
+
+response = dashboard.update_widget(dashboard_id, widget_id, widget)
+print(json.dumps(response, indent=4))
+```
+
+---
+
+## Example 20: Find Widgets by Type
+
+Search for all BloX widgets across the entire instance.
+
+```python
+# All BloX widgets on the instance
+results = dashboard.find_widgets_by_type("BloX")
+for r in results:
+    print(r["dashboard_title"], r["widget_title"], r["widget_id"])
+```
+
+Search only within specific dashboards:
+
+```python
+results = dashboard.find_widgets_by_type(
+    "BloX",
+    dashboards=["65d62c9wregfhg0e33bc64e8", "My Sales Dashboard"],
+)
+```
+
+Cap results and export to CSV:
+
+```python
+results = dashboard.find_widgets_by_type("chart", max_results=50)
+api_client.export_to_csv(results, "chart_widgets.csv")
+```
