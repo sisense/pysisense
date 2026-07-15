@@ -716,3 +716,99 @@ class TestMoveDashboardToFolder:
         dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.move_dashboard_to_folder("dash123", "folder456")
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# change_dashboard_owner
+# ---------------------------------------------------------------------------
+
+
+class TestChangeDashboardOwner:
+    def test_returns_response_on_success(self):
+        body = {"ok": True}
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(200, body)})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert result == body
+
+    def test_returns_error_on_none_response(self):
+        dash = _make_dash()
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert "error" in result
+
+    def test_returns_error_on_403(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(403, {"message": "forbidden"})})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert "error" in result
+
+    def test_returns_error_on_500(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(500, {"error": "fail"})})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# add_dashboard_script — ownership restoration via try/finally
+# ---------------------------------------------------------------------------
+
+_EXPANDED_USER = {
+    "_id": "api_user_id",
+    "userName": "api",
+    "email": "api@example.com",
+    "firstName": "Api",
+    "lastName": "User",
+    "role": {"_id": "r1", "name": "consumer"},
+    "groups": [],
+}
+
+
+class _TrackingPostClient(FakeApiClient):
+    """FakeApiClient that records every POST url (before query-params)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.post_urls: list[str] = []
+
+    def post(self, url, data=None, **kwargs):
+        self.post_urls.append(url.split("?")[0])
+        return super().post(url, data=data, **kwargs)
+
+
+def _make_ownership_script_client(put_response: FakeResponse) -> _TrackingPostClient:
+    """Build a tracking client set up for the ownership-swap script flow."""
+    logger = FakeLogger()
+    return _TrackingPostClient(
+        get_responses={
+            "/api/v1/dashboards/admin": FakeResponse(200, [{"owner": "original_owner_id"}]),
+            "/api/shares/dashboard/dash123": FakeResponse(200, {"sharesTo": []}),
+            "/api/v1/users": FakeResponse(200, [_EXPANDED_USER]),
+        },
+        post_responses={
+            "/api/v1/dashboards/dash123/change_owner": FakeResponse(200, {}),
+            "/api/shares/dashboard/dash123": FakeResponse(200, {}),
+        },
+        put_responses={"/api/dashboards/dash123": put_response},
+        logger=logger,
+    )
+
+
+class TestAddDashboardScriptOwnershipRestored:
+    def test_ownership_restored_on_write_success(self):
+        client = _make_ownership_script_client(FakeResponse(200, {}))
+        dash = Dashboard(api_client=client)
+        result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"}', executing_user="api@example.com")
+
+        assert "successfully" in result.lower()
+        change_owner_calls = [u for u in client.post_urls if "change_owner" in u]
+        assert len(change_owner_calls) == 2  # take + restore
+
+    def test_ownership_restored_when_write_fails(self):
+        client = _make_ownership_script_client(FakeResponse(500, {"error": "write failed"}))
+        dash = Dashboard(api_client=client)
+        result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"}', executing_user="api@example.com")
+
+        assert result.startswith("Error:")
+        # Restoration must still have been attempted despite the failed write
+        change_owner_calls = [u for u in client.post_urls if "change_owner" in u]
+        assert len(change_owner_calls) == 2
+        share_restore_calls = [u for u in client.post_urls if "shares/dashboard" in u]
+        assert len(share_restore_calls) >= 1

@@ -4,6 +4,64 @@ from typing import Any
 
 
 class SharesMixin:
+    def change_dashboard_owner(
+        self,
+        dashboard_id: str,
+        new_owner_id: str,
+        *,
+        admin_access: bool = True,
+        original_owner_rule: str = "edit",
+    ) -> dict[str, Any]:
+        """Transfer ownership of a dashboard to a different user.
+
+        Sends ``POST /api/v1/dashboards/{dashboard_id}/change_owner``.
+        The previous owner is demoted to a share entry with the rule
+        specified by ``original_owner_rule``.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The ``oid`` of the dashboard whose owner will be changed.
+        new_owner_id : str
+            The Sisense user ID (``_id``) of the user who will become the new owner.
+        admin_access : bool, optional
+            When ``True`` (default), appends ``?adminAccess=true`` to the request.
+            Required when the API token user is not the current dashboard owner.
+            Pass ``False`` when restoring ownership back to the original owner
+            (the caller is already the temporary owner at that point).
+        original_owner_rule : str, optional
+            The share rule assigned to the outgoing owner after the transfer.
+            Defaults to ``"edit"``.
+
+        Returns
+        -------
+        dict[str, Any]
+            The API response body on success, or ``{"error": "..."}`` on failure.
+        """
+        endpoint = f"/api/v1/dashboards/{dashboard_id}/change_owner"
+        if admin_access:
+            endpoint += "?adminAccess=true"
+
+        payload = {"ownerId": new_owner_id, "originalOwnerRule": original_owner_rule}
+        self.logger.debug(f"Changing owner of dashboard {dashboard_id} to {new_owner_id} (admin_access={admin_access})")
+
+        response = self.api_client.post(endpoint, data=payload)
+
+        if response is None:
+            self.logger.error(f"No response received when changing owner of dashboard {dashboard_id}.")
+            return {"error": f"No response received when changing owner of dashboard '{dashboard_id}'."}
+
+        if response.status_code != 200:
+            try:
+                error_detail = response.json()
+            except Exception:
+                error_detail = response.text
+            self.logger.error(f"Failed to change owner of dashboard {dashboard_id} (HTTP {response.status_code}): {error_detail}")
+            return {"error": f"Failed to change owner of dashboard '{dashboard_id}': {error_detail}"}
+
+        self.logger.info(f"Dashboard {dashboard_id} owner changed to {new_owner_id}.")
+        return response.json()
+
     def add_dashboard_shares(self, dashboard_id: str, shares: list[dict[str, Any]]) -> str:
         """Add or update shares for a dashboard for the given users and groups.
 

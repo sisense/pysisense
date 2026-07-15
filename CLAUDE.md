@@ -62,9 +62,9 @@ uv run pre-commit install
 |---|---|---|
 | `sisenseclient.py` | `SisenseClient` | Base HTTP client, auth, logging, shared session |
 | `access_management/` | `AccessManagement` | Users, groups, permissions, ownership, RLS, schedules |
-| `blox/` | `Blox` | Fetch custom Blox actions (Linux and Windows); save/delete Linux only |
+| `blox/` | `Blox` | Fetch custom Blox actions (Linux and Windows); save/delete Linux only; BloX widget style read/write |
 | `custom_code/` | `CustomCode` | Custom-code notebooks: CRUD, export, folder/file rename |
-| `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, dashboard/widget scripts |
+| `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, change owner, dashboard/widget scripts, widget read/write, widget type search |
 | `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
 | `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
@@ -85,6 +85,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | Package | File | Public methods |
 |---|---|---|
 | `blox/` | `core.py` | `get_blox_actions` (OS-routed), `save_blox_action`, `delete_blox_action` |
+| | `widgets.py` | `get_blox_widget_style`, `update_blox_widget_style` |
 | `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_users_expanded`, `create_users_bulk`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
 | | `groups.py` | `get_group`, `get_groups`, `create_groups_bulk`, `delete_group`, `users_per_group`, `users_per_group_all` |
@@ -93,9 +94,10 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
 | `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned` |
-| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1` |
+| | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
+| | `widgets.py` | `get_widget_by_id`, `update_widget`, `find_widgets_by_type` |
 | `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders` (structure param, default `"flat"`), `get_folder_ancestors`, `get_navver`, `get_all_folders` (tree shortcut), `delete_folder` |
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |

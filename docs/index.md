@@ -14,8 +14,12 @@ The documentation is organized by feature/module. Click on any section to learn 
   Manage users, groups, roles, and share permissions.
   [Access Management Examples](../examples/access_management_example.md)
 
+- [Blox](blox.md)  
+  Fetch, save, and delete custom BloX actions; read and update BloX widget styles.
+  [Blox Examples](../examples/blox_example.md)
+
 - [Dashboard](dashboard.md)  
-  Read, export, share, and change ownership of dashboards.
+  Read, export, share, change ownership, and manage widgets on dashboards.
   [Dashboard Examples](../examples/dashboard_example.md)
 
 - [Folder](folder.md)  

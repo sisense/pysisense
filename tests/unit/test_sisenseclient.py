@@ -1,8 +1,17 @@
 """Unit tests for pysisense.sisenseclient.SisenseClient."""
 
+import base64
+import json
+
 import pytest
 
 from pysisense.sisenseclient import SisenseClient
+
+
+def _make_jwt(payload: dict) -> str:
+    """Build a minimal JWT with a valid base64url-encoded payload segment."""
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"header.{encoded}.sig"
 
 
 class TestSisenseClientInit:
@@ -92,3 +101,42 @@ class TestSisenseClientExportToCsv:
         import os
 
         assert os.path.exists(output)
+
+
+# ---------------------------------------------------------------------------
+# decode_bearer_token
+# ---------------------------------------------------------------------------
+
+
+class TestDecodeBearerToken:
+    def test_decodes_user_claim(self):
+        payload = {"user": "abc123", "exp": 9999999999}
+        client = SisenseClient(domain="host.com", token=_make_jwt(payload))
+        result = client.decode_bearer_token()
+        assert result["user"] == "abc123"
+
+    def test_decodes_all_claims(self):
+        payload = {"user": "abc123", "exp": 9999999999, "iat": 1000000000}
+        client = SisenseClient(domain="host.com", token=_make_jwt(payload))
+        result = client.decode_bearer_token()
+        assert result["exp"] == 9999999999
+        assert result["iat"] == 1000000000
+
+    def test_returns_error_on_malformed_token_no_dot(self):
+        client = SisenseClient(domain="host.com", token="notajwt")
+        result = client.decode_bearer_token()
+        assert "error" in result
+
+    def test_returns_error_on_invalid_base64_payload(self):
+        client = SisenseClient(domain="host.com", token="header.!!!.sig")
+        result = client.decode_bearer_token()
+        assert "error" in result
+
+    def test_handles_all_base64_padding_lengths(self):
+        # Different payload sizes exercise 0-3 extra padding chars
+        for extra in range(4):
+            payload = {"user": "x" * (10 + extra)}
+            client = SisenseClient(domain="host.com", token=_make_jwt(payload))
+            result = client.decode_bearer_token()
+            assert "error" not in result, f"Failed for extra={extra}"
+            assert result["user"] == "x" * (10 + extra)

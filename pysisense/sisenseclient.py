@@ -1,6 +1,9 @@
+import base64
+import json
 import logging
 import os
 import re
+from typing import Any
 
 import requests
 import urllib3
@@ -395,3 +398,46 @@ class SisenseClient:
             file_name: str, name of the file to export the CSV to
         """
         export_csv_util(data, file_name=file_name, logger=self.logger)
+
+    def decode_bearer_token(self) -> dict[str, Any]:
+        """Decode the JWT bearer token stored on this client.
+
+        Extracts the payload segment of the bearer token, base64url-decodes it,
+        and returns all claims as a plain dictionary. No network request is made.
+        Decoding is performed locally.
+
+        The token signature is not verified and the claim names are internal
+        details of the Sisense token format. Use this for local inspection
+        only; to resolve the API token user's ID for other SDK calls, prefer
+        ``AccessManagement.get_my_user()``, which asks the server directly.
+
+        Returns
+        -------
+        dict[str, Any]
+            All JWT payload claims. Commonly useful keys:
+
+            - ``"user"`` (str): Sisense user ID of the token owner.
+            - ``"exp"`` (int): Token expiry as a Unix timestamp.
+            - ``"iat"`` (int): Token issued-at as a Unix timestamp.
+
+            Returns ``{"error": "..."}`` when the token is missing, malformed,
+            or cannot be decoded.
+        """
+        if not self.token:
+            self.logger.error("No bearer token is configured on this client.")
+            return {"error": "No bearer token configured."}
+
+        try:
+            segments = self.token.split(".")
+            if len(segments) < 2:
+                raise ValueError("Token does not have the expected JWT structure (header.payload.signature).")
+
+            payload_segment = segments[1]
+            # Pad to a multiple of 4 for standard base64 decoding
+            padded = payload_segment + "=" * (-len(payload_segment) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded))
+            self.logger.debug(f"Bearer token decoded — user: {payload.get('user', 'unknown')}")
+            return payload
+        except Exception as e:
+            self.logger.error(f"Failed to decode bearer token: {e}")
+            return {"error": f"Failed to decode bearer token: {e}"}
