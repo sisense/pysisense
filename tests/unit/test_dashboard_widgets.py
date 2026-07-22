@@ -4,6 +4,15 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.dashboard import Dashboard
 
+
+class FakeResponseEmpty(FakeResponse):
+    """FakeResponse with an empty body — simulates a 200 with no JSON content."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code, None)
+        self.content = b""
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture data
 # ---------------------------------------------------------------------------
@@ -122,6 +131,12 @@ class TestUpdateWidget:
         result = dash.update_widget("dash123", "widget456", dict(_CHART_WIDGET))
         assert "error" not in result
         assert result["title"] == "Updated Title"
+
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponseEmpty(200)})
+        result = dash.update_widget("dash123", "widget456", dict(_CHART_WIDGET))
+        assert result == {"success": True}
 
     def test_strips_all_server_managed_fields(self):
         logger = FakeLogger()
