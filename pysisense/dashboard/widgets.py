@@ -78,7 +78,7 @@ class DashboardWidgetsMixin:
         Returns
         -------
         dict[str, Any]
-            The updated widget object returned by the API, or ``{"error": "..."}`` on failure.
+            The API response body on success, or ``{"error": "..."}`` on failure.
         """
         stripped = _SERVER_MANAGED_FIELDS & widget_data.keys()
         clean_payload = {k: v for k, v in widget_data.items() if k not in _SERVER_MANAGED_FIELDS}
@@ -100,7 +100,7 @@ class DashboardWidgetsMixin:
             return {"error": f"Failed to update widget '{widget_id}': {error_detail}"}
 
         self.logger.info(f"Widget {widget_id} on dashboard {dashboard_id} updated successfully.")
-        return response.json()
+        return response.json() if response.content else {"success": True}
 
     def find_widgets_by_type(
         self,

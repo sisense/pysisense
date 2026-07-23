@@ -422,7 +422,7 @@ Only the dashboard owner can write widgets. Pair with `change_dashboard_owner` i
 
 **Returns:**
 
--   `dict`: The updated widget object on success, or `{"error": "..."}` on failure.
+-   `dict`: The API response body on success, or `{"error": "..."}` on failure.
 
 * * * * *
 
