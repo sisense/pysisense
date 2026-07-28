@@ -438,8 +438,9 @@ class DashboardCoreMixin:
         Returns
         -------
         dict[str, Any]
-            The updated dashboard object on success, or ``{"error": "..."}`` on
-            failure.
+            The updated dashboard object on success, or ``{"success": True}``
+            when the API responds 200 with an empty body. ``{"error": "..."}``
+            on failure.
         """
         payload = {"title": title}
         endpoint = f"/api/dashboards/{dashboard_id}"
@@ -458,7 +459,7 @@ class DashboardCoreMixin:
             self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
             return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
 
-        updated = response.json()
+        updated = response.json() if response.content else {"success": True}
         self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
         return updated
 
@@ -478,8 +479,9 @@ class DashboardCoreMixin:
         Returns
         -------
         dict[str, Any]
-            The updated dashboard object from the API, or ``{"error": "..."}`` on
-            failure.
+            The updated dashboard object from the API, or ``{"success": True}``
+            when the API responds 200 with an empty body. ``{"error": "..."}``
+            on failure.
         """
         payload = {"parentFolder": folder_id}
         endpoint = f"/api/dashboards/{dashboard_id}"
@@ -498,7 +500,7 @@ class DashboardCoreMixin:
             self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
             return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
 
-        updated = response.json()
+        updated = response.json() if response.content else {"success": True}
         self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
         return updated
 

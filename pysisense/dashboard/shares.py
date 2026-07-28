@@ -36,7 +36,8 @@ class SharesMixin:
         Returns
         -------
         dict[str, Any]
-            The API response body on success, or ``{"error": "..."}`` on failure.
+            The API response body on success, or ``{"success": True}`` when the
+            API responds 200 with an empty body. ``{"error": "..."}`` on failure.
         """
         endpoint = f"/api/v1/dashboards/{dashboard_id}/change_owner"
         if admin_access:
@@ -60,7 +61,7 @@ class SharesMixin:
             return {"error": f"Failed to change owner of dashboard '{dashboard_id}': {error_detail}"}
 
         self.logger.info(f"Dashboard {dashboard_id} owner changed to {new_owner_id}.")
-        return response.json()
+        return response.json() if response.content else {"success": True}
 
     def add_dashboard_shares(self, dashboard_id: str, shares: list[dict[str, Any]]) -> str:
         """Add or update shares for a dashboard for the given users and groups.
