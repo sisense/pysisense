@@ -248,7 +248,7 @@ Moves a dashboard into a folder by PATCHing ``parentFolder`` on ``/api/dashboard
 
 **Returns:**
 
-- `dict`: Updated dashboard object on success, or `{"error": "..."}` on failure.
+- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
 
 * * * * *
 
@@ -263,7 +263,7 @@ Renames a dashboard by PATCHing ``title`` on ``/api/dashboards/{dashboard_id}``.
 
 **Returns:**
 
-- `dict`: Updated dashboard object on success, or `{"error": "..."}` on failure.
+- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
 
 * * * * *
 
@@ -354,7 +354,7 @@ Renames a dashboard by sending `PATCH /api/dashboards/{id}` with only `title` in
 
 **Returns:**
 
--   `dict`: The updated dashboard object on success, or `{"error": "..."}` on failure.
+-   `dict`: The updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
 
 * * * * *
 
@@ -369,7 +369,7 @@ Moves a dashboard into a folder by sending `PATCH /api/dashboards/{id}` with onl
 
 **Returns:**
 
--   `dict`: The updated dashboard object on success, or `{"error": "..."}` on failure.
+-   `dict`: The updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
 
 * * * * *
 
@@ -388,7 +388,7 @@ Used directly when you know the new owner's user ID. Also called internally by `
 
 **Returns:**
 
--   `dict`: API response body on success, or `{"error": "..."}` on failure.
+-   `dict`: API response body on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
 
 * * * * *
 

@@ -5,6 +5,15 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.access_management import AccessManagement
 
+
+class FakeResponseEmpty(FakeResponse):
+    """FakeResponse with an empty body — simulates a 200 with no JSON content."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code, None)
+        self.content = b""
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture data
 # ---------------------------------------------------------------------------
@@ -527,12 +536,44 @@ class TestUsersPerGroupAll:
 # ---------------------------------------------------------------------------
 
 
+_OWNERSHIP_USERS = [
+    {**_USER_EXPANDED, "_id": "executor_id", "email": "executor@example.com"},
+    {**_USER_EXPANDED, "_id": "newowner_id", "email": "newowner@example.com"},
+]
+
+_NAVVER_FOLDERS = {
+    "folders": [
+        {
+            "oid": "folder1",
+            "name": "MyFolder",
+            "dashboards": [{"oid": "dash1", "title": "Sales"}],
+            "folders": [],
+        }
+    ]
+}
+
+
 class TestChangeFolderAndDashboardOwnership:
     def test_returns_error_when_executing_user_not_found(self):
         # get_user for the executing user returns not-found
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
         result = am.change_folder_and_dashboard_ownership("executor@example.com", "MyFolder", "newowner@example.com")
         assert "error" in result
+
+    def test_changes_ownership_when_folder_and_dashboard_responses_have_no_body(self):
+        # Some Sisense versions return 200 with no JSON body for the folder-owner
+        # PATCH and the dashboard change_owner POST — both must still count as success.
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, _OWNERSHIP_USERS),
+                "/api/v1/navver": FakeResponse(200, _NAVVER_FOLDERS),
+                "/api/v1/dashboards/dash1": FakeResponse(200, {"oid": "dash1", "title": "Sales", "owner": "executor_id"}),
+            },
+            patch_responses={"/api/v1/folders/folder1": FakeResponseEmpty(200)},
+            post_responses={"/api/v1/dashboards/dash1/change_owner": FakeResponseEmpty(200)},
+        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "MyFolder", "newowner@example.com")
+        assert result == {"total_folders_changed": 1, "total_dashboards_changed": 1}
 
 
 # ---------------------------------------------------------------------------

@@ -216,12 +216,20 @@ class OwnershipMixin:
                 self.logger.debug(f"Changing owner for folder {folder_name} (ID: {folder_id}) with data: {data}")
 
                 response = self.api_client.patch(f"/api/v1/folders/{folder_id}", data=data)
-                response = response.json()
+                if response is None:
+                    self.logger.error(f"Failed to change folder owner for '{folder_name}'. No response received.")
+                    continue
 
-                # Log response
-                self.logger.debug(f"API response for folder change: {response}")
+                # This endpoint doesn't reliably return a JSON body, so success falls
+                # back to status code when there's nothing to parse.
+                if response.content:
+                    response_data = response.json()
+                    self.logger.debug(f"API response for folder change: {response_data}")
+                    changed = response_data.get("owner") == new_owner_id
+                else:
+                    changed = response.status_code == 200
 
-                if response and response.get("owner") == new_owner_id:
+                if changed:
                     self.logger.info(f"Folder '{folder_name}' owner changed to {new_owner_name}")
                     total_folders_changed += 1
                 else:
@@ -244,13 +252,13 @@ class OwnershipMixin:
                         if current_owner_id == user_id:
                             data = {"ownerId": new_owner_id, "originalOwnerRule": original_owner_rule}
                             response = self.api_client.post(f"/api/v1/dashboards/{dash_id}/change_owner", data=data)
-                            response = response.json()
                         else:
                             data = {"ownerId": new_owner_id, "originalOwnerRule": original_owner_rule}
                             response = self.api_client.post(f"/api/v1/dashboards/{dash_id}/change_owner?adminAccess=true", data=data)
-                            response = response.json()
 
-                        if response:
+                        # This endpoint doesn't reliably return a JSON body, so success falls
+                        # back to status code when there's nothing to parse.
+                        if response is not None and response.status_code == 200:
                             self.logger.info(f"Dashboard '{dash_name}' owner changed to {new_owner_name}")
                             total_dashboards_changed += 1
                         else:

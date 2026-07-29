@@ -6,6 +6,15 @@ import pysisense.dashboard.scripts as scripts_module
 from pysisense.dashboard import Dashboard
 from pysisense.dashboard.scripts import SisenseScript
 
+
+class FakeResponseEmpty(FakeResponse):
+    """FakeResponse with an empty body — simulates a 200 with no JSON content."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code, None)
+        self.content = b""
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture data
 # ---------------------------------------------------------------------------
@@ -694,6 +703,12 @@ class TestRenameDashboard:
         result = dash.rename_dashboard("dash123", "New Name")
         assert "error" in result
 
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponseEmpty(200)})
+        result = dash.rename_dashboard("dash123", "New Name")
+        assert result == {"success": True}
+
 
 # ---------------------------------------------------------------------------
 # move_dashboard_to_folder
@@ -716,6 +731,12 @@ class TestMoveDashboardToFolder:
         dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.move_dashboard_to_folder("dash123", "folder456")
         assert "error" in result
+
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponseEmpty(200)})
+        result = dash.move_dashboard_to_folder("dash123", "folder456")
+        assert result == {"success": True}
 
 
 # ---------------------------------------------------------------------------
@@ -744,6 +765,12 @@ class TestChangeDashboardOwner:
         dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(500, {"error": "fail"})})
         result = dash.change_dashboard_owner("dash123", "new_owner_id")
         assert "error" in result
+
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponseEmpty(200)})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert result == {"success": True}
 
 
 # ---------------------------------------------------------------------------
