@@ -2,7 +2,12 @@
 
 This guide demonstrates how to use the `ReportManager` class from the `pysisense` package to list, create, update, delete, and run scheduled reports. Each example includes a short description and a code snippet you can copy into your own scripts.
 
-Report Manager is an **on-demand plugin** — if it is not installed or enabled on your Sisense instance, every method below returns `{"error": "..."}` instead of raising, so check for `"error"` in the response before using the result.
+Report Manager is a **Marketplace feature**, if it is not installed or enabled on your Sisense instance, every method below returns `{"error": "..."}` instead of raising, so check for `"error"` in the response before using the result. In that case the underlying HTTP error is typically a 404 with an empty body (the `/report_manager` route isn't recognized at all), as opposed to a genuine "not found" 404 which carries Report Manager's own structured error JSON.
+
+If Report Manager isn't available on your instance, the built-in dashboard **subscriptions** feature is the closest fallback for scheduled/emailed reports, `pysisense` does not yet support subscriptions, so that would need to be managed manually. See:
+
+- [Report Manager (Sisense docs)](https://docs.sisense.com/main/SisenseLinux/report-manager.htm)
+- [Configuring email settings / subscriptions (Sisense docs)](https://docs.sisense.com/main/SisenseLinux/configuring-email-settings.htm)
 
 ---
 

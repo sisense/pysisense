@@ -2,7 +2,12 @@
 
 The `ReportManager` class manages scheduled reports through the Sisense Report Manager plugin.
 
-Report Manager is an **on-demand plugin** and is not guaranteed to be installed or enabled on every Sisense instance. Every method returns `{"error": "..."}` rather than raising when the plugin's endpoints are unavailable (for example, a 404 because the plugin is not enabled), so callers can detect and handle that case directly.
+Report Manager is a **Marketplace feature** and is not guaranteed to be installed or enabled on every Sisense instance. Every method returns `{"error": "..."}` rather than raising when the plugin's endpoints are unavailable (for example, a 404 because the plugin is not enabled), so callers can detect and handle that case directly.
+
+If Report Manager is not enabled on your instance, the built-in dashboard **subscriptions** feature is the closest fallback for scheduled/emailed reports. `pysisense` does not yet have support for subscriptions, see the Sisense documentation below to manage them manually.
+
+- [Report Manager (Sisense docs)](https://docs.sisense.com/main/SisenseLinux/report-manager.htm)
+- [Configuring email settings / subscriptions (Sisense docs)](https://docs.sisense.com/main/SisenseLinux/configuring-email-settings.htm)
 
 ---
 
