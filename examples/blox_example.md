@@ -106,11 +106,11 @@ Read the `currentCard` and `currentConfig` style objects from a BloX widget. `cu
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-widget_id    = "65e890abcdef1234567890ab"
+widget_id = "65e890abcdef1234567890ab"
 
 style = blox.get_blox_widget_style(dashboard_id, widget_id)
-print(style["currentCard"]["style"])        # the card's CSS string
-print(style["currentConfig"]["fontFamily"]) # the widget font family
+print(style["currentCard"]["style"])  # the card's CSS string
+print(style["currentConfig"]["fontFamily"])  # the widget font family
 ```
 
 Returns `{"error": "..."}` if the widget is not a BloX type.
@@ -123,7 +123,7 @@ The typical flow is read-modify-write: fetch the style objects, change the field
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-widget_id    = "65e890abcdef1234567890ab"
+widget_id = "65e890abcdef1234567890ab"
 
 style = blox.get_blox_widget_style(dashboard_id, widget_id)
 

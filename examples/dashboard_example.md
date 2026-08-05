@@ -39,7 +39,7 @@ dashboard_df = api_client.to_dataframe(response)
 print(dashboard_df)
 
 # Optional: Export the response to a CSV file
-api_client.export_to_csv(response, 'all_dashboard.csv')
+api_client.export_to_csv(response, "all_dashboard.csv")
 ```
 
 ---
@@ -54,7 +54,7 @@ response = dashboard.get_dashboard_by_id(dashboard_id)
 print(json.dumps(response, indent=4))
 dashboard_df = api_client.to_dataframe(response)
 print(dashboard_df)
-api_client.export_to_csv(response, 'dashboard.csv')
+api_client.export_to_csv(response, "dashboard.csv")
 ```
 
 ---
@@ -118,7 +118,7 @@ dashboard.on('widgetready', function(d) {
         .css('padding-left', '20px');
 });
 """
-response = dashboard.add_dashboard_script(dashboard_id, script, executing_user='sisensepy@sisense.com')
+response = dashboard.add_dashboard_script(dashboard_id, script, executing_user="sisensepy@sisense.com")
 print(response)
 ```
 
@@ -147,7 +147,7 @@ widget.on('beforeviewloaded', function(se, ev){
     legend.y=y
 }) 
 """
-response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user='sisensepy@sisense.com')
+response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user="sisensepy@sisense.com")
 print(response)
 ```
 
@@ -159,11 +159,7 @@ Share a dashboard with users and groups, specifying permissions.
 
 ```python
 dashboard_id = "6823c49365acb80033041c88"
-shares = [
-    {"name": "john.doe@sisense.com", "type": "user", "rule": "edit"},
-    {"name": "viewer@sisense.com", "type": "user", "rule": "view"},
-    {"name": "mig_test", "type": "group", "rule": "view"}
-]
+shares = [{"name": "john.doe@sisense.com", "type": "user", "rule": "edit"}, {"name": "viewer@sisense.com", "type": "user", "rule": "view"}, {"name": "mig_test", "type": "group", "rule": "view"}]
 response = dashboard.add_dashboard_shares(dashboard_id, shares)
 print(response)
 ```
@@ -218,7 +214,7 @@ Resolve one or more Dashboard references that may be either IDs or names.
 # Mix of Dashboard IDs and titles
 dashboard_refs = [
     "6893741265c9f5484dc999d7",  # Dashboard ID
-    "Academy AI Content",        # Dashboard title
+    "Academy AI Content",  # Dashboard title
 ]
 
 for ref in dashboard_refs:
@@ -384,7 +380,7 @@ Place a dashboard inside a specific folder.
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-folder_id    = "65d62c9wregfhg0e33bc64f0"
+folder_id = "65d62c9wregfhg0e33bc64f0"
 response = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
 print(json.dumps(response, indent=4))
 ```
@@ -416,7 +412,7 @@ Fetch the full widget object for a single widget.
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-widget_id    = "65e890abcdef1234567890ab"
+widget_id = "65e890abcdef1234567890ab"
 widget = dashboard.get_widget_by_id(dashboard_id, widget_id)
 print(json.dumps(widget, indent=4))
 ```
@@ -429,7 +425,7 @@ Read a widget, change a field, and write it back. Server-managed fields are stri
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-widget_id    = "65e890abcdef1234567890ab"
+widget_id = "65e890abcdef1234567890ab"
 
 widget = dashboard.get_widget_by_id(dashboard_id, widget_id)
 widget["title"] = "Updated Widget Title"

@@ -139,7 +139,7 @@ print(json.dumps(response, indent=4))
 Retrieve all folders as a flat list — useful for bulk lookups and ID mapping before a migration.
 
 ```python
-response = folder.get_folders()          # defaults to structure="flat"
+response = folder.get_folders()  # defaults to structure="flat"
 print(json.dumps(response, indent=4))
 
 df = api_client.to_dataframe(response)

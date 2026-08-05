@@ -15,7 +15,7 @@ import os
 import json
 
 # For local development only — not needed after pip install
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from pysisense import MergeTool
 
@@ -36,7 +36,7 @@ notebook_ids = [
 ]
 results = merge.migrate_notebooks(
     notebook_ids=notebook_ids,
-    action="skip",               # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -52,7 +52,7 @@ notebook_names = [
 ]
 results = merge.migrate_notebooks(
     notebook_names=notebook_names,
-    action="overwrite",          # Deletes existing on target then recreates from source
+    action="overwrite",  # Deletes existing on target then recreates from source
 )
 print(json.dumps(results, indent=4))
 ```
@@ -63,7 +63,7 @@ print(json.dumps(results, indent=4))
 
 ```python
 results = merge.migrate_all_notebooks(
-    action="skip",               # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -79,7 +79,7 @@ folder_names = [
 ]
 results = merge.migrate_folders(
     folder_names=folder_names,
-    action="skip",               # Child folders are included automatically
+    action="skip",  # Child folders are included automatically
 )
 print(json.dumps(results, indent=4))
 ```
@@ -95,7 +95,7 @@ folder_ids = [
 ]
 results = merge.migrate_folders(
     folder_ids=folder_ids,
-    action="overwrite",          # Deletes existing folder on target then recreates
+    action="overwrite",  # Deletes existing folder on target then recreates
 )
 print(json.dumps(results, indent=4))
 ```
@@ -106,7 +106,7 @@ print(json.dumps(results, indent=4))
 
 ```python
 results = merge.migrate_all_folders(
-    action="skip",               # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -118,6 +118,7 @@ print(json.dumps(results, indent=4))
 ```python
 def on_progress(event: dict) -> None:
     print(f"[{event.get('type', '').upper()}] {event.get('step')} — {event.get('message')}")
+
 
 results = merge.migrate_all_folders(action="skip", emit=on_progress)
 print(json.dumps(results, indent=4))
@@ -134,7 +135,7 @@ action_types = [
 ]
 results = merge.migrate_blox_actions(
     action_types=action_types,
-    action="skip",               # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -145,7 +146,7 @@ print(json.dumps(results, indent=4))
 
 ```python
 results = merge.migrate_all_blox_actions(
-    action="overwrite",          # Deletes existing action on target then recreates from source
+    action="overwrite",  # Deletes existing action on target then recreates from source
 )
 print(json.dumps(results, indent=4))
 ```
@@ -161,7 +162,7 @@ group_names = [
 ]
 results = merge.migrate_groups(
     group_names=group_names,
-    action="skip",               # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -172,7 +173,7 @@ print(json.dumps(results, indent=4))
 
 ```python
 results = merge.migrate_all_groups(
-    action="skip",                # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -190,7 +191,7 @@ user_emails = [
 ]
 results = merge.migrate_users(
     user_emails=user_emails,
-    action="skip",                # Options: "skip", "overwrite", "duplicate"
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
 )
 print(json.dumps(results, indent=4))
 ```
@@ -201,8 +202,8 @@ print(json.dumps(results, indent=4))
 
 ```python
 results = merge.migrate_all_users(
-    action="skip",                 # Options: "skip", "overwrite", "duplicate"
-    ignore_custom_roles=False,     # Set True to strip a "custom_" prefix when matching roles
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    ignore_custom_roles=False,  # Set True to strip a "custom_" prefix when matching roles
 )
 print(json.dumps(results, indent=4))
 ```

@@ -293,6 +293,7 @@ All public methods must have type hints. Target Python 3.10+ — use builtin gen
 def get_user(self, user_id: str) -> dict[str, Any]: ...
 def list_groups(self) -> list[dict[str, Any]]: ...
 
+
 # ❌ BAD
 from typing import Dict, List  # don't use deprecated aliases
 ```
@@ -425,6 +426,7 @@ Use Pydantic for structured payload validation on `create`, `update`/`patch`, an
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Any
 
+
 class UpdateUserPayload(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -522,18 +524,18 @@ m._emit = my_progress_callback  # defaults to print
 ```python
 {
     "dashboards": {
-        "structure":           [...],
-        "widget_counts":       [...],
+        "structure": [...],
+        "widget_counts": [...],
         "pivot_widget_fields": [...],
     },
     "datamodels": {
-        "custom_tables":     [...],
-        "island_tables":     [...],
-        "rls_datatypes":     [...],
-        "import_queries":    [...],
+        "custom_tables": [...],
+        "island_tables": [...],
+        "rls_datatypes": [...],
+        "import_queries": [...],
         "m2m_relationships": [...],
-        "unused_columns":    [...],
-    }
+        "unused_columns": [...],
+    },
 }
 ```
 
