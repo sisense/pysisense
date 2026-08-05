@@ -37,11 +37,11 @@ class FakeLogger:
 class FakeResponse:
     """Minimal stand-in for requests.Response."""
 
-    def __init__(self, status_code: int, json_data: Any, text: str = "") -> None:
+    def __init__(self, status_code: int, json_data: Any, text: str = "", content: bytes | None = None) -> None:
         self.status_code = status_code
         self._json_data = json_data
         self.text = text or str(json_data)
-        self.content = b"content"
+        self.content = b"content" if content is None else content
 
     @property
     def ok(self) -> bool:

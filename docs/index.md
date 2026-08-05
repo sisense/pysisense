@@ -33,6 +33,10 @@ The documentation is organized by feature/module. Click on any section to learn 
 - [Migration](migration.md)  
   [Migration Examples](../examples/migration_example.md)
 
+- [Report Manager](report_manager.md)  
+  Scheduled report CRUD and on-demand run through the Report Manager plugin.
+  [Report Manager Examples](../examples/report_manager_example.md)
+
 - [Sisense Client](sisenseclient.md)  
   Automate cross-environment migration of users, dashboards, and models.
 

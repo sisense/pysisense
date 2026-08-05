@@ -73,6 +73,7 @@ uv run pre-commit install
 | `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, group, and user migration |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
+| `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local` |
 
@@ -120,6 +121,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
 | `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |
+| `report_manager/` | `core.py` | `get_reports`, `get_report`, `create_report`, `update_report`, `delete_report`, `run_report` |
 | `wellcheck/` | `dashboard_checks.py` | `check_dashboard_structure`, `check_dashboard_widget_counts`, `check_pivot_widget_fields` |
 | | `datamodel_checks.py` | `check_datamodel_custom_tables`, `check_datamodel_island_tables`, `check_datamodel_rls_datatypes`, `check_datamodel_import_queries`, `check_datamodel_m2m_relationships` |
 | | `__init__.py` | `run_full_wellcheck` (orchestrates all checks) |
@@ -178,7 +180,7 @@ The SDK **must** use a Sisense admin user's API token.
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, MergeTool, Metadata, Plugins, Queries, WellCheck
+from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, MergeTool, Metadata, Plugins, Queries, ReportManager, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)
@@ -190,6 +192,7 @@ folder = Folder(api_client=api_client)
 datamodel = DataModel(api_client=api_client)
 folder = Folder(api_client=api_client)
 plugins = Plugins(api_client=api_client)
+report_manager = ReportManager(api_client=api_client)
 wellcheck = WellCheck(api_client=api_client)
 ```
 

@@ -965,6 +965,7 @@ dependencies = [
     { name = "jsbeautifier" },
     { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
 ]
@@ -990,6 +991,7 @@ requires-dist = [
     { name = "jsbeautifier", specifier = ">=1.15.4" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
     { name = "python-semantic-release", marker = "extra == 'dev'", specifier = ">=10.5.3" },
     { name = "pyyaml", specifier = ">=6.0.2" },
