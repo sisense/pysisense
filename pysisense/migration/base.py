@@ -80,14 +80,14 @@ class MigrationBaseMixin:
         try:
             return resp.json()
         except Exception:
-            pass
+            self.logger.debug("Response is not JSON; falling back to raw text.", exc_info=True)
 
         try:
             txt = getattr(resp, "text", None)
             if txt:
                 return txt
         except Exception:
-            pass
+            self.logger.debug("Failed to read response text; falling back to generic error payload.", exc_info=True)
 
         return {"message": "Failed to extract error payload from response.", "context": context}
 

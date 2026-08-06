@@ -91,10 +91,14 @@ select = [
     "I",  # isort
     "UP", # pyupgrade
     "B",  # bugbear
-    "SIM" # simplify
+    "SIM", # simplify
+    "S",  # flake8-bandit
 ]
 
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
 
 [tool.ruff.format]
 quote-style = "double"

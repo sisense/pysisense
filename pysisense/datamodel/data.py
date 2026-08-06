@@ -33,7 +33,7 @@ class DataMixin:
             return []
 
         safe_table_name = table_name.replace("]", "]]")
-        q = query if query else f"SELECT * FROM [{safe_table_name}]"
+        q = query if query else f"SELECT * FROM [{safe_table_name}]"  # noqa: S608 -- identifier is bracket-escaped above
         self.logger.debug(f"SQL Query: {q}")
 
         url = f"/api/datasources/{datamodel_name}/sql?query={q}"
@@ -104,7 +104,7 @@ class DataMixin:
 
         for table_name in table_names:
             safe_table_name = table_name.replace("]", "]]")
-            query = f"SELECT COUNT(*) FROM [{safe_table_name}]"
+            query = f"SELECT COUNT(*) FROM [{safe_table_name}]"  # noqa: S608 -- identifier is bracket-escaped above
             self.logger.debug(f"SQL Query for table '{table_name}': {query}")
             rows = self.get_data(datamodel_name, table_name, query=query)
 
