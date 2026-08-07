@@ -94,12 +94,7 @@ connection_name = "pysense_databricks"
 database_name = "samples"
 schema_name = "nyctaxi"
 table_name = "trips"
-response = datamodel.get_table_schema(
-    connection_name=connection_name,
-    database_name=database_name,
-    schema_name=schema_name,
-    table_name=table_name
-)
+response = datamodel.get_table_schema(connection_name=connection_name, database_name=database_name, schema_name=schema_name, table_name=table_name)
 print(json.dumps(response, indent=4))
 df = api_client.to_dataframe(response)
 print(df)
@@ -131,13 +126,13 @@ Generate connection payloads for various data sources.
 datasource_type = "Athena"
 connection_params = {
     "name": "athena_basic",
-    "description": "this is a description",   # Optional, specify if needed
+    "description": "this is a description",  # Optional, specify if needed
     "region": "us-east-1",
-    "s3_output_location": "s3://pysense-sdk/athena-output/",     
-    "aws_access_key": "XYZ1234567890", 
-    "aws_secret_key": "XYZ1234567890",   
-    "schema": "pysense",                      # Optional, specify if needed
-    "additional_parameters": "timeout=60;"    # Optional, specify if needed
+    "s3_output_location": "s3://pysense-sdk/athena-output/",
+    "aws_access_key": "XYZ1234567890",
+    "aws_secret_key": "XYZ1234567890",
+    "schema": "pysense",  # Optional, specify if needed
+    "additional_parameters": "timeout=60;",  # Optional, specify if needed
 }
 athena_connection = datamodel.generate_connections_payload(datasource_type, connection_params)
 print(json.dumps(athena_connection, indent=4))
@@ -148,12 +143,12 @@ print(json.dumps(athena_connection, indent=4))
 datasource_type = "RedShift"
 connection_params = {
     "name": "pysense_redshift",
-    "description": "Redshift connection example",     # Optional, specify if needed
+    "description": "Redshift connection example",  # Optional, specify if needed
     "server": "examplecluster.abc123xyz789.us-west-2.redshift.amazonaws.com:5439",
     "username": "XYZ@sisense.com",
-    "password": "password",  
-    "default_database": "dev",                        # Optional, specify if needed
-    "additional_parameters": ""                       # Optional, specify if needed
+    "password": "password",
+    "default_database": "dev",  # Optional, specify if needed
+    "additional_parameters": "",  # Optional, specify if needed
 }
 redshift_connection = datamodel.generate_connections_payload(datasource_type, connection_params)
 print(json.dumps(redshift_connection, indent=4))
@@ -174,7 +169,7 @@ connection_params = {
     "allow_large_results": False,
     "use_storage_api": True,
     "additional_parameters": "timeout=60;",
-    "database": "fda_food"
+    "database": "fda_food",
 }
 bigquery_connection = datamodel.generate_connections_payload(datasource_type, connection_params)
 print(json.dumps(bigquery_connection, indent=4))
@@ -185,11 +180,11 @@ print(json.dumps(bigquery_connection, indent=4))
 datasource_type = "DataBricks"
 connection_params = {
     "name": "pysense_databricks",
-    "description": "DataBricks connection example",                      # Optional, specify if needed
+    "description": "DataBricks connection example",  # Optional, specify if needed
     "connection_string": "jdbc:databricks://<server-hostname>:443;httpPath=<http-path>;AuthMech=3;",
-    "token": "XYZ1234567890",                             
-    "use_dynamic_schema": False,                                         # Optional, specify if needed
-    "schema": ""                                                         # Optional, specify if needed
+    "token": "XYZ1234567890",
+    "use_dynamic_schema": False,  # Optional, specify if needed
+    "schema": "",  # Optional, specify if needed
 }
 databricks_connection = datamodel.generate_connections_payload(datasource_type, connection_params)
 print(json.dumps(databricks_connection, indent=4))
@@ -216,9 +211,9 @@ Create a dataset for a DataModel.
 response = datamodel.create_dataset(
     datamodel_name="MyDataModel_ec",
     connection_name="pysense_bigquery",
-    database_name="fda_food",                                             # Data source database name
-    schema_name="fda_food",                                               # Data source schema name
-    dataset_name=""                                                       # Optional, defaults to schema name
+    database_name="fda_food",  # Data source database name
+    schema_name="fda_food",  # Data source schema name
+    dataset_name="",  # Optional, defaults to schema name
 )
 print(json.dumps(response, indent=4))
 ```
@@ -238,12 +233,12 @@ Create tables with full configuration or minimal inputs.
 datamodel_name = "MyDataModel_ec"
 # dataset_id = "945ce5ac-ce68-4a5f-a4e8-577631023add"                     # Optional, will be inferred if not provided
 table_name = "housing"
-import_query = "SELECT * FROM `fda_food`.`housing` LIMIT 10"              # Optional
-description = "Housing table for ML use case"                             # Optional
-tags = ["housing", "ML"]                                                  # Optional
-build_behavior_config = {                                                 # Required only for 'extract' models
-    "mode": "increment",                                                  # Options: "replace", "replace_changes", "append", "increment"
-    "column_name": "latitude"                                             # Required if mode is "increment"
+import_query = "SELECT * FROM `fda_food`.`housing` LIMIT 10"  # Optional
+description = "Housing table for ML use case"  # Optional
+tags = ["housing", "ML"]  # Optional
+build_behavior_config = {  # Required only for 'extract' models
+    "mode": "increment",  # Options: "replace", "replace_changes", "append", "increment"
+    "column_name": "latitude",  # Required if mode is "increment"
 }
 # schema_name = "fda_food"                                                # If your table's schema is different from the dataset's schema, provide it here
 # database_name = "fda_food"                                              # If your table's database is different from the dataset's database, provide it here
@@ -255,7 +250,7 @@ response = datamodel.create_table(
     import_query=import_query,
     description=description,
     tags=tags,
-    build_behavior_config=build_behavior_config
+    build_behavior_config=build_behavior_config,
 )
 print(json.dumps(response, indent=4))
 ```
@@ -267,10 +262,7 @@ print(json.dumps(response, indent=4))
 ```python
 datamodel_name = "MyDataModel_ec"
 table_name = "food_enforcement"
-response = datamodel.create_table(
-    datamodel_name=datamodel_name,
-    table_name=table_name
-)
+response = datamodel.create_table(datamodel_name=datamodel_name, table_name=table_name)
 print(json.dumps(response, indent=4))
 ```
 
@@ -281,36 +273,36 @@ print(json.dumps(response, indent=4))
 Setup a DataModel with multiple tables.
 
 ```python
-datamodel_name="MyDataModel_live"
-datamodel_type="live"                                                       # Options: "extract", "live"
-connection_name="pysense_databricks"
-dataset_name=""                                                             # Optional, defaults to schema name
-database_name="samples"                                                     # Data source database name
-schema_name="nyctaxi"                                                       # Data source schema name                  
+datamodel_name = "MyDataModel_live"
+datamodel_type = "live"  # Options: "extract", "live"
+connection_name = "pysense_databricks"
+dataset_name = ""  # Optional, defaults to schema name
+database_name = "samples"  # Data source database name
+schema_name = "nyctaxi"  # Data source schema name
 tables = [
-    {   
-        "database_name":"samples",                                          # Data source database name
-        "schema_name":"nyctaxi",                                            # Data source schema name
+    {
+        "database_name": "samples",  # Data source database name
+        "schema_name": "nyctaxi",  # Data source schema name
         "table_name": "trips",
-        "import_query": "SELECT * FROM `nyctaxi`.`trips` LIMIT 10",         # Optional, specify if needed
-        "description": "Trips data for FY23",                               # Optional, specify if needed    
-        "tags": ["trips", "fact"],                                          # Optional, specify if needed
-        "build_behavior_config": {                                          # Required only for "extract" datamodel otherwise leave blank {} or gets ignored in the case of "live"
-            "mode": "increment",                                            # Options: "replace", "replace_changes", "append", "increment"
-            "column_name": "tpep_pickup_datetime"                           # Required only for "increment" otherwise leave blank ""
-        }
+        "import_query": "SELECT * FROM `nyctaxi`.`trips` LIMIT 10",  # Optional, specify if needed
+        "description": "Trips data for FY23",  # Optional, specify if needed
+        "tags": ["trips", "fact"],  # Optional, specify if needed
+        "build_behavior_config": {  # Required only for "extract" datamodel otherwise leave blank {} or gets ignored in the case of "live"
+            "mode": "increment",  # Options: "replace", "replace_changes", "append", "increment"
+            "column_name": "tpep_pickup_datetime",  # Required only for "increment" otherwise leave blank ""
+        },
     },
     {
-        "database_name":"samples",                                          # Data source database name
-        "schema_name":"tpch",                                               # Data source schema name
+        "database_name": "samples",  # Data source database name
+        "schema_name": "tpch",  # Data source schema name
         "table_name": "customer",
-        "import_query": "SELECT * FROM `tpch`.`customer` LIMIT 10",         # Optional, specify if needed
-        "description": "Customer master data",                              # Optional, specify if needed
-        "tags": ["customer", "dimension"],                                  # Optional, specify if needed
-        "build_behavior_config": {                                          # Required only for "extract" datamodel otherwise leave blank {} or gets ignored in the case of "live"
-            "mode": "replace"                                               # Options: "replace", "replace_changes", "append", "increment"
-        }
-    }
+        "import_query": "SELECT * FROM `tpch`.`customer` LIMIT 10",  # Optional, specify if needed
+        "description": "Customer master data",  # Optional, specify if needed
+        "tags": ["customer", "dimension"],  # Optional, specify if needed
+        "build_behavior_config": {  # Required only for "extract" datamodel otherwise leave blank {} or gets ignored in the case of "live"
+            "mode": "replace"  # Options: "replace", "replace_changes", "append", "increment"
+        },
+    },
 ]
 
 response = datamodel.setup_datamodel(
@@ -318,8 +310,8 @@ response = datamodel.setup_datamodel(
     datamodel_type=datamodel_type,
     connection_name=connection_name,
     dataset_name=dataset_name,
-    database_name=database_name,                                            # Data source database name
-    schema_name=schema_name,                                                # Data source schema name
+    database_name=database_name,  # Data source database name
+    schema_name=schema_name,  # Data source schema name
     tables=tables,
 )
 print(json.dumps(response, indent=4))
@@ -336,9 +328,9 @@ Deploy ELASTICUBE and LIVE DataModels.
 datamodel_name = "MyDataModel_ec2"
 response = datamodel.deploy_datamodel(
     datamodel_name=datamodel_name,
-    build_type="by_table",                                                    # Other options: "full", "schema_changes"
+    build_type="by_table",  # Other options: "full", "schema_changes"
     row_limit=1000,
-    schema_origin="latest"                                                    # Other option: "running"
+    schema_origin="latest",  # Other option: "running"
 )
 print(json.dumps(response, indent=4))
 
@@ -521,7 +513,7 @@ datamodel_name = "pysense_databricks"
 shares_to_add = [
     {"name": "autotest@sisense.com", "type": "user", "permission": "EDIT"},
     {"name": "mig_test", "type": "group", "permission": "USE"},
-    {"name": "viewer@sisense.com", "type": "user", "permission": "READ"}
+    {"name": "viewer@sisense.com", "type": "user", "permission": "READ"},
 ]
 response = datamodel.add_datamodel_shares(datamodel_name, shares_to_add)
 print(json.dumps(response, indent=4))
@@ -575,7 +567,7 @@ import json
 # Mix of DataModel IDs and titles
 datamodel_refs = [
     "60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb",  # DataModel ID
-    "MyDataModel_ec",                        # DataModel title
+    "MyDataModel_ec",  # DataModel title
 ]
 
 for ref in datamodel_refs:
@@ -648,18 +640,7 @@ print(response)
 Overwrite all row-level security rules on an extract (ElastiCube) data model. Pass an empty list to remove all rules.
 
 ```python
-rules = [
-    {
-        "table": "Orders",
-        "column": "Region",
-        "datatype": "text",
-        "members": ["West", "North"],
-        "exclusionary": False,
-        "shares": [
-            {"type": "user", "partyId": "user_oid_here"}
-        ]
-    }
-]
+rules = [{"table": "Orders", "column": "Region", "datatype": "text", "members": ["West", "North"], "exclusionary": False, "shares": [{"type": "user", "partyId": "user_oid_here"}]}]
 
 response = datamodel.update_datasecurity("SalesCube", rules)
 print(json.dumps(response, indent=4))
@@ -672,18 +653,7 @@ print(json.dumps(response, indent=4))
 Append row-level security rules to a live data model.
 
 ```python
-rules = [
-    {
-        "table": "Sales",
-        "column": "Country",
-        "datatype": "text",
-        "members": ["USA"],
-        "exclusionary": False,
-        "shares": [
-            {"type": "group", "partyId": "group_oid_here"}
-        ]
-    }
-]
+rules = [{"table": "Sales", "column": "Country", "datatype": "text", "members": ["USA"], "exclusionary": False, "shares": [{"type": "group", "partyId": "group_oid_here"}]}]
 
 response = datamodel.set_live_datasecurity_add_many("LiveSalesCube", rules)
 print(json.dumps(response, indent=4))

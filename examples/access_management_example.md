@@ -32,7 +32,7 @@ access_mgmt = AccessManagement(api_client=api_client)
 Retrieve information for a specific user by their email.
 
 ```python
-user_email = 'john.doe@example.com'
+user_email = "john.doe@example.com"
 response = access_mgmt.get_user(user_email)
 print(json.dumps(response, indent=4))
 
@@ -91,7 +91,7 @@ and group IDs and names. This is useful when you want a richer record for
 auditing, exports, or feeding other APIs that expect IDs.
 
 ```python
-user_email = 'john.doe@example.com'
+user_email = "john.doe@example.com"
 response = access_mgmt.get_user_with_role_and_group_names(user_email)
 print(json.dumps(response, indent=4))
 
@@ -139,15 +139,15 @@ Create a user by specifying their details, including role and groups.
 
 ```python
 user_data = {
-    "email": "john.doe@example.com",                    # Required: User's email address
-    "firstName": "John",                                # Optional: User's first name
-    "lastName": "Doe",                                  # Optional: User's last name
-    "role": "dataDesigner",                             # Optional: Remove this field if not needed; if omitted, the user will be assigned the default role of 'viewer'. Cannot be an empty string.
-    "groups": ["mig_test", "mig_test_2"],               # Optional: List of group names, can be an empty list if the user is not part of any group
-    "password": "Sisense141!@",                         # Optional: Provide a password if needed; if omitted, the user will receive an email to set their password. Cannot be an empty string so remove this field if not needed.
-    "preferences": {                                    # Optional: User preferences, such as language settings, can be an empty dict if not needed
+    "email": "john.doe@example.com",  # Required: User's email address
+    "firstName": "John",  # Optional: User's first name
+    "lastName": "Doe",  # Optional: User's last name
+    "role": "dataDesigner",  # Optional: Remove this field if not needed; if omitted, the user will be assigned the default role of 'viewer'. Cannot be an empty string.
+    "groups": ["mig_test", "mig_test_2"],  # Optional: List of group names, can be an empty list if the user is not part of any group
+    "password": "Sisense141!@",  # Optional: Provide a password if needed; if omitted, the user will receive an email to set their password. Cannot be an empty string so remove this field if not needed.
+    "preferences": {  # Optional: User preferences, such as language settings, can be an empty dict if not needed
         "language": "en-US"
-    }
+    },
 }
 response = access_mgmt.create_user(user_data)
 print(json.dumps(response, indent=4))
@@ -171,7 +171,7 @@ mike.jones@example.com,Mike,Jones,Designer,"","Password789!","es-ES"
 **Code:**
 
 ```python
-csv_file_path = 'new_user.csv'
+csv_file_path = "new_user.csv"
 
 with open(csv_file_path, mode="r", newline="", encoding="utf-8") as csvfile:
     reader = csv.DictReader(csvfile)
@@ -187,9 +187,7 @@ with open(csv_file_path, mode="r", newline="", encoding="utf-8") as csvfile:
             "role": row.get("role", "viewer"),
             "groups": [g.strip() for g in row.get("groups", "").split(",") if g.strip()],
             "password": row["password"],
-            "preferences": {
-                "language": row.get("language", "en-US")
-            }
+            "preferences": {"language": row.get("language", "en-US")},
         }
 
         try:
@@ -212,13 +210,13 @@ Update details for an existing user (the user is located by email).
 ```python
 user_email = "mike.jones@example.com"
 user_data = {
-    "firstName": "Mikey",                                 # Optional: Update user's first name
-    "lastName": "Jonesss",                                # Optional: Update user's last name
-    "role": "designer",                                   # Optional: Role name to update; will be mapped to corresponding roleId
-    "groups": ["mig_test"],                               # Optional: List of group names to update; will be mapped to corresponding group IDs
-    "preferences": {                                      # Optional: Update user preferences, such as language settings
+    "firstName": "Mikey",  # Optional: Update user's first name
+    "lastName": "Jonesss",  # Optional: Update user's last name
+    "role": "designer",  # Optional: Role name to update; will be mapped to corresponding roleId
+    "groups": ["mig_test"],  # Optional: List of group names to update; will be mapped to corresponding group IDs
+    "preferences": {  # Optional: Update user preferences, such as language settings
         "language": "fr-FR"
-    }
+    },
 }
 response = access_mgmt.update_user(user_email, user_data)
 print(json.dumps(response, indent=4))
@@ -386,13 +384,9 @@ include_dashboards = True
 
 try:
     response = access_mgmt.change_folder_and_dashboard_ownership(
-        executing_user=executing_user,
-        folder_name=folder_to_transfer,
-        new_owner_name=new_owner_email,
-        original_owner_rule=original_owner_permission,
-        change_dashboard_ownership=include_dashboards
+        executing_user=executing_user, folder_name=folder_to_transfer, new_owner_name=new_owner_email, original_owner_rule=original_owner_permission, change_dashboard_ownership=include_dashboards
     )
-    if response and 'error' not in response:
+    if response and "error" not in response:
         print("Folder ownership transferred successfully.")
         print(f"Total folders changed: {response.get('total_folders_changed', 0)}")
         print(f"Total dashboards changed: {response.get('total_dashboards_changed', 0)}")
@@ -423,7 +417,7 @@ print(df)
 List unused columns in a DataModel.
 
 ```python
-unused_columns = access_mgmt.get_unused_columns(datamodel_name='Sample ECommerce')
+unused_columns = access_mgmt.get_unused_columns(datamodel_name="Sample ECommerce")
 print(json.dumps(unused_columns, indent=4))
 if unused_columns:
     df = api_client.to_dataframe(unused_columns)
@@ -435,9 +429,7 @@ api_client.export_to_csv(unused_columns, file_name="unused_columns.csv")
 
 ## Example 10B: Get Unused Columns in Multiple DataModels
 ```python
-results = access_mgmt.get_unused_columns_bulk(
-    datamodels=["60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb", "MyDataModel_ec"]
-)
+results = access_mgmt.get_unused_columns_bulk(datamodels=["60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb", "MyDataModel_ec"])
 print(json.dumps(results, indent=4))
 if results:
     df = api_client.to_dataframe(results)
@@ -466,17 +458,12 @@ Create cron-based and interval-based schedules for DataModel builds.
 **Cron-Based Schedule (specific days and time in UTC):**
 
 ```python
-days = ["MON", "TUE", "FRI", "SAT", "SUN"]                      # Days of the week
-hour = 21                                                       # 9 PM UTC
-minute = 0                                                      # At the start of the hour
-datamodel_name = 'pysense_databricks_ec'                        # Name of the DataModel
+days = ["MON", "TUE", "FRI", "SAT", "SUN"]  # Days of the week
+hour = 21  # 9 PM UTC
+minute = 0  # At the start of the hour
+datamodel_name = "pysense_databricks_ec"  # Name of the DataModel
 
-response = access_mgmt.create_schedule_build(
-    days=days,
-    hour=hour,
-    minute=minute,
-    datamodel_name=datamodel_name
-)
+response = access_mgmt.create_schedule_build(days=days, hour=hour, minute=minute, datamodel_name=datamodel_name)
 if "error" not in response:
     print("Cron-based schedule created successfully:", response)
 else:
@@ -487,17 +474,11 @@ else:
 
 ```python
 days = ["*"]
-hour = 2                                                        # 2 AM UTC
+hour = 2  # 2 AM UTC
 minute = 30
-datamodel_name = 'pysense_databricks_ec'
+datamodel_name = "pysense_databricks_ec"
 
-response = access_mgmt.create_schedule_build(
-    days=days,
-    hour=hour,
-    minute=minute,
-    datamodel_name=datamodel_name,
-    build_type="FULL"
-)
+response = access_mgmt.create_schedule_build(days=days, hour=hour, minute=minute, datamodel_name=datamodel_name, build_type="FULL")
 if "error" not in response:
     print("Cron-based schedule created successfully:", response)
 else:
@@ -507,12 +488,9 @@ else:
 **Interval-Based Schedule (1 Hour):**
 
 ```python
-datamodel_name = 'pysense_databricks_ec'
+datamodel_name = "pysense_databricks_ec"
 
-response = access_mgmt.create_schedule_build(
-    datamodel_name=datamodel_name,
-    interval_hours=1
-)
+response = access_mgmt.create_schedule_build(datamodel_name=datamodel_name, interval_hours=1)
 if "error" not in response:
     print("Interval-based schedule created successfully:", response)
 else:
@@ -522,14 +500,9 @@ else:
 **Interval-Based Schedule (2 Days, 1 Hour, 4 Minutes):**
 
 ```python
-datamodel_name = 'pysense_databricks_ec'
+datamodel_name = "pysense_databricks_ec"
 
-response = access_mgmt.create_schedule_build(
-    datamodel_name=datamodel_name,
-    interval_days=2,
-    interval_hours=1,
-    interval_minutes=4
-)
+response = access_mgmt.create_schedule_build(datamodel_name=datamodel_name, interval_days=2, interval_hours=1, interval_minutes=4)
 if "error" not in response:
     print("Interval-based schedule created successfully:", response)
 else:

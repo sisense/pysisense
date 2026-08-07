@@ -20,6 +20,7 @@ dependencies = [
   "PyYAML>=6.0.2",
   "pandas>=2.2.3",
   "jsbeautifier>=1.15.4",
+  "pydantic>=2.13.4",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -90,10 +91,14 @@ select = [
     "I",  # isort
     "UP", # pyupgrade
     "B",  # bugbear
-    "SIM" # simplify
+    "SIM", # simplify
+    "S",  # flake8-bandit
 ]
 
 ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
 
 [tool.ruff.format]
 quote-style = "double"

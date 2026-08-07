@@ -13,6 +13,7 @@ from .metadata import Metadata
 from .migration import Migration
 from .plugins import Plugins
 from .queries import Queries
+from .report_manager import ReportManager
 from .sisenseclient import SisenseClient
 
 # Utilities
@@ -34,6 +35,7 @@ __all__ = [
     "Migration",
     "Plugins",
     "Queries",
+    "ReportManager",
     "WellCheck",
     "convert_to_dataframe",
     "export_to_csv",

@@ -14,6 +14,7 @@ from .utils import export_to_csv as export_csv_util
 
 DEFAULT_NON_SSL_PORT = 30845
 DEFAULT_NON_SSL_PORT_WINDOWS = 8081
+DEFAULT_REQUEST_TIMEOUT = 30
 VALID_OPERATING_SYSTEMS = frozenset({"linux", "windows"})
 # Values from a YAML config or kwarg that are treated as "not set" → default to linux
 _OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
@@ -208,7 +209,7 @@ class SisenseClient:
         """
         # Open and parse the YAML file
         with open(config_file) as stream:
-            return yaml.load(stream, Loader=yaml.FullLoader)
+            return yaml.safe_load(stream)
 
     def _get_logger(self, name, log_filename, log_level):
         """
@@ -340,15 +341,15 @@ class SisenseClient:
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
-                response = requests.get(url, headers=headers, params=params, verify=self.verify)
+                response = requests.get(url, headers=headers, params=params, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "POST":
-                response = requests.post(url, headers=headers, json=data, verify=self.verify)
+                response = requests.post(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "PUT":
-                response = requests.put(url, headers=headers, json=data, verify=self.verify)
+                response = requests.put(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "PATCH":
-                response = requests.patch(url, headers=headers, json=data, verify=self.verify)
+                response = requests.patch(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "DELETE":
-                response = requests.delete(url, headers=headers, verify=self.verify)
+                response = requests.delete(url, headers=headers, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             else:
                 # Raise an error for unsupported HTTP methods
                 raise ValueError(f"Unsupported HTTP method: {method}")

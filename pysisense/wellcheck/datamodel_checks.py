@@ -845,8 +845,8 @@ class DatamodelChecksMixin:
                 right_column = pair["right_column"]
 
                 # Build the two aggregate queries
-                query1 = f"select [{left_column}], count([{left_column}]) as key_count1 from [{left_table}] group by [{left_column}] having count([{left_column}]) > 1"
-                query2 = f"select [{right_column}], count([{right_column}]) as key_count2 from [{right_table}] group by [{right_column}] having count([{right_column}]) > 1"
+                query1 = f"select [{left_column}], count([{left_column}]) as key_count1 from [{left_table}] group by [{left_column}] having count([{left_column}]) > 1"  # noqa: S608
+                query2 = f"select [{right_column}], count([{right_column}]) as key_count2 from [{right_table}] group by [{right_column}] having count([{right_column}]) > 1"  # noqa: S608
 
                 # Execute queries as CSV
                 resp1 = self.api_client.get(
