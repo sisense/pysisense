@@ -379,8 +379,8 @@ class SisenseClient:
                 try:
                     error_message = redact_secrets(response.json())
                 except ValueError:
-                    # If the response is not JSON, use raw text
-                    error_message = response.text
+                    error_message = "(non-JSON error body — see debug log for raw text)"
+                    self.logger.debug(f"Raw non-JSON error body for {method} {url}: {response.text}")
                 self.logger.error(f"{method} request to {url} failed with status code {response.status_code}: {error_message}")
             else:
                 self.logger.warning(f"{method} request to {url} returned unexpected status code {response.status_code}")

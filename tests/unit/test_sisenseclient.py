@@ -147,6 +147,33 @@ class TestSisenseClientDebugLogRedaction:
         assert "hunter2" not in caplog.text
         assert "***REDACTED***" in caplog.text
 
+    def test_non_json_error_body_not_logged_at_error_level(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=False)
+        caplog.set_level(logging.ERROR, logger="SisenseClient")
+
+        error_response = MagicMock(status_code=400)
+        error_response.json.side_effect = ValueError("not JSON")
+        error_response.text = "raw-secret-token-xyz"
+        with patch("requests.post", return_value=error_response):
+            client.post("/api/users", data={"userName": "bob"})
+
+        assert "raw-secret-token-xyz" not in caplog.text
+        assert "non-JSON error body" in caplog.text
+
+    def test_non_json_error_body_is_available_at_debug_level(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=True)
+        caplog.set_level(logging.DEBUG, logger="SisenseClient")
+
+        error_response = MagicMock(status_code=400)
+        error_response.json.side_effect = ValueError("not JSON")
+        error_response.text = "raw-secret-token-xyz"
+        with patch("requests.post", return_value=error_response):
+            client.post("/api/users", data={"userName": "bob"})
+
+        assert "raw-secret-token-xyz" in caplog.text
+
 
 class TestSisenseClientLogFilePermissions:
     def test_log_directory_and_file_are_owner_restricted(self, tmp_path, monkeypatch):
