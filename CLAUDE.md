@@ -196,10 +196,11 @@ wellcheck = WellCheck(api_client=api_client)
 ### Config file format (`config.yaml`)
 
 ```yaml
-domain: ""     # IP or domain — no protocol, no port
-is_ssl: false  # true for HTTPS, false uses HTTP (default port 30845)
-# port: 30845  # optional, HTTP port when is_ssl is false
-token: ""      # Sisense Admin API token
+domain: ""          # IP or domain — no protocol, no port
+is_ssl: true        # true for HTTPS, false uses HTTP (default port 30845)
+# port: 30845       # optional, HTTP port when is_ssl is false
+token: ""           # Sisense Admin API token
+# verify_ssl: false # verify the server's TLS certificate; defaults to true
 ```
 
 > Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
@@ -357,7 +358,7 @@ if isinstance(dashboards, str):
 
 ### SSL
 
-SSL verification is always disabled (`verify=False`). Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
+TLS certificate verification is enabled by default (`verify=True`). It can be disabled only explicitly, via `verify_ssl: false` in the YAML config or `verify_ssl=False` on the constructor — never implicitly. Disabling it logs a warning and emits a `UserWarning` so the risk is visible even when only file logging is configured. Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
 
 ### OS-specific API routing
 

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import warnings
 from typing import Any
 
 import requests
@@ -30,6 +31,7 @@ class SisenseClient:
         is_ssl: bool | None = None,
         port: int | None = None,
         operating_system: str = "linux",
+        verify_ssl: bool | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -77,26 +79,33 @@ class SisenseClient:
                 controls which variant is used. Can also be set via the
                 ``operating_system`` key in the YAML config file (the YAML value
                 takes precedence over this argument when both are present).
+            verify_ssl (bool | None): Whether to verify the server's TLS
+                certificate. Defaults to ``True``. Can also be set via the
+                ``verify_ssl`` key in the YAML config file. Only disable this
+                for trusted internal networks with self-signed certificates,
+                doing so removes protection against on-path credential theft.
         """
         # Decide how to build the base config
-        if domain is not None or token is not None or is_ssl is not None or port is not None:
+        if domain is not None or token is not None:
             # Direct connection mode – require domain + token
             if not domain or not token:
                 raise ValueError("When using direct connection, both 'domain' and 'token' must be provided.")
-
-            self.config = {
-                "domain": domain,
-                "token": token,
-                # if is_ssl is None, default to True
-                "is_ssl": True if is_ssl is None else bool(is_ssl),
-            }
-            if port is not None:
-                self.config["port"] = port
+            self.config = {"domain": domain, "token": token}
         else:
             # Legacy YAML mode
             if not config_file:
                 raise ValueError("config_file must be provided when 'domain' and 'token' are not supplied.")
             self.config = self._load_config(config_file)
+
+        # is_ssl / port / verify_ssl kwargs override whatever the config
+        # source provides (or its absence) whenever explicitly passed, in
+        # both direct-connection and YAML mode.
+        if is_ssl is not None:
+            self.config["is_ssl"] = bool(is_ssl)
+        if port is not None:
+            self.config["port"] = port
+        if verify_ssl is not None:
+            self.config["verify_ssl"] = bool(verify_ssl)
 
         # Resolve operating_system: YAML config takes precedence over the kwarg.
         # Blank, null, "none", "NA", and similar absent-looking values all fall
@@ -148,10 +157,14 @@ class SisenseClient:
         # Initialize the logger
         self.logger = self._get_logger("SisenseClient", log_file_path, log_level)
 
-        # Always disable SSL certificate verification (current behavior)
-        self.verify = False
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        self.logger.warning("SSL verification is disabled. Avoid using this in production.")
+        # SSL certificate verification is enabled by default; only an explicit
+        # verify_ssl: false (YAML) or verify_ssl=False (kwarg) disables it.
+        self.verify = bool(self.config.get("verify_ssl", True))
+        if not self.verify:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            message = "SSL certificate verification is disabled. This exposes the API token to on-path interception, do not use in production."
+            self.logger.warning(message)
+            warnings.warn(message, UserWarning, stacklevel=2)
 
     @classmethod
     def from_connection(
@@ -162,6 +175,7 @@ class SisenseClient:
         port: int | None = None,
         debug: bool = False,
         operating_system: str = "linux",
+        verify_ssl: bool = True,
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -183,6 +197,7 @@ class SisenseClient:
             is_ssl=is_ssl,
             port=port,
             operating_system=operating_system,
+            verify_ssl=verify_ssl,
         )
 
     def _non_ssl_port(self) -> int:

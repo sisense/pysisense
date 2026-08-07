@@ -66,6 +66,58 @@ class TestSisenseClientInit:
         assert client.base_url.startswith("https://")
 
 
+class TestSisenseClientVerifySsl:
+    def test_verify_defaults_to_true(self):
+        client = SisenseClient(domain="myserver.com", token="tok")
+        assert client.verify is True
+
+    def test_verify_ssl_false_kwarg_disables_verification(self):
+        with pytest.warns(UserWarning):
+            client = SisenseClient(domain="myserver.com", token="tok", verify_ssl=False)
+        assert client.verify is False
+
+    def test_verify_ssl_true_kwarg_keeps_verification_enabled(self):
+        client = SisenseClient(domain="myserver.com", token="tok", verify_ssl=True)
+        assert client.verify is True
+
+    def test_yaml_config_verify_ssl_false_disables_verification(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\nverify_ssl: false\n")
+        with pytest.warns(UserWarning):
+            client = SisenseClient(config_file=str(config))
+        assert client.verify is False
+
+    def test_yaml_config_no_verify_ssl_key_defaults_to_true(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.verify is True
+
+    def test_from_connection_defaults_verify_to_true(self):
+        client = SisenseClient.from_connection(domain="example.com", token="tok")
+        assert client.verify is True
+
+    def test_verify_ssl_kwarg_overrides_yaml_config_without_domain_or_token(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\n")
+        with pytest.warns(UserWarning):
+            client = SisenseClient(config_file=str(config), verify_ssl=False)
+        assert client.verify is False
+        assert client.base_url == "https://myhost"
+
+    def test_is_ssl_kwarg_overrides_yaml_config_without_domain_or_token(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\nis_ssl: true\n")
+        client = SisenseClient(config_file=str(config), is_ssl=False)
+        assert client.base_url == "http://myhost:30845"
+
+    def test_port_kwarg_overrides_yaml_config_without_domain_or_token(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\nis_ssl: false\n")
+        client = SisenseClient(config_file=str(config), port=9999)
+        assert client.base_url == "http://myhost:9999"
+
+
 class TestSisenseClientFromConnection:
     def test_creates_ssl_client(self):
         client = SisenseClient.from_connection(domain="example.com", token="tok", is_ssl=True)

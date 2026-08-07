@@ -7,7 +7,7 @@ It supports HTTP methods, YAML-based configuration, logging, and helper function
 
 ## Class: `SisenseClient`
 
-### `__init__(self, config_file="config.yaml", debug=False, *, domain=None, token=None, is_ssl=None, port=None, operating_system="linux")`
+### `__init__(self, config_file="config.yaml", debug=False, *, domain=None, token=None, is_ssl=None, port=None, operating_system="linux", verify_ssl=None)`
 
 Initializes the Sisense client, sets up logging, and prepares headers. Supports YAML-based config or direct inline connection.
 
@@ -20,6 +20,7 @@ Initializes the Sisense client, sets up logging, and prepares headers. Supports 
 - `is_ssl` (bool, optional): `True` for HTTPS, `False` for HTTP. Defaults to `True` in direct mode.
 - `port` (int, optional): HTTP port for non-SSL connections. Defaults to `30845` (Linux) or `8081` (Windows) when omitted.
 - `operating_system` (str): Target Sisense server OS. `"linux"` (default) or `"windows"`. Controls OS-specific API endpoint routing and default non-SSL port. Can also be set via `operating_system:` in the YAML config file — the YAML value takes precedence. Blank, `null`, `none`, or `NA` values all fall back to `"linux"`.
+- `verify_ssl` (bool, optional): Whether to verify the server's TLS certificate. Defaults to `True`. Can also be set via `verify_ssl:` in the YAML config file. Disabling it logs a warning and raises a `UserWarning`, only do so for trusted internal networks with self-signed certificates.
 
 **Note:** `from_connection(domain, token, ...)` is a classmethod alternative constructor for direct connection mode.
 
