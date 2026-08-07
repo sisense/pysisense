@@ -74,7 +74,7 @@ uv run pre-commit install
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
-| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local` |
+| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets` |
 
 ### Package structure — mixin pattern
 
@@ -310,7 +310,7 @@ return response
 
 ### Logging — levels and secrets policy
 
-Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`. **Never use `print`.**
+Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`, rotated daily at midnight (7 days of backups kept as `pysisense.log.YYYY-MM-DD`). The log directory and file are created with owner-only permissions (`0700`/`0600`). **Never use `print`.**
 
 | Level | When to use |
 |---|---|
@@ -320,10 +320,13 @@ Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense
 
 **Never log:** tokens, passwords, auth headers, raw cookies, or sensitive payload fields.
 
+If a method needs to log a full request/response payload (rather than just field names), pass it through `redact_secrets()` from `pysisense/utils.py` first — it recursively replaces values for credential-shaped keys (`password`, `token`, `secret`, `value`, etc., case-insensitive) with `"***REDACTED***"`. `SisenseClient._make_request` already applies it to `data`/`params` and error response bodies at the shared request chokepoint; `DataModel.generate_connections_payload`/`create_connections` apply it to connection payloads (which carry provider credentials) before logging.
+
 ```python
 # ✅ GOOD
 self.logger.debug(f"Resolving {len(group_names)} group names to IDs")
 self.logger.info(f"Updated user '{user_id}' — fields: {list(payload.keys())}")
+self.logger.debug(f"Generated connection payload: {redact_secrets(payload)}")
 
 # ❌ BAD
 print("Done")

@@ -2,6 +2,10 @@
 
 import base64
 import json
+import logging
+import os
+import stat
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -116,6 +120,45 @@ class TestSisenseClientVerifySsl:
         config.write_text("domain: myhost\ntoken: secret\nis_ssl: false\n")
         client = SisenseClient(config_file=str(config), port=9999)
         assert client.base_url == "http://myhost:9999"
+
+
+class TestSisenseClientDebugLogRedaction:
+    def test_secrets_are_redacted_from_request_debug_log(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=True)
+        caplog.set_level(logging.DEBUG, logger="SisenseClient")
+
+        with patch("requests.post", return_value=MagicMock(status_code=200)):
+            client.post("/api/users", data={"userName": "bob", "password": "hunter2"})
+
+        assert "hunter2" not in caplog.text
+        assert "***REDACTED***" in caplog.text
+
+    def test_secrets_are_redacted_from_error_response_log(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=True)
+        caplog.set_level(logging.DEBUG, logger="SisenseClient")
+
+        error_response = MagicMock(status_code=400)
+        error_response.json.return_value = {"message": "invalid", "password": "hunter2"}
+        with patch("requests.post", return_value=error_response):
+            client.post("/api/users", data={"userName": "bob"})
+
+        assert "hunter2" not in caplog.text
+        assert "***REDACTED***" in caplog.text
+
+
+class TestSisenseClientLogFilePermissions:
+    def test_log_directory_and_file_are_owner_restricted(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        # The "SisenseClient" logger is a process-wide singleton (see
+        # sisenseclient.py); clear its handlers so this test gets a fresh
+        # one bound to tmp_path instead of reusing another test's file.
+        logging.getLogger("SisenseClient").handlers.clear()
+        SisenseClient(domain="x.com", token="tok")
+
+        assert stat.S_IMODE(os.stat("logs").st_mode) == 0o700
+        assert stat.S_IMODE(os.stat("logs/pysisense.log").st_mode) == 0o600
 
 
 class TestSisenseClientFromConnection:

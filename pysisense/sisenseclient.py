@@ -4,13 +4,14 @@ import logging
 import os
 import re
 import warnings
+from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 
 import requests
 import urllib3
 import yaml
 
-from .utils import convert_to_dataframe
+from .utils import convert_to_dataframe, redact_secrets
 from .utils import export_to_csv as export_csv_util
 
 DEFAULT_NON_SSL_PORT = 30845
@@ -147,15 +148,17 @@ class SisenseClient:
 
         # Logging setup
         log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
+        os.chmod(log_dir, 0o700)
 
         # Set log level to DEBUG if debug is True, otherwise INFO
         log_level = logging.DEBUG if debug else logging.INFO
         log_file_path = os.path.join(log_dir, "pysisense.log")
 
-        # Initialize the logger
+        # Initialize the logger.
         self.logger = self._get_logger("SisenseClient", log_file_path, log_level)
+        if os.path.exists(log_file_path):
+            os.chmod(log_file_path, 0o600)
 
         # SSL certificate verification is enabled by default; only an explicit
         # verify_ssl: false (YAML) or verify_ssl=False (kwarg) disables it.
@@ -241,8 +244,8 @@ class SisenseClient:
 
         # Check if the logger already has handlers to avoid duplicates
         if not logger.handlers:
-            # Create a file handler for the logger
-            handler = logging.FileHandler(log_filename, mode="a")
+            # Rotate at midnight, keeping 7 days of backups, so the log file can't grow unbounded
+            handler = TimedRotatingFileHandler(log_filename, when="midnight", interval=1, backupCount=7)
 
             # Define the format for log messages
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -349,8 +352,8 @@ class SisenseClient:
         if extra_headers:
             headers.update(extra_headers)
 
-        # Log the request details (method, URL, params, and data)
-        self.logger.debug(f"Making {method} request to {url} with data: {data} and params: {params}")
+        # Log the request details (method, URL, params, and data).
+        self.logger.debug(f"Making {method} request to {url} with data: {redact_secrets(data)} and params: {redact_secrets(params)}")
 
         try:
             # Perform the appropriate HTTP request based on the method
@@ -374,7 +377,7 @@ class SisenseClient:
             elif response.status_code in [400, 404, 500]:
                 # Log the error response text if available
                 try:
-                    error_message = response.json()
+                    error_message = redact_secrets(response.json())
                 except ValueError:
                     # If the response is not JSON, use raw text
                     error_message = response.text
