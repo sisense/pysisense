@@ -204,6 +204,7 @@ is_ssl: true        # true for HTTPS, false uses HTTP (default port 30845)
 # port: 30845       # optional, HTTP port when is_ssl is false
 token: ""           # Sisense Admin API token
 # verify_ssl: false # verify the server's TLS certificate; defaults to true
+# ssl_path: ""      # optional CA bundle file/dir for self-signed or internal certs; takes precedence over verify_ssl unless verify_ssl is false
 ```
 
 > Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
@@ -366,6 +367,8 @@ if isinstance(dashboards, str):
 ### SSL
 
 TLS certificate verification is enabled by default (`verify=True`). It can be disabled only explicitly, via `verify_ssl: false` in the YAML config or `verify_ssl=False` on the constructor — never implicitly. Disabling it logs a warning and emits a `UserWarning` so the risk is visible even when only file logging is configured. Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
+
+To verify against a self-signed or internal-CA certificate without disabling verification, set `ssl_path` (YAML key or `ssl_path=` constructor kwarg) to a CA bundle file or directory — it is passed as `requests`' `verify=` value. `ssl_path` takes precedence over `verify_ssl` when both are set, unless `verify_ssl` is explicitly `False`, in which case verification stays fully disabled and `ssl_path` is ignored.
 
 ### OS-specific API routing
 

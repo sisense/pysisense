@@ -34,6 +34,7 @@ class SisenseClient:
         port: int | None = None,
         operating_system: str = "linux",
         verify_ssl: bool | None = None,
+        ssl_path: str | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -86,6 +87,12 @@ class SisenseClient:
                 ``verify_ssl`` key in the YAML config file. Only disable this
                 for trusted internal networks with self-signed certificates,
                 doing so removes protection against on-path credential theft.
+            ssl_path (str | None): Path to a CA bundle file or directory used
+                to verify the server's TLS certificate (e.g. a self-signed or
+                internal CA's ``.pem`` file). Can also be set via the
+                ``ssl_path`` key in the YAML config file. When set, it takes
+                precedence over ``verify_ssl`` for the underlying HTTP
+                requests. Ignored if ``verify_ssl`` is explicitly ``False``.
         """
         # Decide how to build the base config
         if domain is not None or token is not None:
@@ -108,6 +115,8 @@ class SisenseClient:
             self.config["port"] = port
         if verify_ssl is not None:
             self.config["verify_ssl"] = bool(verify_ssl)
+        if ssl_path is not None:
+            self.config["ssl_path"] = ssl_path
 
         # Resolve operating_system: YAML config takes precedence over the kwarg.
         # Blank, null, "none", "NA", and similar absent-looking values all fall
@@ -163,8 +172,13 @@ class SisenseClient:
 
         # SSL certificate verification is enabled by default; only an explicit
         # verify_ssl: false (YAML) or verify_ssl=False (kwarg) disables it.
-        self.verify = bool(self.config.get("verify_ssl", True))
-        if not self.verify:
+        # ssl_path (a CA bundle file or directory) takes precedence over the
+        # plain True/False verification when provided, unless verify_ssl was
+        # explicitly set to False.
+        verify_flag = bool(self.config.get("verify_ssl", True))
+        raw_ssl_path = self.config.get("ssl_path")
+        self.verify: bool | str = str(raw_ssl_path) if verify_flag and raw_ssl_path else verify_flag
+        if not verify_flag:
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             message = "SSL certificate verification is disabled. This exposes the API token to on-path interception, do not use in production."
             self.logger.warning(message)
@@ -180,6 +194,7 @@ class SisenseClient:
         debug: bool = False,
         operating_system: str = "linux",
         verify_ssl: bool = True,
+        ssl_path: str | None = None,
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -202,6 +217,7 @@ class SisenseClient:
             port=port,
             operating_system=operating_system,
             verify_ssl=verify_ssl,
+            ssl_path=ssl_path,
         )
 
     def _non_ssl_port(self) -> int:
