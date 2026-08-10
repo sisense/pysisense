@@ -156,4 +156,4 @@ You can also explore:
 This project is licensed under the Sisense End User License Agreement (EULA).
 See the [LICENSE](./LICENSE) file for the full text.
 
-© 2025 Sisense Ltd. “Sisense” and related marks are trademarks of Sisense Ltd.
+© 2026 Sisense Ltd. “Sisense” and related marks are trademarks of Sisense Ltd.
