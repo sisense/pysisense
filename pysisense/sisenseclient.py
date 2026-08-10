@@ -3,13 +3,15 @@ import json
 import logging
 import os
 import re
+import warnings
+from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 
 import requests
 import urllib3
 import yaml
 
-from .utils import convert_to_dataframe
+from .utils import convert_to_dataframe, redact_secrets
 from .utils import export_to_csv as export_csv_util
 
 DEFAULT_NON_SSL_PORT = 30845
@@ -31,6 +33,7 @@ class SisenseClient:
         is_ssl: bool | None = None,
         port: int | None = None,
         operating_system: str = "linux",
+        verify_ssl: bool | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -78,26 +81,33 @@ class SisenseClient:
                 controls which variant is used. Can also be set via the
                 ``operating_system`` key in the YAML config file (the YAML value
                 takes precedence over this argument when both are present).
+            verify_ssl (bool | None): Whether to verify the server's TLS
+                certificate. Defaults to ``True``. Can also be set via the
+                ``verify_ssl`` key in the YAML config file. Only disable this
+                for trusted internal networks with self-signed certificates,
+                doing so removes protection against on-path credential theft.
         """
         # Decide how to build the base config
-        if domain is not None or token is not None or is_ssl is not None or port is not None:
+        if domain is not None or token is not None:
             # Direct connection mode – require domain + token
             if not domain or not token:
                 raise ValueError("When using direct connection, both 'domain' and 'token' must be provided.")
-
-            self.config = {
-                "domain": domain,
-                "token": token,
-                # if is_ssl is None, default to True
-                "is_ssl": True if is_ssl is None else bool(is_ssl),
-            }
-            if port is not None:
-                self.config["port"] = port
+            self.config = {"domain": domain, "token": token}
         else:
             # Legacy YAML mode
             if not config_file:
                 raise ValueError("config_file must be provided when 'domain' and 'token' are not supplied.")
             self.config = self._load_config(config_file)
+
+        # is_ssl / port / verify_ssl kwargs override whatever the config
+        # source provides (or its absence) whenever explicitly passed, in
+        # both direct-connection and YAML mode.
+        if is_ssl is not None:
+            self.config["is_ssl"] = bool(is_ssl)
+        if port is not None:
+            self.config["port"] = port
+        if verify_ssl is not None:
+            self.config["verify_ssl"] = bool(verify_ssl)
 
         # Resolve operating_system: YAML config takes precedence over the kwarg.
         # Blank, null, "none", "NA", and similar absent-looking values all fall
@@ -139,20 +149,26 @@ class SisenseClient:
 
         # Logging setup
         log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
+        os.chmod(log_dir, 0o700)
 
         # Set log level to DEBUG if debug is True, otherwise INFO
         log_level = logging.DEBUG if debug else logging.INFO
         log_file_path = os.path.join(log_dir, "pysisense.log")
 
-        # Initialize the logger
+        # Initialize the logger.
         self.logger = self._get_logger("SisenseClient", log_file_path, log_level)
+        if os.path.exists(log_file_path):
+            os.chmod(log_file_path, 0o600)
 
-        # Always disable SSL certificate verification (current behavior)
-        self.verify = False
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        self.logger.warning("SSL verification is disabled. Avoid using this in production.")
+        # SSL certificate verification is enabled by default; only an explicit
+        # verify_ssl: false (YAML) or verify_ssl=False (kwarg) disables it.
+        self.verify = bool(self.config.get("verify_ssl", True))
+        if not self.verify:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            message = "SSL certificate verification is disabled. This exposes the API token to on-path interception, do not use in production."
+            self.logger.warning(message)
+            warnings.warn(message, UserWarning, stacklevel=2)
 
     @classmethod
     def from_connection(
@@ -163,6 +179,7 @@ class SisenseClient:
         port: int | None = None,
         debug: bool = False,
         operating_system: str = "linux",
+        verify_ssl: bool = True,
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -184,6 +201,7 @@ class SisenseClient:
             is_ssl=is_ssl,
             port=port,
             operating_system=operating_system,
+            verify_ssl=verify_ssl,
         )
 
     def _non_ssl_port(self) -> int:
@@ -227,8 +245,8 @@ class SisenseClient:
 
         # Check if the logger already has handlers to avoid duplicates
         if not logger.handlers:
-            # Create a file handler for the logger
-            handler = logging.FileHandler(log_filename, mode="a")
+            # Rotate at midnight, keeping 7 days of backups, so the log file can't grow unbounded
+            handler = TimedRotatingFileHandler(log_filename, when="midnight", interval=1, backupCount=7)
 
             # Define the format for log messages
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -335,8 +353,8 @@ class SisenseClient:
         if extra_headers:
             headers.update(extra_headers)
 
-        # Log the request details (method, URL, params, and data)
-        self.logger.debug(f"Making {method} request to {url} with data: {data} and params: {params}")
+        # Log the request details (method, URL, params, and data).
+        self.logger.debug(f"Making {method} request to {url} with data: {redact_secrets(data)} and params: {redact_secrets(params)}")
 
         try:
             # Perform the appropriate HTTP request based on the method
@@ -360,10 +378,10 @@ class SisenseClient:
             elif response.status_code in [400, 404, 500]:
                 # Log the error response text if available
                 try:
-                    error_message = response.json()
+                    error_message = redact_secrets(response.json())
                 except ValueError:
-                    # If the response is not JSON, use raw text
-                    error_message = response.text
+                    error_message = "(non-JSON error body — see debug log for raw text)"
+                    self.logger.debug(f"Raw non-JSON error body for {method} {url}: {response.text}")
                 self.logger.error(f"{method} request to {url} failed with status code {response.status_code}: {error_message}")
             else:
                 self.logger.warning(f"{method} request to {url} returned unexpected status code {response.status_code}")

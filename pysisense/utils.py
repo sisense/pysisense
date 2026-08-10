@@ -3,6 +3,38 @@ from datetime import datetime
 import pandas as pd
 from pandas import json_normalize
 
+# Key names (case-insensitive) whose values are replaced by redact_secrets().
+_SENSITIVE_KEYS = {
+    "password",
+    "token",
+    "secret",
+    "value",
+    "apisecret",
+    "accesstoken",
+    "refreshtoken",
+    "clientsecret",
+    "privatekey",
+    "authorization",
+}
+
+
+def redact_secrets(data):
+    """
+    Recursively replaces values for credential-shaped keys with a placeholder so a dict/list is safe to write
+    to a debug log. Returns a new structure; the input is left untouched.
+
+    Parameters:
+        data: dict, list, or any other value
+
+    Returns:
+        The same structure with sensitive values replaced by "***REDACTED***".
+    """
+    if isinstance(data, dict):
+        return {key: ("***REDACTED***" if str(key).lower() in _SENSITIVE_KEYS else redact_secrets(value)) for key, value in data.items()}
+    if isinstance(data, list):
+        return [redact_secrets(item) for item in data]
+    return data
+
 
 def convert_to_dataframe(data, logger=None):
     """

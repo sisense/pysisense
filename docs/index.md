@@ -57,6 +57,8 @@ token: "<your_api_token>"
 
 For non-SSL (`is_ssl: false`), the default HTTP port is **30845**. Set optional `port` in the YAML to override (ignored when `is_ssl` is `true`).
 
+TLS certificate verification is enabled by default. Set `verify_ssl: false` to disable it, only for trusted internal networks with self-signed certificates, since disabling it exposes your API token to on-path interception.
+
 **Important:** It is recommended to use a new dedicated Sisense admin user's token to ensure all API methods function as expected.  
 Using restricted or scoped users may result in failures or inconsistent behavior, especially for:
 

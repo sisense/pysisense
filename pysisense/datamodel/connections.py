@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import redact_secrets
+
 
 class ConnectionsMixin:
     def get_connection(self, connection_name: str) -> list[dict[str, Any]] | dict[str, Any]:
@@ -253,7 +255,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated Athena connection payload: {payload}")
+                self.logger.debug(f"Generated Athena connection payload: {redact_secrets(payload)}")
                 return payload
 
             except KeyError as e:
@@ -277,7 +279,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated Databricks connection payload: {payload}")
+                self.logger.debug(f"Generated Databricks connection payload: {redact_secrets(payload)}")
                 return payload
 
             except KeyError as e:
@@ -308,7 +310,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated BigQuery connection payload: {payload}")
+                self.logger.debug(f"Generated BigQuery connection payload: {redact_secrets(payload)}")
                 return payload
 
             except KeyError as e:
@@ -335,7 +337,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated Redshift connection payload: {payload}")
+                self.logger.debug(f"Generated Redshift connection payload: {redact_secrets(payload)}")
                 return payload
             except KeyError as e:
                 self.logger.error(f"Missing required Redshift connection parameter: {e}")
@@ -365,14 +367,14 @@ class ConnectionsMixin:
             (HTTP 201), otherwise ``None``.
         """
         endpoint = "/api/v2/connections"
-        self.logger.debug(f"Creating connection with payload: {connection_payload}")
+        self.logger.debug(f"Creating connection with payload: {redact_secrets(connection_payload)}")
 
         response = self.api_client.post(endpoint, data=connection_payload)
 
         if response and response.status_code == 201:
             connection_detail = response.json()
             self.logger.info(f"Connection created successfully: {connection_detail.get('name', 'Unknown')}")
-            self.logger.debug(f"Full connection response: {connection_detail}")
+            self.logger.debug(f"Full connection response: {redact_secrets(connection_detail)}")
             return connection_detail
 
         error_msg = response.text if response else "No response received from API."
