@@ -49,11 +49,11 @@ port: 30845   # optional, omit to use the default 30845
 token: "<your_api_token>"
 ```
 
-TLS certificate verification is enabled by default. Only disable it (`verify_ssl: false`) for trusted internal networks with self-signed certificates, doing so exposes your API token to on-path interception.
-
 See [`config.yaml.example`](./config.yaml.example) for the template.
 
 ⚠️ **Do not commit your tokens. The provided YAMLs contain placeholder structure only.**
+
+⚠️ **TLS certificate verification is enabled by default.** Only disable it (`verify_ssl: false`) for trusted internal networks with self-signed certificates; doing so exposes your API token to on-path interception.
 
 ### ⚠️ Important: Use a Dedicated Admin Token
 
@@ -156,4 +156,4 @@ You can also explore:
 This project is licensed under the Sisense End User License Agreement (EULA).
 See the [LICENSE](./LICENSE) file for the full text.
 
-© 2025 Sisense Ltd. “Sisense” and related marks are trademarks of Sisense Ltd.
+© 2026 Sisense Ltd. “Sisense” and related marks are trademarks of Sisense Ltd.
