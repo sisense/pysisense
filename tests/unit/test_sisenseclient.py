@@ -109,6 +109,25 @@ class TestSisenseClientVerifySsl:
         assert client.verify is False
         assert client.base_url == "https://myhost"
 
+    def test_ssl_path_kwarg_sets_verify_to_path(self):
+        client = SisenseClient(domain="myserver.com", token="tok", ssl_path="/etc/certs/ca.pem")
+        assert client.verify == "/etc/certs/ca.pem"
+
+    def test_yaml_config_ssl_path_sets_verify_to_path(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\nssl_path: /etc/certs/ca.pem\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.verify == "/etc/certs/ca.pem"
+
+    def test_ssl_path_ignored_when_verify_ssl_false(self):
+        with pytest.warns(UserWarning):
+            client = SisenseClient(domain="myserver.com", token="tok", verify_ssl=False, ssl_path="/etc/certs/ca.pem")
+        assert client.verify is False
+
+    def test_from_connection_ssl_path_sets_verify_to_path(self):
+        client = SisenseClient.from_connection(domain="example.com", token="tok", ssl_path="/etc/certs/ca.pem")
+        assert client.verify == "/etc/certs/ca.pem"
+
     def test_is_ssl_kwarg_overrides_yaml_config_without_domain_or_token(self, tmp_path):
         config = tmp_path / "config.yaml"
         config.write_text("domain: myhost\ntoken: secret\nis_ssl: true\n")

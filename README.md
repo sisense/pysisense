@@ -55,6 +55,17 @@ See [`config.yaml.example`](./config.yaml.example) for the template.
 
 ⚠️ **TLS certificate verification is enabled by default.** Only disable it (`verify_ssl: false`) for trusted internal networks with self-signed certificates; doing so exposes your API token to on-path interception.
 
+If your Sisense server uses a self-signed or internal-CA certificate and you still want verification enabled, point `ssl_path` at the CA bundle file (or directory) instead of disabling verification:
+
+```yaml
+domain: "your-domain.com"
+is_ssl: true
+token: "<your_api_token>"
+ssl_path: "/path/to/ca-bundle.pem"
+```
+
+`ssl_path` takes precedence over `verify_ssl` when both are set, unless `verify_ssl` is explicitly `false`, in that case verification stays fully disabled and `ssl_path` is ignored.
+
 ### ⚠️ Important: Use a Dedicated Admin Token
 
 Some methods in this SDK require full administrative privileges to interact with Sisense resources (such as ownership changes, user migrations, or folder/dashboard access).
@@ -106,6 +117,8 @@ logs/pysisense.log
 ```
 
 You don’t need to create this folder manually — it will be created at runtime in the **same directory where you run your scripts**.
+
+Logs rotate automatically at midnight and keep **7 days of history**. The active file is always named `pysisense.log`; each day's log is renamed to `pysisense.log.YYYY-MM-DD` at rotation time, and once more than 7 dated backups exist, the oldest one is deleted. The active log file's name never changes and it is never overwritten mid-rotation — only rotated out at day's end.
 
 ---
 
