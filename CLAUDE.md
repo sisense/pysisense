@@ -75,7 +75,7 @@ uv run pre-commit install
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
-| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local` |
+| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets` |
 
 ### Package structure — mixin pattern
 
@@ -199,10 +199,11 @@ wellcheck = WellCheck(api_client=api_client)
 ### Config file format (`config.yaml`)
 
 ```yaml
-domain: ""     # IP or domain — no protocol, no port
-is_ssl: false  # true for HTTPS, false uses HTTP (default port 30845)
-# port: 30845  # optional, HTTP port when is_ssl is false
-token: ""      # Sisense Admin API token
+domain: ""          # IP or domain — no protocol, no port
+is_ssl: true        # true for HTTPS, false uses HTTP (default port 30845)
+# port: 30845       # optional, HTTP port when is_ssl is false
+token: ""           # Sisense Admin API token
+# verify_ssl: false # verify the server's TLS certificate; defaults to true
 ```
 
 > Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
@@ -313,7 +314,7 @@ return response
 
 ### Logging — levels and secrets policy
 
-Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`. **Never use `print`.**
+Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense.log`, rotated daily at midnight (7 days of backups kept as `pysisense.log.YYYY-MM-DD`). The log directory and file are created with owner-only permissions (`0700`/`0600`). **Never use `print`.**
 
 | Level | When to use |
 |---|---|
@@ -323,10 +324,13 @@ Use the shared logger from `SisenseClient`. File-only logging to `logs/pysisense
 
 **Never log:** tokens, passwords, auth headers, raw cookies, or sensitive payload fields.
 
+If a method needs to log a full request/response payload (rather than just field names), pass it through `redact_secrets()` from `pysisense/utils.py` first — it recursively replaces values for credential-shaped keys (`password`, `token`, `secret`, `value`, etc., case-insensitive) with `"***REDACTED***"`. `SisenseClient._make_request` already applies it to `data`/`params` and error response bodies at the shared request chokepoint; `DataModel.generate_connections_payload`/`create_connections` apply it to connection payloads (which carry provider credentials) before logging.
+
 ```python
 # ✅ GOOD
 self.logger.debug(f"Resolving {len(group_names)} group names to IDs")
 self.logger.info(f"Updated user '{user_id}' — fields: {list(payload.keys())}")
+self.logger.debug(f"Generated connection payload: {redact_secrets(payload)}")
 
 # ❌ BAD
 print("Done")
@@ -361,7 +365,7 @@ if isinstance(dashboards, str):
 
 ### SSL
 
-SSL verification is always disabled (`verify=False`). Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
+TLS certificate verification is enabled by default (`verify=True`). It can be disabled only explicitly, via `verify_ssl: false` in the YAML config or `verify_ssl=False` on the constructor — never implicitly. Disabling it logs a warning and emits a `UserWarning` so the risk is visible even when only file logging is configured. Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
 
 ### OS-specific API routing
 

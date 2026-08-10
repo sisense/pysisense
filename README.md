@@ -52,6 +52,9 @@ token: "<your_api_token>"
 See [`config.example.yaml`](./config.example.yaml) for the template.
 
 ⚠️ **TLS certificate verification is enabled by default.** Only disable it (`verify_ssl: false`) for trusted internal networks with self-signed certificates; doing so exposes your API token to on-path interception.
+TLS certificate verification is enabled by default. Only disable it (`verify_ssl: false`) for trusted internal networks with self-signed certificates, doing so exposes your API token to on-path interception.
+
+See [`config.yaml.example`](./config.yaml.example) for the template.
 
 ⚠️ **Do not commit your tokens. The provided YAMLs contain placeholder structure only.**
 
