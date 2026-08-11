@@ -49,7 +49,7 @@ port: 30845   # optional, omit to use the default 30845
 token: "<your_api_token>"
 ```
 
-See [`config.yaml.example`](./config.yaml.example) for the template.
+See [`config.yaml.example`](./examples/config.yaml) for the template.
 
 ⚠️ **Do not commit your tokens. The provided YAMLs contain placeholder structure only.**
 
