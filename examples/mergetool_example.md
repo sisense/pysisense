@@ -210,6 +210,51 @@ print(json.dumps(results, indent=4))
 
 ---
 
+## Example 14: Migrate Specific Dashboards by ID
+
+Migrate groups, users, and folders before dashboards — dashboard owner/share remapping and folder placement depend on all three.
+
+```python
+dashboard_ids = [
+    "dashboard-oid-1",
+    "dashboard-oid-2",
+]
+results = merge.migrate_dashboards(
+    dashboard_ids=dashboard_ids,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 15: Migrate Specific Dashboards by Name
+
+```python
+dashboard_names = [
+    "Sales Overview",
+    "Marketing KPIs",
+]
+results = merge.migrate_dashboards(
+    dashboard_names=dashboard_names,
+    action="overwrite",  # Replaces the existing dashboard (matched by oid) with the source version
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 16: Migrate All Dashboards
+
+```python
+results = merge.migrate_all_dashboards(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
@@ -220,6 +265,8 @@ print(json.dumps(results, indent=4))
 - Group migration excludes the built-in `Admins`, `All users in system`, and `Everyone` groups when using `migrate_all_groups`.
 - User migration excludes users with the built-in `super` role when using `migrate_all_users`, and resolves roles across environments (including multi-tenant `tenantAdmin` and Windows `admin` remapping).
 - Migrate groups before users, and users before dashboards — user payloads reference target group IDs, and dashboard shares reference target user/group IDs.
+- Migrate folders before dashboards so each dashboard can be placed into its matching target folder; dashboards whose parent folder path isn't found on the target are left at the root.
+- Dashboard migration matches conflicts by `oid` (not title) — re-running with `"skip"` after a partial migration will correctly skip already-migrated dashboards.
 - For more details, refer to `docs/mergetool.md`.
 
 ---

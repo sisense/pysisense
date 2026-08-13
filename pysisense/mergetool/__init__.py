@@ -4,6 +4,7 @@ from ..migration.base import MigrationBaseMixin
 from ..sisenseclient import SisenseClient
 from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
+from .dashboards import DashboardMergeMixin
 from .folder import FolderMergeMixin
 from .groups import GroupsMergeMixin
 from .users import UsersMergeMixin
@@ -16,14 +17,15 @@ class MergeTool(
     BloxMergeMixin,
     GroupsMergeMixin,
     UsersMergeMixin,
+    DashboardMergeMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
 
     Connects to a source and a target Sisense instance (via YAML config files
     or injected clients) and merges custom-code notebooks, folders, Blox
-    actions, groups, and users from one to the other. Does not operate on a
-    single instance — use CustomCode, Folder, Blox, or AccessManagement for
-    single-environment changes.
+    actions, groups, users, and dashboards from one to the other. Does not
+    operate on a single instance — use CustomCode, Folder, Blox,
+    AccessManagement, or Dashboard for single-environment changes.
 
     Modules
     -------
@@ -45,6 +47,12 @@ class MergeTool(
         User migration — copy users from source to target with skip,
         overwrite, or duplicate conflict handling, resolving role and group
         assignments to target IDs.
+    dashboards :
+        Dashboard migration — export dashboards from source and import them
+        into target with skip, overwrite, or duplicate conflict handling,
+        remapping owner/shares to target users and groups and placing each
+        dashboard in its corresponding target folder. Migrate groups, users,
+        and folders first, since dashboards reference all three.
     """
 
     def __init__(

@@ -538,3 +538,50 @@ class DashboardCoreMixin:
         result = response.json()
         self.logger.info(f"Successfully checked can_be_owned for dashboard {dashboard_id}.")
         return result
+
+    def import_dashboards_bulk(self, dashboards: list[dict[str, Any]], action: str = "skip") -> dict[str, Any]:
+        """Import one or more dashboards via the bulk import endpoint.
+
+        Sends ``POST /api/v1/dashboards/import/bulk`` with ``action`` as a
+        query parameter and ``dashboards`` as the request body. Each
+        dashboard object is typically the payload returned by
+        ``export_dashboard`` on another environment. The server matches
+        dashboards by their ``oid``: when a dashboard with the same ``oid``
+        already exists, ``action`` controls whether it is left unchanged,
+        replaced, or a new copy is created alongside it.
+
+        Parameters
+        ----------
+        dashboards : list[dict[str, Any]]
+            Dashboard objects to import.
+        action : str, optional
+            Conflict behavior for dashboards whose ``oid`` already exists.
+            One of ``"skip"``, ``"overwrite"``, or ``"duplicate"``. Default
+            is ``"skip"``.
+
+        Returns
+        -------
+        dict[str, Any]
+            The API response body — including ``succeded`` and ``failed``
+            lists describing the outcome for each dashboard — or
+            ``{"error": "..."}`` on failure.
+        """
+        endpoint = f"/api/v1/dashboards/import/bulk?action={action}"
+        self.logger.debug(f"Importing {len(dashboards)} dashboard(s) with action={action}")
+        response = self.api_client.post(endpoint, data=dashboards)
+
+        if response is None:
+            self.logger.error("POST request to import dashboards failed: No response received.")
+            return {"error": "No response received while importing dashboards."}
+
+        if response.status_code not in (200, 201):
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text or "No response text available."
+            self.logger.error(f"Failed to import dashboards. Error: {error_message}")
+            return {"error": f"Failed to import dashboards. {error_message}"}
+
+        result = response.json() if response.content else {"succeded": [], "failed": []}
+        self.logger.info(f"Dashboard import request completed for {len(dashboards)} dashboard(s).")
+        return result

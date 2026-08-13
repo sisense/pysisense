@@ -1,7 +1,7 @@
 MergeTool Class Documentation
 ==============================
 
-The `MergeTool` class migrates custom-code notebooks between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
+The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
 
 Initialization
 --------------
@@ -278,3 +278,60 @@ Migrates all eligible users from the source to the target environment. Excludes 
 -   `dict`: Same structure as `migrate_users`.
 
 **Note:** Migrate groups before users — user payloads reference target group IDs, and groups not yet present on the target will be silently omitted from the user's group list.
+
+* * * * *
+
+Dashboard Migration
+--------------------
+
+### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action="skip", emit=None)`
+
+Migrates specific dashboards from the source to the target environment. Each dashboard is exported from the source, has its embedded datasource references repointed to the target's local Elasticube, and is imported into the target via the bulk import endpoint, which matches dashboards by `oid` and applies `action` natively. After a successful import, the dashboard's owner and shares are remapped to target users/groups (matched by email/name), and the dashboard is moved into the target folder whose path matches its source parent folder — if that folder has already been migrated with `migrate_folders`.
+
+#### Parameters:
+
+-   `dashboard_ids` (list, optional): Dashboard OIDs to migrate. Provide either this or `dashboard_names`.
+
+-   `dashboard_names` (list, optional): Dashboard titles to migrate. Provide either this or `dashboard_ids`.
+
+-   `action` (str, optional): Conflict strategy for dashboards whose `oid` already exists on the target:
+
+    -   `"skip"` — leave the existing dashboard unchanged (default).
+
+    -   `"overwrite"` — replace the existing dashboard with the source version.
+
+    -   `"duplicate"` — always create, regardless of existing dashboards.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, oid, source_oid}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `dashboard_ids` and `dashboard_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_dashboards(self, action="skip", emit=None)`
+
+Migrates all dashboards from the source to the target environment.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every dashboard (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_dashboards`.
+
+**Note:** Migrate groups, users, and folders before dashboards — dashboard owner/share remapping and folder placement depend on all three having already been migrated.
