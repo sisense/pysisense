@@ -297,6 +297,21 @@ Checks whether the dashboard can be owned by the current user via ``GET /api/v1/
 
 * * * * *
 
+### `import_dashboards_bulk(dashboards, action="skip")`
+
+Imports one or more dashboards via `POST /api/v1/dashboards/import/bulk`. Dashboards are typically the payloads returned by `export_dashboard`. The server matches dashboards by `oid`: when a dashboard with the same `oid` already exists, `action` controls whether it is left unchanged, replaced, or a new copy is created.
+
+**Parameters:**
+
+- `dashboards` (list): Dashboard objects to import.
+- `action` (str, optional): Conflict behavior — `"skip"`, `"overwrite"`, or `"duplicate"`. Default is `"skip"`.
+
+**Returns:**
+
+- `dict`: The API response body, including `succeded` and `failed` lists describing the outcome for each dashboard, or `{"error": "..."}` on failure.
+
+* * * * *
+
 ### `SisenseScript` helper (`scripts.py`)
 
 Instances of **`SisenseScript`** are returned by `get_dashboard_script` and `get_widget_script` on success. They wrap raw script text plus metadata (title, URL path, last opened; widget scripts also carry **widget type**).
