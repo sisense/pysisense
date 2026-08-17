@@ -1,7 +1,7 @@
 MergeTool Class Documentation
 ==============================
 
-The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
+The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
 
 Initialization
 --------------
@@ -278,6 +278,75 @@ Migrates all eligible users from the source to the target environment. Excludes 
 -   `dict`: Same structure as `migrate_users`.
 
 **Note:** Migrate groups before users — user payloads reference target group IDs, and groups not yet present on the target will be silently omitted from the user's group list.
+
+* * * * *
+
+Data Model Migration
+---------------------
+
+### `migrate_datamodels(self, datamodel_ids=None, datamodel_names=None, action="skip", dependencies=None, provider_connection_map=None, shares=False, emit=None)`
+
+Migrates specific data models from the source to the target environment. Each data model's schema is exported from the source and imported into the target via the schema import endpoint. Conflict detection is based on the data model's `title`. Embedded connection credentials are repointed via `provider_connection_map` when a matching provider entry is supplied, and stripped otherwise — they must be re-entered (or reconnected) on the target after migration.
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `action` (str, optional): Conflict strategy for data models whose `title` already exists on the target:
+
+    -   `"skip"` — leave the existing data model unchanged (default).
+
+    -   `"overwrite"` — replace the existing data model's schema with the source version, matched by the target model's own OID.
+
+    -   `"duplicate"` — always create a new data model titled `"<title> (Duplicate)"`, regardless of existing data models.
+
+-   `dependencies` (list or str, optional): One or more of `"dataSecurity"`, `"formulas"`, `"hierarchies"`, `"perspectives"` to include in the export. Defaults to all of them when omitted or `"all"`. Not supported when the source is a Windows deployment.
+
+-   `provider_connection_map` (dict, optional): Maps a connection provider name (for example `"Athena"`) to a target-environment connection OID.
+
+-   `shares` (bool, optional): Whether to also migrate each data model's shares after a successful import, remapping users and groups by email/name. Default is `False`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, source_oid, target_id}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_datamodels(self, action="skip", dependencies=None, provider_connection_map=None, shares=False, emit=None)`
+
+Migrates all data models from the source to the target environment.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every data model (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `dependencies` (list or str, optional): Same as in `migrate_datamodels`.
+
+-   `provider_connection_map` (dict, optional): Same as in `migrate_datamodels`.
+
+-   `shares` (bool, optional): Same as in `migrate_datamodels`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_datamodels`.
+
+**Note:** Migrate data models before dashboards — dashboards reference the underlying data model's local Elasticube.
 
 * * * * *
 

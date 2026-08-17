@@ -210,9 +210,56 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 14: Migrate Specific Dashboards by ID
+## Example 14: Migrate Specific Data Models by Name
 
-Migrate groups, users, and folders before dashboards — dashboard owner/share remapping and folder placement depend on all three.
+```python
+datamodel_names = [
+    "Sales Elasticube",
+    "Marketing Live Model",
+]
+results = merge.migrate_datamodels(
+    datamodel_names=datamodel_names,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    dependencies="all",  # Or a list like ["dataSecurity", "formulas"]
+    provider_connection_map={"Athena": "target-connection-oid"},
+    shares=False,
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 15: Migrate Specific Data Models by ID
+
+```python
+datamodel_ids = [
+    "datamodel-oid-1",
+    "datamodel-oid-2",
+]
+results = merge.migrate_datamodels(
+    datamodel_ids=datamodel_ids,
+    action="overwrite",  # Replaces the existing model on target with the source schema
+    shares=True,  # Also remap and migrate shares (users/groups matched by email/name)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 16: Migrate All Data Models
+
+```python
+results = merge.migrate_all_datamodels(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 17: Migrate Specific Dashboards by ID
+
+Migrate groups, users, folders, and data models before dashboards — dashboard owner/share remapping and folder placement depend on the first three, and dashboard widgets reference the data models by title.
 
 ```python
 dashboard_ids = [
@@ -228,7 +275,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 15: Migrate Specific Dashboards by Name
+## Example 18: Migrate Specific Dashboards by Name
 
 ```python
 dashboard_names = [
@@ -244,7 +291,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 16: Migrate All Dashboards
+## Example 19: Migrate All Dashboards
 
 ```python
 results = merge.migrate_all_dashboards(
@@ -266,6 +313,8 @@ print(json.dumps(results, indent=4))
 - User migration excludes users with the built-in `super` role when using `migrate_all_users`, and resolves roles across environments (including multi-tenant `tenantAdmin` and Windows `admin` remapping).
 - Migrate groups before users, and users before dashboards — user payloads reference target group IDs, and dashboard shares reference target user/group IDs.
 - Migrate folders before dashboards so each dashboard can be placed into its matching target folder; dashboards whose parent folder path isn't found on the target are left at the root.
+- Data model migration matches conflicts by `title` (not OID). Connection credentials are never copied as-is — map providers to a target connection via `provider_connection_map`, or reconnect manually on the target after migration.
+- Migrate data models before dashboards — dashboard widgets reference their data model's local Elasticube by title.
 - Dashboard migration matches conflicts by `oid` (not title) — re-running with `"skip"` after a partial migration will correctly skip already-migrated dashboards.
 - For more details, refer to `docs/mergetool.md`.
 

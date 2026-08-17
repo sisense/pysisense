@@ -5,6 +5,7 @@ from ..sisenseclient import SisenseClient
 from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
 from .dashboards import DashboardMergeMixin
+from .datamodels import DatamodelsMergeMixin
 from .folder import FolderMergeMixin
 from .groups import GroupsMergeMixin
 from .users import UsersMergeMixin
@@ -17,15 +18,17 @@ class MergeTool(
     BloxMergeMixin,
     GroupsMergeMixin,
     UsersMergeMixin,
+    DatamodelsMergeMixin,
     DashboardMergeMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
 
     Connects to a source and a target Sisense instance (via YAML config files
     or injected clients) and merges custom-code notebooks, folders, Blox
-    actions, groups, users, and dashboards from one to the other. Does not
-    operate on a single instance — use CustomCode, Folder, Blox,
-    AccessManagement, or Dashboard for single-environment changes.
+    actions, groups, users, data models, and dashboards from one to the
+    other. Does not operate on a single instance — use CustomCode, Folder,
+    Blox, AccessManagement, DataModel, or Dashboard for single-environment
+    changes.
 
     Modules
     -------
@@ -47,12 +50,17 @@ class MergeTool(
         User migration — copy users from source to target with skip,
         overwrite, or duplicate conflict handling, resolving role and group
         assignments to target IDs.
+    datamodels :
+        Data model migration — export data model schemas from source and
+        import them into target with skip, overwrite, or duplicate conflict
+        handling, remapping connection credentials via a provider map and
+        optionally migrating shares.
     dashboards :
         Dashboard migration — export dashboards from source and import them
         into target with skip, overwrite, or duplicate conflict handling,
         remapping owner/shares to target users and groups and placing each
         dashboard in its corresponding target folder. Migrate groups, users,
-        and folders first, since dashboards reference all three.
+        folders, and data models first, since dashboards reference all four.
     """
 
     def __init__(
