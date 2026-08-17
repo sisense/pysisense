@@ -119,6 +119,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `groups.py` | `migrate_groups`, `migrate_all_groups` |
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
+| | `datasecurity.py` | `migrate_datasecurity`, `migrate_all_datasecurity` |
 | | `dashboards.py` | `migrate_dashboards`, `migrate_all_dashboards` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |

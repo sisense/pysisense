@@ -257,7 +257,29 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 17: Migrate Specific Dashboards by ID
+## Example 17: Migrate Datasecurity for Specific Data Models
+
+Migrate data models before data security — rules can only be written onto a data model that already exists on the target.
+
+```python
+results = merge.migrate_datasecurity(
+    datamodel_names=["Sales Elasticube"],
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 18: Migrate Datasecurity for All Data Models
+
+```python
+results = merge.migrate_all_datasecurity()
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 19: Migrate Specific Dashboards by ID
 
 Migrate groups, users, folders, and data models before dashboards — dashboard owner/share remapping and folder placement depend on the first three, and dashboard widgets reference the data models by title.
 
@@ -275,7 +297,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 18: Migrate Specific Dashboards by Name
+## Example 20: Migrate Specific Dashboards by Name
 
 ```python
 dashboard_names = [
@@ -291,7 +313,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 19: Migrate All Dashboards
+## Example 21: Migrate All Dashboards
 
 ```python
 results = merge.migrate_all_dashboards(
@@ -315,6 +337,7 @@ print(json.dumps(results, indent=4))
 - Migrate folders before dashboards so each dashboard can be placed into its matching target folder; dashboards whose parent folder path isn't found on the target are left at the root.
 - Data model migration matches conflicts by `title` (not OID). Connection credentials are never copied as-is — map providers to a target connection via `provider_connection_map`, or reconnect manually on the target after migration.
 - Migrate data models before dashboards — dashboard widgets reference their data model's local Elasticube by title.
+- Datasecurity migration requires the target data model to already exist — migrate data models before data security, and shares are matched by email (users) or name (groups), same as data model shares.
 - Dashboard migration matches conflicts by `oid` (not title) — re-running with `"skip"` after a partial migration will correctly skip already-migrated dashboards.
 - For more details, refer to `docs/mergetool.md`.
 

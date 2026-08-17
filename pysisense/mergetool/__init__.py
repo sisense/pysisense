@@ -6,6 +6,7 @@ from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
 from .dashboards import DashboardMergeMixin
 from .datamodels import DatamodelsMergeMixin
+from .datasecurity import DatasecurityMergeMixin
 from .folder import FolderMergeMixin
 from .groups import GroupsMergeMixin
 from .users import UsersMergeMixin
@@ -19,6 +20,7 @@ class MergeTool(
     GroupsMergeMixin,
     UsersMergeMixin,
     DatamodelsMergeMixin,
+    DatasecurityMergeMixin,
     DashboardMergeMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
@@ -55,6 +57,11 @@ class MergeTool(
         import them into target with skip, overwrite, or duplicate conflict
         handling, remapping connection credentials via a provider map and
         optionally migrating shares.
+    datasecurity :
+        Data security (row-level security) migration — copy datasecurity
+        rules for data models that already exist on the target, remapping
+        rule shares to target users and groups by email/name. Migrate data
+        models before data security.
     dashboards :
         Dashboard migration — export dashboards from source and import them
         into target with skip, overwrite, or duplicate conflict handling,

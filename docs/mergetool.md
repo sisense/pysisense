@@ -1,7 +1,7 @@
 MergeTool Class Documentation
 ==============================
 
-The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
+The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, data security rules, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
 
 Initialization
 --------------
@@ -347,6 +347,53 @@ Migrates all data models from the source to the target environment.
 -   `dict`: Same structure as `migrate_datamodels`.
 
 **Note:** Migrate data models before dashboards — dashboards reference the underlying data model's local Elasticube.
+
+* * * * *
+
+Data Security Migration
+-------------------------
+
+### `migrate_datasecurity(self, datamodel_ids=None, datamodel_names=None, emit=None)`
+
+Migrates row-level datasecurity rules for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each rule's raw datasecurity payload is fetched from the source, its `shares` are remapped to target user/group ids (matched by email for users and by name for groups), and the resolved rules are written onto the target data model via `update_datasecurity` (EXTRACT) or `set_live_datasecurity_add_many` (LIVE).
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, source_oid, rule_count}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_datasecurity(self, emit=None)`
+
+Migrates datasecurity rules for all data models from the source to the target environment. Data models not yet present on the target are skipped.
+
+#### Parameters:
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_datasecurity`.
+
+**Note:** Migrate data models before data security — datasecurity rules can only be written onto a data model that already exists on the target.
 
 * * * * *
 
