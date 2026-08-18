@@ -259,6 +259,36 @@ class TestMigrateDashboardsFullSuccess:
 
 
 # ---------------------------------------------------------------------------
+# migrate_dashboards — concurrency
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateDashboardsConcurrency:
+    def test_concurrent_dashboards_all_imported(self):
+        tgt_get, tgt_post = _basic_target()
+        merge = _make_merge(
+            src_get=_basic_source(
+                [_SOURCE_DASHBOARD_SALES, _SOURCE_DASHBOARD_MARKETING],
+                exported_by_id={"dash1": _EXPORTED_SALES, "dash2": _EXPORTED_MARKETING},
+            ),
+            tgt_get=tgt_get,
+            tgt_post={
+                **tgt_post,
+                "/api/v1/dashboards/dash1/change_owner": FakeResponse(200, {"success": True}),
+                "/api/shares/dashboard/dash1": FakeResponse(200, {"success": True}),
+            },
+            tgt_patch={"/api/dashboards/dash1": FakeResponse(200, {"success": True})},
+            capture_target=True,
+        )
+        result = merge.migrate_dashboards(dashboard_ids=["dash1", "dash2"], concurrency=2)
+
+        assert result["ok"] is True
+        assert result["succeeded_count"] == 2
+        import_calls = [c for c in merge.target_client.calls if c[0] == "POST" and c[1].startswith("/api/v1/dashboards/import/bulk")]
+        assert len(import_calls) == 2
+
+
+# ---------------------------------------------------------------------------
 # migrate_all_dashboards
 # ---------------------------------------------------------------------------
 

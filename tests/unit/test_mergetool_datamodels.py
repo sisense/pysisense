@@ -221,6 +221,25 @@ class TestMigrateDatamodelsConnectionRemapping:
 
 
 # ---------------------------------------------------------------------------
+# migrate_datamodels — concurrency
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateDatamodelsConcurrency:
+    def test_concurrent_datamodels_all_imported(self):
+        src_get, src_post = _basic_source([_SALES_EXTRACT, _MARKETING_LIVE], export_response=FakeResponse(200, _EXPORTED_SALES))
+        _, tgt_post = _basic_target(tgt_post_extra={"/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "new"})})
+        merge = _make_merge(src_get=src_get, src_post=src_post, tgt_post=tgt_post, capture_target=True)
+
+        result = merge.migrate_datamodels(datamodel_ids=["dm1", "dm2"], concurrency=2)
+
+        assert result["ok"] is True
+        assert result["succeeded_count"] == 2
+        import_calls = [c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/v2/datamodel-imports/schema"]
+        assert len(import_calls) == 2
+
+
+# ---------------------------------------------------------------------------
 # migrate_all_datamodels
 # ---------------------------------------------------------------------------
 

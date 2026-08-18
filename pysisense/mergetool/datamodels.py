@@ -93,6 +93,7 @@ class DatamodelsMergeMixin:
         dependencies: list[str] | str | None = None,
         provider_connection_map: dict[str, str] | None = None,
         shares: bool = False,
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate specific data models from source to target.
@@ -134,9 +135,17 @@ class DatamodelsMergeMixin:
         shares : bool, default False
             Whether to also migrate each data model's shares after a
             successful import, remapping users and groups by email/name.
+        concurrency : int, default 1
+            Maximum number of data models to migrate concurrently, run via a
+            background thread pool (``asyncio.to_thread``) since the
+            underlying HTTP client is synchronous. Data models are
+            independent of each other, so any value is safe. Values <= 1
+            (the default) process data models one at a time.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback. Each invocation receives a dict with at
-            least ``type``, ``step``, and ``message`` keys.
+            least ``type``, ``step``, and ``message`` keys. When
+            ``concurrency`` is greater than 1, this callback may be invoked
+            from multiple worker threads concurrently.
 
         Returns
         -------
@@ -159,6 +168,12 @@ class DatamodelsMergeMixin:
         ValueError
             If both or neither of ``datamodel_ids`` and ``datamodel_names``
             are provided.
+
+        Notes
+        -----
+        If called from code that is already running an asyncio event loop,
+        ``concurrency`` greater than 1 falls back to sequential processing (a
+        nested event loop cannot be started) and logs a warning.
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting datamodel migration from source to target."})
 
@@ -251,109 +266,25 @@ class DatamodelsMergeMixin:
             tgt_groups: list[dict[str, Any]] = [] if isinstance(tgt_groups_result, dict) and "error" in tgt_groups_result else tgt_groups_result
             group_name_to_target_id = {g["name"]: g["_id"] for g in tgt_groups if g.get("name") and g.get("_id")}
 
-        # Step 5: Migrate each datamodel
-        for datamodel in datamodels_to_migrate:
-            source_oid = datamodel.get("oid")
-            title = datamodel.get("title")
-            dm_type = datamodel.get("type")
+        # Step 5: Migrate each datamodel — independent of each other, so the
+        # whole set can run concurrently when concurrency > 1.
+        def _worker(datamodel: dict[str, Any]) -> None:
+            self._migrate_one_datamodel(
+                datamodel,
+                action=action,
+                api_dependencies=api_dependencies,
+                provider_connection_map=provider_connection_map,
+                target_oid_by_title=target_oid_by_title,
+                summary=summary,
+                shares=shares,
+                user_id_to_email=user_id_to_email,
+                email_to_target_id=email_to_target_id,
+                group_id_to_name=group_id_to_name,
+                group_name_to_target_id=group_name_to_target_id,
+                emit=emit,
+            )
 
-            if not source_oid or not title:
-                self.logger.warning("Skipping a datamodel — missing oid or title field.")
-                summary["skipped"].append({"title": title, "source_oid": source_oid, "reason": "Missing oid or title field."})
-                continue
-
-            existing_target_oid = target_oid_by_title.get(title)
-
-            if existing_target_oid and action == "skip":
-                self.logger.info("Skipping '%s' — already exists on target.", title)
-                summary["skipped"].append({"title": title, "source_oid": source_oid, "reason": "Already exists on target."})
-                self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Skipped '{title}' (already exists).", "action": "skip"})
-                continue
-
-            self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
-
-            # Export schema from source
-            source_os = self.source_client.operating_system
-            if source_os == "windows":
-                if api_dependencies:
-                    self.logger.warning(
-                        "Windows datamodel export does not support dependenciesIdsToInclude — dependencies (%s) will not be migrated for '%s'.",
-                        api_dependencies,
-                        title,
-                    )
-                export_response = self.source_client.get(f"/api/v1/elasticubes/{source_oid}/datamodel-exports/stream/schema")
-            else:
-                export_response = self.source_client.get(
-                    "/api/v2/datamodel-exports/schema",
-                    params={"datamodelId": source_oid, "type": "schema-latest", "dependenciesIdsToInclude": ",".join(api_dependencies)},
-                )
-
-            if export_response is None or export_response.status_code != 200:
-                reason = f"Export failed: {self._extract_error_detail(export_response)}"
-                self.logger.error("Failed to export datamodel '%s': %s", title, reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
-                self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
-                continue
-
-            data_model_json, err = self._safe_json(export_response)
-            if not isinstance(data_model_json, dict):
-                reason = f"Export failed: {err or 'Export returned non-dict JSON'}"
-                self.logger.error("Failed to export datamodel '%s': %s", title, reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
-                self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
-                continue
-
-            _apply_connection_map(data_model_json, provider_connection_map)
-
-            # Import schema into target
-            query_string = ""
-            if action == "overwrite" and existing_target_oid:
-                query_string = f"?datamodelId={existing_target_oid}"
-            elif action == "duplicate":
-                query_string = f"?newTitle={title} (Duplicate)"
-
-            import_response = self.target_client.post(f"/api/v2/datamodel-imports/schema{query_string}", data=data_model_json)
-
-            if import_response is not None and import_response.status_code == 404 and action == "overwrite" and existing_target_oid:
-                self.logger.warning("Overwrite target for '%s' not found (404). Retrying without overwrite.", title)
-                import_response = self.target_client.post("/api/v2/datamodel-imports/schema", data=data_model_json)
-
-            import_payload, _ = self._safe_json(import_response)
-            target_id: str | None = None
-            if isinstance(import_payload, dict):
-                for key in ("oid", "id", "datamodelId"):
-                    value = import_payload.get(key)
-                    if isinstance(value, str):
-                        target_id = value
-                        break
-
-            if import_response is not None and import_response.status_code == 201:
-                self.logger.info("Successfully migrated datamodel '%s'.", title)
-                summary["succeeded"].append({"title": title, "source_oid": source_oid, "target_id": target_id})
-                self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrated '{title}'.", "action": action})
-
-                if shares:
-                    self._migrate_datamodel_shares(
-                        title=title,
-                        dm_type=dm_type,
-                        source_oid=source_oid,
-                        target_id=target_id,
-                        user_id_to_email=user_id_to_email,
-                        email_to_target_id=email_to_target_id,
-                        group_id_to_name=group_id_to_name,
-                        group_name_to_target_id=group_name_to_target_id,
-                        emit=emit,
-                    )
-            elif import_response is not None and import_response.status_code == 400 and isinstance(import_payload, dict) and import_payload.get("title") == "ElasticubeAlreadyExists":
-                reason = f"Datamodel '{title}' already exists on the target with a different ID. Use action='duplicate', or delete the existing model manually."
-                self.logger.error(reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
-                self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
-            else:
-                reason = f"Import failed: {self._extract_error_detail(import_response)}"
-                self.logger.error("Failed to import datamodel '%s': %s", title, reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
-                self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
+        self._run_concurrently(datamodels_to_migrate, _worker, concurrency, "data models")
 
         # Final summary
         summary["succeeded_count"] = len(summary["succeeded"])
@@ -384,6 +315,128 @@ class DatamodelsMergeMixin:
             },
         )
         return summary
+
+    def _migrate_one_datamodel(
+        self,
+        datamodel: dict[str, Any],
+        *,
+        action: str,
+        api_dependencies: list[str],
+        provider_connection_map: dict[str, str] | None,
+        target_oid_by_title: dict[str, str],
+        summary: dict[str, Any],
+        shares: bool,
+        user_id_to_email: dict[str, str],
+        email_to_target_id: dict[str, str],
+        group_id_to_name: dict[str, str],
+        group_name_to_target_id: dict[str, str],
+        emit: Callable[[dict[str, Any]], None] | None,
+    ) -> None:
+        """Migrate a single datamodel, mutating ``summary`` in place.
+
+        Safe to call concurrently — data models are independent of each other.
+        """
+        source_oid = datamodel.get("oid")
+        title = datamodel.get("title")
+        dm_type = datamodel.get("type")
+
+        if not source_oid or not title:
+            self.logger.warning("Skipping a datamodel — missing oid or title field.")
+            summary["skipped"].append({"title": title, "source_oid": source_oid, "reason": "Missing oid or title field."})
+            return
+
+        existing_target_oid = target_oid_by_title.get(title)
+
+        if existing_target_oid and action == "skip":
+            self.logger.info("Skipping '%s' — already exists on target.", title)
+            summary["skipped"].append({"title": title, "source_oid": source_oid, "reason": "Already exists on target."})
+            self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Skipped '{title}' (already exists).", "action": "skip"})
+            return
+
+        self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
+
+        # Export schema from source
+        source_os = self.source_client.operating_system
+        if source_os == "windows":
+            if api_dependencies:
+                self.logger.warning(
+                    "Windows datamodel export does not support dependenciesIdsToInclude — dependencies (%s) will not be migrated for '%s'.",
+                    api_dependencies,
+                    title,
+                )
+            export_response = self.source_client.get(f"/api/v1/elasticubes/{source_oid}/datamodel-exports/stream/schema")
+        else:
+            export_response = self.source_client.get(
+                "/api/v2/datamodel-exports/schema",
+                params={"datamodelId": source_oid, "type": "schema-latest", "dependenciesIdsToInclude": ",".join(api_dependencies)},
+            )
+
+        if export_response is None or export_response.status_code != 200:
+            reason = f"Export failed: {self._extract_error_detail(export_response)}"
+            self.logger.error("Failed to export datamodel '%s': %s", title, reason)
+            summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
+            self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
+            return
+
+        data_model_json, err = self._safe_json(export_response)
+        if not isinstance(data_model_json, dict):
+            reason = f"Export failed: {err or 'Export returned non-dict JSON'}"
+            self.logger.error("Failed to export datamodel '%s': %s", title, reason)
+            summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
+            self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
+            return
+
+        _apply_connection_map(data_model_json, provider_connection_map)
+
+        # Import schema into target
+        query_string = ""
+        if action == "overwrite" and existing_target_oid:
+            query_string = f"?datamodelId={existing_target_oid}"
+        elif action == "duplicate":
+            query_string = f"?newTitle={title} (Duplicate)"
+
+        import_response = self.target_client.post(f"/api/v2/datamodel-imports/schema{query_string}", data=data_model_json)
+
+        if import_response is not None and import_response.status_code == 404 and action == "overwrite" and existing_target_oid:
+            self.logger.warning("Overwrite target for '%s' not found (404). Retrying without overwrite.", title)
+            import_response = self.target_client.post("/api/v2/datamodel-imports/schema", data=data_model_json)
+
+        import_payload, _ = self._safe_json(import_response)
+        target_id: str | None = None
+        if isinstance(import_payload, dict):
+            for key in ("oid", "id", "datamodelId"):
+                value = import_payload.get(key)
+                if isinstance(value, str):
+                    target_id = value
+                    break
+
+        if import_response is not None and import_response.status_code == 201:
+            self.logger.info("Successfully migrated datamodel '%s'.", title)
+            summary["succeeded"].append({"title": title, "source_oid": source_oid, "target_id": target_id})
+            self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrated '{title}'.", "action": action})
+
+            if shares:
+                self._migrate_datamodel_shares(
+                    title=title,
+                    dm_type=dm_type,
+                    source_oid=source_oid,
+                    target_id=target_id,
+                    user_id_to_email=user_id_to_email,
+                    email_to_target_id=email_to_target_id,
+                    group_id_to_name=group_id_to_name,
+                    group_name_to_target_id=group_name_to_target_id,
+                    emit=emit,
+                )
+        elif import_response is not None and import_response.status_code == 400 and isinstance(import_payload, dict) and import_payload.get("title") == "ElasticubeAlreadyExists":
+            reason = f"Datamodel '{title}' already exists on the target with a different ID. Use action='duplicate', or delete the existing model manually."
+            self.logger.error(reason)
+            summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
+            self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
+        else:
+            reason = f"Import failed: {self._extract_error_detail(import_response)}"
+            self.logger.error("Failed to import datamodel '%s': %s", title, reason)
+            summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
+            self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
 
     def _migrate_datamodel_shares(
         self,
@@ -450,6 +503,7 @@ class DatamodelsMergeMixin:
         dependencies: list[str] | str | None = None,
         provider_connection_map: dict[str, str] | None = None,
         shares: bool = False,
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate all data models from source to target.
@@ -466,6 +520,8 @@ class DatamodelsMergeMixin:
         provider_connection_map : dict[str, str] or None, default None
             Same as in ``migrate_datamodels``.
         shares : bool, default False
+            Same as in ``migrate_datamodels``.
+        concurrency : int, default 1
             Same as in ``migrate_datamodels``.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback.
@@ -506,5 +562,6 @@ class DatamodelsMergeMixin:
             dependencies=dependencies,
             provider_connection_map=provider_connection_map,
             shares=shares,
+            concurrency=concurrency,
             emit=emit,
         )

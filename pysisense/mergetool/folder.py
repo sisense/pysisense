@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
+from itertools import groupby
 from typing import Any, Literal
 
 from ..folder import Folder
@@ -47,12 +49,94 @@ def _get_subtree_oids(root_oids: set[str], oid_to_folder: dict[str, dict[str, An
     return found
 
 
+def _migrate_one_folder(
+    tgt_folder: Folder,
+    folder: dict[str, Any],
+    action: str,
+    oid_map: dict[str, str],
+    target_oid_to_path: dict[str, str],
+    target_path_to_folder: dict[str, dict[str, Any]],
+    path_map: dict[str, str],
+    summary: dict[str, Any],
+    logger: Any,
+    progress: Callable[[dict[str, Any]], None],
+) -> None:
+    """Migrate a single folder, mutating ``oid_map``/``target_*``/``summary`` in place.
+
+    Safe to call concurrently for every folder at the same hierarchy depth: a
+    folder only ever reads its own parent's entry from ``oid_map``, which is
+    guaranteed to already be populated by an earlier, fully-completed depth
+    level. Dict/list mutations here are simple single-key writes and appends,
+    which CPython's GIL makes atomic, so concurrent callers never corrupt the
+    shared state — they just interleave.
+    """
+    source_oid = folder.get("oid")
+    folder_name = folder.get("name", source_oid or "Unknown")
+    source_parent_id = folder.get("parentId") or ""
+
+    if not source_oid:
+        logger.warning("Skipping folder '%s' — missing oid field.", folder_name)
+        summary["skipped"].append({"name": folder_name, "path": None, "source_oid": None, "reason": "Missing oid field."})
+        return
+
+    # Determine target parent and expected path
+    if source_parent_id and source_parent_id in oid_map:
+        target_parent_oid: str | None = oid_map[source_parent_id]
+        parent_path = target_oid_to_path.get(target_parent_oid, "")
+        expected_path = parent_path + "/" + folder_name if parent_path else folder_name
+    else:
+        target_parent_oid = None
+        expected_path = folder_name
+
+    folder_path = path_map.get(source_oid, folder_name)
+    existing = target_path_to_folder.get(expected_path)
+
+    if existing and action == "skip":
+        existing_oid = existing.get("oid", "")
+        oid_map[source_oid] = existing_oid
+        target_oid_to_path[existing_oid] = expected_path
+        logger.info("Skipping '%s' — already exists on target.", folder_name)
+        summary["skipped"].append({"name": folder_name, "path": folder_path, "source_oid": source_oid, "reason": "Already exists on target."})
+        progress({"type": "progress", "step": "migrate_folder", "message": f"Skipped '{folder_name}' (already exists).", "action": "skip"})
+        return
+
+    progress({"type": "progress", "step": "migrate_folder", "message": f"Migrating '{folder_name}'.", "source_oid": source_oid, "action": action})
+
+    if existing and action == "overwrite":
+        existing_oid = existing.get("oid")
+        if existing_oid:
+            logger.info("Deleting existing folder '%s' (oid=%s) on target.", folder_name, existing_oid)
+            del_response = tgt_folder.delete_folder(existing_oid)
+            if isinstance(del_response, dict) and "error" in del_response:
+                logger.warning("Could not delete existing folder '%s': %s — proceeding with create.", folder_name, del_response["error"])
+            else:
+                target_path_to_folder.pop(expected_path, None)
+
+    create_response = tgt_folder.create_folder(folder_name, parent_id=target_parent_oid)
+    if isinstance(create_response, dict) and "error" in create_response:
+        reason = create_response["error"]
+        logger.error("Failed to create folder '%s': %s", folder_name, reason)
+        summary["failed"].append({"name": folder_name, "path": folder_path, "source_oid": source_oid, "reason": f"Create failed: {reason}"})
+        progress({"type": "error", "step": "migrate_folder", "message": f"Create failed for '{folder_name}'.", "reason": reason})
+        return
+
+    new_oid = create_response.get("oid", "")
+    oid_map[source_oid] = new_oid
+    target_oid_to_path[new_oid] = expected_path
+    target_path_to_folder[expected_path] = create_response
+
+    logger.info("Successfully migrated folder '%s'.", folder_name)
+    summary["succeeded"].append({"name": folder_name, "path": folder_path, "source_oid": source_oid})
+    progress({"type": "progress", "step": "migrate_folder", "message": f"Migrated '{folder_name}'.", "action": action})
+
+
 class FolderMergeMixin:
     def migrate_folders(
         self,
         folder_ids: list[str] | None = None,
         folder_names: list[str] | None = None,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate specific folders and their full subtrees from source to target.
@@ -83,9 +167,22 @@ class FolderMergeMixin:
               source. **Warning:** deleting a folder on Sisense also removes
               all dashboards inside it.
             - ``"duplicate"`` — always create, regardless of conflicts.
+        concurrency : int, default 1
+            Maximum number of folders to create/delete concurrently within
+            each hierarchy depth level, run via a background thread pool
+            (``asyncio.to_thread``) since the underlying HTTP client is
+            synchronous. Folders at the same depth are independent — their
+            parent was already migrated in an earlier, fully-completed depth
+            level — so they're safe to run in parallel; different depths are
+            still processed strictly in order, since a child's target parent
+            OID must exist before it can be created. Values <= 1 (the
+            default) process folders one at a time.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback. Each invocation receives a dict with at
-            least ``type``, ``step``, and ``message`` keys.
+            least ``type``, ``step``, and ``message`` keys. When
+            ``concurrency`` is greater than 1, this callback may be invoked
+            from multiple worker threads concurrently for folders in the same
+            depth level.
 
         Returns
         -------
@@ -108,6 +205,13 @@ class FolderMergeMixin:
         ValueError
             If both or neither of ``folder_ids`` and ``folder_names`` are
             provided.
+
+        Notes
+        -----
+        If called from code that is already running an asyncio event loop,
+        ``concurrency`` greater than 1 falls back to sequential processing for
+        the affected depth level (a nested event loop cannot be started) and
+        logs a warning.
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting folder migration from source to target."})
 
@@ -195,68 +299,33 @@ class FolderMergeMixin:
         self.logger.debug("Found %s folders on target.", len(target_folders))
         self._emit(emit, {"type": "progress", "step": "fetch_target_folders", "message": "Fetched target folders.", "count": len(target_folders)})
 
-        # Step 5: Migrate each folder in depth order (parents before children)
+        # Step 5: Migrate each folder in depth order (parents before children).
+        # Folders sharing a depth level are independent of each other (their
+        # parent, if any, was fully migrated in the previous level), so with
+        # concurrency > 1 each level's folders run concurrently and levels
+        # themselves remain a hard barrier.
         oid_map: dict[str, str] = {}  # source_oid -> target_oid
+        progress = functools.partial(self._emit, emit)
 
-        for folder in folders_to_migrate:
-            source_oid = folder.get("oid")
-            folder_name = folder.get("name", source_oid or "Unknown")
-            source_parent_id = folder.get("parentId") or ""
+        def _worker(folder: dict[str, Any]) -> None:
+            _migrate_one_folder(tgt_folder, folder, action, oid_map, target_oid_to_path, target_path_to_folder, path_map, summary, self.logger, progress)
 
-            if not source_oid:
-                self.logger.warning("Skipping folder '%s' — missing oid field.", folder_name)
-                summary["skipped"].append({"name": folder_name, "path": None, "source_oid": None, "reason": "Missing oid field."})
-                continue
+        for depth, depth_folders in groupby(folders_to_migrate, key=lambda f: path_map.get(f.get("oid", ""), "").count("/")):
+            batch = list(depth_folders)
 
-            # Determine target parent and expected path
-            if source_parent_id and source_parent_id in oid_map:
-                target_parent_oid: str | None = oid_map[source_parent_id]
-                parent_path = target_oid_to_path.get(target_parent_oid, "")
-                expected_path = parent_path + "/" + folder_name if parent_path else folder_name
-            else:
-                target_parent_oid = None
-                expected_path = folder_name
+            if concurrency > 1 and len(batch) > 1:
+                progress(
+                    {
+                        "type": "progress",
+                        "step": "migrate_folder",
+                        "message": f"Migrating {len(batch)} folder(s) at depth {depth} concurrently.",
+                        "depth": depth,
+                        "count": len(batch),
+                        "concurrency": concurrency,
+                    }
+                )
 
-            folder_path = path_map.get(source_oid, folder_name)
-            existing = target_path_to_folder.get(expected_path)
-
-            if existing and action == "skip":
-                existing_oid = existing.get("oid", "")
-                oid_map[source_oid] = existing_oid
-                target_oid_to_path[existing_oid] = expected_path
-                self.logger.info("Skipping '%s' — already exists on target.", folder_name)
-                summary["skipped"].append({"name": folder_name, "path": folder_path, "source_oid": source_oid, "reason": "Already exists on target."})
-                self._emit(emit, {"type": "progress", "step": "migrate_folder", "message": f"Skipped '{folder_name}' (already exists).", "action": "skip"})
-                continue
-
-            self._emit(emit, {"type": "progress", "step": "migrate_folder", "message": f"Migrating '{folder_name}'.", "source_oid": source_oid, "action": action})
-
-            if existing and action == "overwrite":
-                existing_oid = existing.get("oid")
-                if existing_oid:
-                    self.logger.info("Deleting existing folder '%s' (oid=%s) on target.", folder_name, existing_oid)
-                    del_response = tgt_folder.delete_folder(existing_oid)
-                    if isinstance(del_response, dict) and "error" in del_response:
-                        self.logger.warning("Could not delete existing folder '%s': %s — proceeding with create.", folder_name, del_response["error"])
-                    else:
-                        target_path_to_folder.pop(expected_path, None)
-
-            create_response = tgt_folder.create_folder(folder_name, parent_id=target_parent_oid)
-            if isinstance(create_response, dict) and "error" in create_response:
-                reason = create_response["error"]
-                self.logger.error("Failed to create folder '%s': %s", folder_name, reason)
-                summary["failed"].append({"name": folder_name, "path": folder_path, "source_oid": source_oid, "reason": f"Create failed: {reason}"})
-                self._emit(emit, {"type": "error", "step": "migrate_folder", "message": f"Create failed for '{folder_name}'.", "reason": reason})
-                continue
-
-            new_oid = create_response.get("oid", "")
-            oid_map[source_oid] = new_oid
-            target_oid_to_path[new_oid] = expected_path
-            target_path_to_folder[expected_path] = create_response
-
-            self.logger.info("Successfully migrated folder '%s'.", folder_name)
-            summary["succeeded"].append({"name": folder_name, "path": folder_path, "source_oid": source_oid})
-            self._emit(emit, {"type": "progress", "step": "migrate_folder", "message": f"Migrated '{folder_name}'.", "action": action})
+            self._run_concurrently(batch, _worker, concurrency, f"depth {depth}")
 
         # Final summary
         summary["succeeded_count"] = len(summary["succeeded"])
@@ -291,6 +360,7 @@ class FolderMergeMixin:
     def migrate_all_folders(
         self,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate all folders from source to target, preserving full hierarchy.
@@ -302,6 +372,9 @@ class FolderMergeMixin:
         ----------
         action : {"skip", "overwrite", "duplicate"}, default "skip"
             Conflict strategy applied to every folder.
+        concurrency : int, default 1
+            Same as in ``migrate_folders`` — maximum number of folders to
+            create/delete concurrently within each hierarchy depth level.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback.
 
@@ -355,4 +428,4 @@ class FolderMergeMixin:
                 "failed_count": 0,
             }
 
-        return self.migrate_folders(folder_ids=folder_ids, action=action, emit=emit)
+        return self.migrate_folders(folder_ids=folder_ids, action=action, concurrency=concurrency, emit=emit)
