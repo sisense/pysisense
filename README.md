@@ -102,7 +102,7 @@ The [`examples/`](./examples) folder contains Markdown guides. Each guide explai
   Environment Migration — migrate users, dashboards, and data models across environments (e.g., dev → prod).
 
 - [`wellcheck_example.md`](./examples/wellcheck_example.md)  
-  Data Health & Complexity — run structural checks on dashboards and data models (widget counts, pivot fields, island tables, RLS datatypes, import queries, many-to-many relationships, unused columns, and unused columns).
+  Data Health & Complexity — run structural checks on dashboards and data models (widget counts, pivot fields, island tables, RLS datatypes, import queries, many-to-many relationships, and unused columns).
 
 Note: These guides are not meant to be executed end-to-end. Copy the relevant snippets into your own Python files or notebooks, update configuration (YAML paths, IDs, etc.), and run them in your environment.
 

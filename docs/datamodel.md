@@ -175,7 +175,7 @@ Generates the appropriate connection payload based on the specified datasource t
 
 *Note:*  
 Only the above four data sources are supported at this time.  
-See [`examples/datamodel_examples.py`](../examples/datamodel_examples.py) for detailed examples of how to define `connection_params` for each supported datasource.
+See [`examples/datamodel_example.md`](../examples/datamodel_example.md) for detailed examples of how to define `connection_params` for each supported datasource.
 
 ---
 
