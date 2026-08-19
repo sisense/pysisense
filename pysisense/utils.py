@@ -68,7 +68,6 @@ def convert_to_dataframe(data, logger=None):
         message = f"Data conversion failed: {e}"
         if logger:
             logger.error(message)
-        print(message)
         return None
 
 
@@ -87,17 +86,17 @@ def export_to_csv(data, file_name="export.csv", logger=None):
         if df is not None:
             df.to_csv(file_name, index=False)
             message = f"Data successfully exported to {file_name}"
-            print(message)
             if logger:
                 logger.info(message)
         else:
-            print("Failed to export data due to invalid input format.")
+            message = "Failed to export data due to invalid input format."
+            if logger:
+                logger.warning(message)
 
     except ValueError as e:
         message = f"Data export to CSV failed: {e}"
         if logger:
             logger.error(message)
-        print(message)
 
 
 def convert_utc_to_local(utc_str):
