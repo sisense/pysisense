@@ -21,6 +21,16 @@ For local development, install in editable mode:
 pip install -e .
 ```
 
+### Alternative Package Names
+
+If you search for `pysisense` and find a different package, or if you mistyped the package name, PyPI has redirect stub packages registered:
+
+- **`sisense-py`** — redirects to `pysisense`
+- **`pysisense-sdk`** — redirects to `pysisense`
+- **`sisense-sdk`** — redirects to `pysisense`
+
+These packages raise an error with a clear message if you try to import them, pointing you to the correct `pysisense` package. The official package is always **`pysisense`**.
+
 ---
 
 ## 🚀 Quick Start
