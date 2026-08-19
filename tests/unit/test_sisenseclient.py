@@ -141,13 +141,54 @@ class TestSisenseClientVerifySsl:
         assert client.base_url == "http://myhost:9999"
 
 
+class TestSisenseClientRetries:
+    def test_retries_enabled_by_default(self):
+        client = SisenseClient(domain="myserver.com", token="tok")
+        assert client.retries_enabled is True
+        adapter = client.session.get_adapter("https://myserver.com")
+        assert adapter.max_retries.total == 3
+        assert adapter.max_retries.status_forcelist == (429, 500, 502, 503, 504)
+
+    def test_retries_false_kwarg_disables_retries(self):
+        client = SisenseClient(domain="myserver.com", token="tok", retries=False)
+        assert client.retries_enabled is False
+        adapter = client.session.get_adapter("https://myserver.com")
+        assert adapter.max_retries.total == 0
+
+    def test_retries_true_kwarg_keeps_retries_enabled(self):
+        client = SisenseClient(domain="myserver.com", token="tok", retries=True)
+        assert client.retries_enabled is True
+
+    def test_yaml_config_retries_false_disables_retries(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\nretries: false\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.retries_enabled is False
+
+    def test_yaml_config_no_retries_key_defaults_to_true(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.retries_enabled is True
+
+    def test_retries_kwarg_overrides_yaml_config(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\nretries: true\n")
+        client = SisenseClient(config_file=str(config), retries=False)
+        assert client.retries_enabled is False
+
+    def test_from_connection_defaults_retries_to_true(self):
+        client = SisenseClient.from_connection(domain="example.com", token="tok")
+        assert client.retries_enabled is True
+
+
 class TestSisenseClientDebugLogRedaction:
     def test_secrets_are_redacted_from_request_debug_log(self, tmp_path, monkeypatch, caplog):
         monkeypatch.chdir(tmp_path)
         client = SisenseClient(domain="x.com", token="tok", debug=True)
         caplog.set_level(logging.DEBUG, logger="SisenseClient")
 
-        with patch("requests.post", return_value=MagicMock(status_code=200)):
+        with patch.object(client.session, "post", return_value=MagicMock(status_code=200)):
             client.post("/api/users", data={"userName": "bob", "password": "hunter2"})
 
         assert "hunter2" not in caplog.text
@@ -160,7 +201,7 @@ class TestSisenseClientDebugLogRedaction:
 
         error_response = MagicMock(status_code=400)
         error_response.json.return_value = {"message": "invalid", "password": "hunter2"}
-        with patch("requests.post", return_value=error_response):
+        with patch.object(client.session, "post", return_value=error_response):
             client.post("/api/users", data={"userName": "bob"})
 
         assert "hunter2" not in caplog.text
@@ -174,7 +215,7 @@ class TestSisenseClientDebugLogRedaction:
         error_response = MagicMock(status_code=400)
         error_response.json.side_effect = ValueError("not JSON")
         error_response.text = "raw-secret-token-xyz"
-        with patch("requests.post", return_value=error_response):
+        with patch.object(client.session, "post", return_value=error_response):
             client.post("/api/users", data={"userName": "bob"})
 
         assert "raw-secret-token-xyz" not in caplog.text
@@ -188,7 +229,7 @@ class TestSisenseClientDebugLogRedaction:
         error_response = MagicMock(status_code=400)
         error_response.json.side_effect = ValueError("not JSON")
         error_response.text = "raw-secret-token-xyz"
-        with patch("requests.post", return_value=error_response):
+        with patch.object(client.session, "post", return_value=error_response):
             client.post("/api/users", data={"userName": "bob"})
 
         assert "raw-secret-token-xyz" in caplog.text
