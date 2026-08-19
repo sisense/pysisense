@@ -206,6 +206,7 @@ is_ssl: true        # true for HTTPS, false uses HTTP (default port 30845)
 token: ""           # Sisense Admin API token
 # verify_ssl: false # verify the server's TLS certificate; defaults to true
 # ssl_path: ""      # optional CA bundle file/dir for self-signed or internal certs; takes precedence over verify_ssl unless verify_ssl is false
+# retries: false    # auto-retry transient server errors (429/500/502/503/504) with backoff; defaults to true
 ```
 
 > Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
@@ -370,6 +371,10 @@ if isinstance(dashboards, str):
 TLS certificate verification is enabled by default (`verify=True`). It can be disabled only explicitly, via `verify_ssl: false` in the YAML config or `verify_ssl=False` on the constructor — never implicitly. Disabling it logs a warning and emits a `UserWarning` so the risk is visible even when only file logging is configured. Default non-SSL ports: `30845` for Linux, `8081` for Windows. Override with optional `port` in `config.yaml`.
 
 To verify against a self-signed or internal-CA certificate without disabling verification, set `ssl_path` (YAML key or `ssl_path=` constructor kwarg) to a CA bundle file or directory — it is passed as `requests`' `verify=` value. `ssl_path` takes precedence over `verify_ssl` when both are set, unless `verify_ssl` is explicitly `False`, in which case verification stays fully disabled and `ssl_path` is ignored.
+
+### Retries
+
+`SisenseClient` retries requests that fail with a transient server error (HTTP `429`, `500`, `502`, `503`, `504`) using exponential backoff (3 attempts, mounted via a `urllib3` `Retry`/`HTTPAdapter` on `self.session`). Enabled by default; disable with `retries: false` in `config.yaml` or `retries=False` on the constructor, the constructor argument overrides the YAML value whenever it is explicitly passed. Only idempotent methods (`GET`, `PUT`, `DELETE`) are retried, `POST`/`PATCH` are never auto-retried, to avoid duplicating a side effect the server may have already applied. Connection and read timeouts are never retried (`connect=0`, `read=0`), only the status codes above.
 
 ### OS-specific API routing
 

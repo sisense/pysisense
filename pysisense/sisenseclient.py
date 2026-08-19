@@ -10,6 +10,8 @@ from typing import Any
 import requests
 import urllib3
 import yaml
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from .utils import convert_to_dataframe, redact_secrets
 from .utils import export_to_csv as export_csv_util
@@ -17,6 +19,9 @@ from .utils import export_to_csv as export_csv_util
 DEFAULT_NON_SSL_PORT = 30845
 DEFAULT_NON_SSL_PORT_WINDOWS = 8081
 DEFAULT_REQUEST_TIMEOUT = 30
+DEFAULT_RETRY_TOTAL = 3
+DEFAULT_RETRY_BACKOFF_FACTOR = 1
+DEFAULT_RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
 VALID_OPERATING_SYSTEMS = frozenset({"linux", "windows"})
 # Values from a YAML config or kwarg that are treated as "not set" → default to linux
 _OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
@@ -35,6 +40,7 @@ class SisenseClient:
         operating_system: str = "linux",
         verify_ssl: bool | None = None,
         ssl_path: str | None = None,
+        retries: bool | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -93,6 +99,16 @@ class SisenseClient:
                 ``ssl_path`` key in the YAML config file. When set, it takes
                 precedence over ``verify_ssl`` for the underlying HTTP
                 requests. Ignored if ``verify_ssl`` is explicitly ``False``.
+            retries (bool | None): Whether to automatically retry requests
+                that fail with a transient server error (HTTP 429, 500, 502,
+                503, or 504), using exponential backoff. Defaults to True.
+                Can also be set via the ``retries`` key in the YAML config
+                file; this argument overrides the config value whenever it
+                is explicitly passed. Only idempotent methods (GET, PUT,
+                DELETE) are retried; POST and PATCH are never retried
+                automatically, to avoid duplicating a side effect the server
+                may have already applied. Connection and read timeouts are
+                never retried.
         """
         # Decide how to build the base config
         if domain is not None or token is not None:
@@ -117,6 +133,8 @@ class SisenseClient:
             self.config["verify_ssl"] = bool(verify_ssl)
         if ssl_path is not None:
             self.config["ssl_path"] = ssl_path
+        if retries is not None:
+            self.config["retries"] = bool(retries)
 
         # Resolve operating_system: YAML config takes precedence over the kwarg.
         # Blank, null, "none", "NA", and similar absent-looking values all fall
@@ -184,6 +202,26 @@ class SisenseClient:
             self.logger.warning(message)
             warnings.warn(message, UserWarning, stacklevel=2)
 
+        # Automatic retries are enabled by default; only an explicit
+        # retries: false (YAML) or retries=False (kwarg) disables them.
+        self.retries_enabled = bool(self.config.get("retries", True))
+        self.session = requests.Session()
+        if self.retries_enabled:
+            retry_strategy = Retry(
+                total=DEFAULT_RETRY_TOTAL,
+                connect=0,  # Do not retry on connection errors.
+                read=0,  # Do not retry on read timeouts.
+                backoff_factor=DEFAULT_RETRY_BACKOFF_FACTOR,
+                status_forcelist=DEFAULT_RETRY_STATUS_FORCELIST,
+                raise_on_status=False,  # Return the last response instead of raising once retries are exhausted.
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            self.session.mount("https://", adapter)
+            self.session.mount("http://", adapter)
+            self.logger.debug(f"HTTP retries enabled (total={DEFAULT_RETRY_TOTAL}, backoff_factor={DEFAULT_RETRY_BACKOFF_FACTOR}, status_forcelist={list(DEFAULT_RETRY_STATUS_FORCELIST)})")
+        else:
+            self.logger.debug("HTTP retries disabled")
+
     @classmethod
     def from_connection(
         cls,
@@ -195,6 +233,7 @@ class SisenseClient:
         operating_system: str = "linux",
         verify_ssl: bool = True,
         ssl_path: str | None = None,
+        retries: bool = True,
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -218,6 +257,7 @@ class SisenseClient:
             operating_system=operating_system,
             verify_ssl=verify_ssl,
             ssl_path=ssl_path,
+            retries=retries,
         )
 
     def _non_ssl_port(self) -> int:
@@ -375,15 +415,15 @@ class SisenseClient:
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
-                response = requests.get(url, headers=headers, params=params, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.get(url, headers=headers, params=params, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "POST":
-                response = requests.post(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.post(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "PUT":
-                response = requests.put(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.put(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "PATCH":
-                response = requests.patch(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.patch(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             elif method == "DELETE":
-                response = requests.delete(url, headers=headers, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.delete(url, headers=headers, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
             else:
                 # Raise an error for unsupported HTTP methods
                 raise ValueError(f"Unsupported HTTP method: {method}")
