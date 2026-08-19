@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -19,12 +20,85 @@ def _extract_notebooks(response: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _migrate_one_notebook(
+    src_cc: CustomCode,
+    tgt_cc: CustomCode,
+    notebook: dict[str, Any],
+    action: str,
+    target_by_name: dict[str, dict[str, Any]],
+    summary: dict[str, Any],
+    logger: Any,
+    progress: Callable[[dict[str, Any]], None],
+) -> None:
+    """Migrate a single notebook, mutating ``summary`` in place.
+
+    Safe to call concurrently — notebooks are independent of each other.
+    """
+    notebook_id = notebook.get("id")
+    notebook_name = notebook.get("displayName", notebook_id or "Unknown")
+
+    if not notebook_id:
+        logger.warning("Skipping notebook '%s' — missing id field.", notebook_name)
+        summary["skipped"].append({"name": notebook_name, "source_id": None, "reason": "Missing id field."})
+        return
+
+    existing = target_by_name.get(notebook_name)
+
+    if existing and action == "skip":
+        logger.info("Skipping '%s' — already exists on target.", notebook_name)
+        summary["skipped"].append({"name": notebook_name, "source_id": notebook_id, "reason": "Already exists on target."})
+        progress({"type": "progress", "step": "migrate_notebook", "message": f"Skipped '{notebook_name}' (already exists).", "action": "skip"})
+        return
+
+    progress({"type": "progress", "step": "migrate_notebook", "message": f"Migrating '{notebook_name}'.", "source_id": notebook_id, "action": action})
+
+    # Export from source
+    logger.debug("Exporting notebook '%s' (id=%s) from source.", notebook_name, notebook_id)
+    export_response = src_cc.export_notebook(notebook_id)
+    if isinstance(export_response, dict) and "error" in export_response:
+        reason = export_response["error"]
+        logger.error("Failed to export notebook '%s': %s", notebook_name, reason)
+        summary["failed"].append({"name": notebook_name, "source_id": notebook_id, "reason": f"Export failed: {reason}"})
+        progress({"type": "error", "step": "migrate_notebook", "message": f"Export failed for '{notebook_name}'.", "reason": reason})
+        return
+
+    payload: dict[str, Any] = {k: v for k, v in export_response.items() if k not in _PAYLOAD_FIELDS_TO_STRIP}
+    if "id" not in payload:
+        payload["id"] = notebook_id
+    if "displayName" not in payload:
+        payload["displayName"] = notebook_name
+
+    # Overwrite: delete existing on target before recreating
+    if existing and action == "overwrite":
+        existing_id = existing.get("id")
+        if existing_id:
+            logger.info("Deleting existing notebook '%s' (id=%s) on target.", notebook_name, existing_id)
+            del_response = tgt_cc.delete_notebook(existing_id)
+            if isinstance(del_response, dict) and "error" in del_response:
+                logger.warning("Could not delete existing notebook '%s': %s — proceeding with create.", notebook_name, del_response["error"])
+
+    # Create on target
+    logger.info("Creating notebook '%s' on target.", notebook_name)
+    create_response = tgt_cc.create_notebook(payload)
+    if isinstance(create_response, dict) and "error" in create_response:
+        reason = create_response["error"]
+        logger.error("Failed to create notebook '%s': %s", notebook_name, reason)
+        summary["failed"].append({"name": notebook_name, "source_id": notebook_id, "reason": f"Create failed: {reason}"})
+        progress({"type": "error", "step": "migrate_notebook", "message": f"Create failed for '{notebook_name}'.", "reason": reason})
+        return
+
+    logger.info("Successfully migrated notebook '%s'.", notebook_name)
+    summary["succeeded"].append({"name": notebook_name, "source_id": notebook_id})
+    progress({"type": "progress", "step": "migrate_notebook", "message": f"Migrated '{notebook_name}'.", "action": action})
+
+
 class CustomCodeMergeMixin:
     def migrate_notebooks(
         self,
         notebook_ids: list[str] | None = None,
         notebook_names: list[str] | None = None,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate specific notebooks from source to target.
@@ -47,9 +121,17 @@ class CustomCodeMergeMixin:
             - ``"overwrite"`` — delete the existing notebook then recreate from
               source.
             - ``"duplicate"`` — always create, regardless of conflicts.
+        concurrency : int, default 1
+            Maximum number of notebooks to migrate concurrently, run via a
+            background thread pool (``asyncio.to_thread``) since the
+            underlying HTTP client is synchronous. Notebooks are independent
+            of each other, so any value is safe. Values <= 1 (the default)
+            process notebooks one at a time.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback. Each invocation receives a dict with at
-            least ``type``, ``step``, and ``message`` keys.
+            least ``type``, ``step``, and ``message`` keys. When
+            ``concurrency`` is greater than 1, this callback may be invoked
+            from multiple worker threads concurrently.
 
         Returns
         -------
@@ -71,6 +153,12 @@ class CustomCodeMergeMixin:
         ValueError
             If both or neither of ``notebook_ids`` and ``notebook_names`` are
             provided.
+
+        Notes
+        -----
+        If called from code that is already running an asyncio event loop,
+        ``concurrency`` greater than 1 falls back to sequential processing (a
+        nested event loop cannot be started) and logs a warning.
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting notebook migration from source to target."})
 
@@ -150,64 +238,14 @@ class CustomCodeMergeMixin:
         self.logger.debug("Found %s notebooks on target.", len(target_notebooks))
         self._emit(emit, {"type": "progress", "step": "fetch_target_notebooks", "message": "Fetched target notebooks.", "count": len(target_notebooks)})
 
-        # Step 4: Migrate each notebook
-        for notebook in notebooks_to_migrate:
-            notebook_id = notebook.get("id")
-            notebook_name = notebook.get("displayName", notebook_id or "Unknown")
+        # Step 4: Migrate each notebook — independent of each other, so the
+        # whole set can run concurrently when concurrency > 1.
+        progress = functools.partial(self._emit, emit)
 
-            if not notebook_id:
-                self.logger.warning("Skipping notebook '%s' — missing id field.", notebook_name)
-                summary["skipped"].append({"name": notebook_name, "source_id": None, "reason": "Missing id field."})
-                continue
+        def _worker(notebook: dict[str, Any]) -> None:
+            _migrate_one_notebook(src_cc, tgt_cc, notebook, action, target_by_name, summary, self.logger, progress)
 
-            existing = target_by_name.get(notebook_name)
-
-            if existing and action == "skip":
-                self.logger.info("Skipping '%s' — already exists on target.", notebook_name)
-                summary["skipped"].append({"name": notebook_name, "source_id": notebook_id, "reason": "Already exists on target."})
-                self._emit(emit, {"type": "progress", "step": "migrate_notebook", "message": f"Skipped '{notebook_name}' (already exists).", "action": "skip"})
-                continue
-
-            self._emit(emit, {"type": "progress", "step": "migrate_notebook", "message": f"Migrating '{notebook_name}'.", "source_id": notebook_id, "action": action})
-
-            # Export from source
-            self.logger.debug("Exporting notebook '%s' (id=%s) from source.", notebook_name, notebook_id)
-            export_response = src_cc.export_notebook(notebook_id)
-            if isinstance(export_response, dict) and "error" in export_response:
-                reason = export_response["error"]
-                self.logger.error("Failed to export notebook '%s': %s", notebook_name, reason)
-                summary["failed"].append({"name": notebook_name, "source_id": notebook_id, "reason": f"Export failed: {reason}"})
-                self._emit(emit, {"type": "error", "step": "migrate_notebook", "message": f"Export failed for '{notebook_name}'.", "reason": reason})
-                continue
-
-            payload: dict[str, Any] = {k: v for k, v in export_response.items() if k not in _PAYLOAD_FIELDS_TO_STRIP}
-            if "id" not in payload:
-                payload["id"] = notebook_id
-            if "displayName" not in payload:
-                payload["displayName"] = notebook_name
-
-            # Overwrite: delete existing on target before recreating
-            if existing and action == "overwrite":
-                existing_id = existing.get("id")
-                if existing_id:
-                    self.logger.info("Deleting existing notebook '%s' (id=%s) on target.", notebook_name, existing_id)
-                    del_response = tgt_cc.delete_notebook(existing_id)
-                    if isinstance(del_response, dict) and "error" in del_response:
-                        self.logger.warning("Could not delete existing notebook '%s': %s — proceeding with create.", notebook_name, del_response["error"])
-
-            # Create on target
-            self.logger.info("Creating notebook '%s' on target.", notebook_name)
-            create_response = tgt_cc.create_notebook(payload)
-            if isinstance(create_response, dict) and "error" in create_response:
-                reason = create_response["error"]
-                self.logger.error("Failed to create notebook '%s': %s", notebook_name, reason)
-                summary["failed"].append({"name": notebook_name, "source_id": notebook_id, "reason": f"Create failed: {reason}"})
-                self._emit(emit, {"type": "error", "step": "migrate_notebook", "message": f"Create failed for '{notebook_name}'.", "reason": reason})
-                continue
-
-            self.logger.info("Successfully migrated notebook '%s'.", notebook_name)
-            summary["succeeded"].append({"name": notebook_name, "source_id": notebook_id})
-            self._emit(emit, {"type": "progress", "step": "migrate_notebook", "message": f"Migrated '{notebook_name}'.", "action": action})
+        self._run_concurrently(notebooks_to_migrate, _worker, concurrency, "notebooks")
 
         # Final summary
         summary["succeeded_count"] = len(summary["succeeded"])
@@ -242,6 +280,7 @@ class CustomCodeMergeMixin:
     def migrate_all_notebooks(
         self,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate all notebooks from source to target.
@@ -253,6 +292,8 @@ class CustomCodeMergeMixin:
         ----------
         action : {"skip", "overwrite", "duplicate"}, default "skip"
             Conflict strategy applied to every notebook.
+        concurrency : int, default 1
+            Same as in ``migrate_notebooks``.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback.
 
@@ -306,4 +347,4 @@ class CustomCodeMergeMixin:
                 "failed_count": 0,
             }
 
-        return self.migrate_notebooks(notebook_ids=notebook_ids, action=action, emit=emit)
+        return self.migrate_notebooks(notebook_ids=notebook_ids, action=action, concurrency=concurrency, emit=emit)

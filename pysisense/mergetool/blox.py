@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -16,11 +17,65 @@ def _transform_blox_action(source_action: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _migrate_one_blox_action(
+    tgt_blox: Blox,
+    source_action: dict[str, Any],
+    action: str,
+    target_by_type: dict[str, dict[str, Any]],
+    summary: dict[str, Any],
+    logger: Any,
+    progress: Callable[[dict[str, Any]], None],
+) -> None:
+    """Migrate a single Blox action, mutating ``summary`` in place.
+
+    Safe to call concurrently — Blox actions are independent of each other.
+    """
+    action_type = source_action.get("type")
+
+    if not action_type:
+        logger.warning("Skipping a Blox action — missing type field.")
+        summary["skipped"].append({"type": None, "reason": "Missing type field."})
+        return
+
+    existing = target_by_type.get(action_type)
+
+    if existing and action == "skip":
+        logger.info("Skipping '%s' — already exists on target.", action_type)
+        summary["skipped"].append({"type": action_type, "reason": "Already exists on target."})
+        progress({"type": "progress", "step": "migrate_action", "message": f"Skipped '{action_type}' (already exists).", "action": "skip"})
+        return
+
+    progress({"type": "progress", "step": "migrate_action", "message": f"Migrating '{action_type}'.", "action": action})
+
+    if existing and action == "overwrite":
+        logger.info("Deleting existing Blox action '%s' on target.", action_type)
+        del_response = tgt_blox.delete_blox_action(action_type)
+        if isinstance(del_response, dict) and "error" in del_response:
+            logger.warning("Could not delete existing Blox action '%s': %s — proceeding with create.", action_type, del_response["error"])
+
+    logger.debug("Transforming Blox action '%s' from source format.", action_type)
+    payload = _transform_blox_action(source_action)
+
+    logger.info("Saving Blox action '%s' on target.", action_type)
+    save_response = tgt_blox.save_blox_action(payload)
+    if isinstance(save_response, dict) and "error" in save_response:
+        reason = save_response["error"]
+        logger.error("Failed to save Blox action '%s': %s", action_type, reason)
+        summary["failed"].append({"type": action_type, "reason": f"Save failed: {reason}"})
+        progress({"type": "error", "step": "migrate_action", "message": f"Save failed for '{action_type}'.", "reason": reason})
+        return
+
+    logger.info("Successfully migrated Blox action '%s'.", action_type)
+    summary["succeeded"].append({"type": action_type})
+    progress({"type": "progress", "step": "migrate_action", "message": f"Migrated '{action_type}'.", "action": action})
+
+
 class BloxMergeMixin:
     def migrate_blox_actions(
         self,
         action_types: list[str] | None = None,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate specific Blox actions from source to target.
@@ -44,9 +99,17 @@ class BloxMergeMixin:
             - ``"overwrite"`` — delete the existing action then recreate from
               source.
             - ``"duplicate"`` — always create, regardless of conflicts.
+        concurrency : int, default 1
+            Maximum number of Blox actions to migrate concurrently, run via a
+            background thread pool (``asyncio.to_thread``) since the
+            underlying HTTP client is synchronous. Blox actions are
+            independent of each other, so any value is safe. Values <= 1
+            (the default) process actions one at a time.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback. Each invocation receives a dict with at
-            least ``type``, ``step``, and ``message`` keys.
+            least ``type``, ``step``, and ``message`` keys. When
+            ``concurrency`` is greater than 1, this callback may be invoked
+            from multiple worker threads concurrently.
 
         Returns
         -------
@@ -60,6 +123,12 @@ class BloxMergeMixin:
             - ``succeeded_count`` : int
             - ``skipped_count`` : int
             - ``failed_count`` : int
+
+        Notes
+        -----
+        If called from code that is already running an asyncio event loop,
+        ``concurrency`` greater than 1 falls back to sequential processing (a
+        nested event loop cannot be started) and logs a warning.
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting Blox action migration from source to target."})
 
@@ -126,46 +195,14 @@ class BloxMergeMixin:
         self.logger.debug("Found %s Blox action(s) on target.", len(target_actions))
         self._emit(emit, {"type": "progress", "step": "fetch_target_actions", "message": "Fetched target Blox actions.", "count": len(target_actions)})
 
-        # Step 4: Migrate each Blox action
-        for source_action in actions_to_migrate:
-            action_type = source_action.get("type")
+        # Step 4: Migrate each Blox action — independent of each other, so the
+        # whole set can run concurrently when concurrency > 1.
+        progress = functools.partial(self._emit, emit)
 
-            if not action_type:
-                self.logger.warning("Skipping a Blox action — missing type field.")
-                summary["skipped"].append({"type": None, "reason": "Missing type field."})
-                continue
+        def _worker(source_action: dict[str, Any]) -> None:
+            _migrate_one_blox_action(tgt_blox, source_action, action, target_by_type, summary, self.logger, progress)
 
-            existing = target_by_type.get(action_type)
-
-            if existing and action == "skip":
-                self.logger.info("Skipping '%s' — already exists on target.", action_type)
-                summary["skipped"].append({"type": action_type, "reason": "Already exists on target."})
-                self._emit(emit, {"type": "progress", "step": "migrate_action", "message": f"Skipped '{action_type}' (already exists).", "action": "skip"})
-                continue
-
-            self._emit(emit, {"type": "progress", "step": "migrate_action", "message": f"Migrating '{action_type}'.", "action": action})
-
-            if existing and action == "overwrite":
-                self.logger.info("Deleting existing Blox action '%s' on target.", action_type)
-                del_response = tgt_blox.delete_blox_action(action_type)
-                if isinstance(del_response, dict) and "error" in del_response:
-                    self.logger.warning("Could not delete existing Blox action '%s': %s — proceeding with create.", action_type, del_response["error"])
-
-            self.logger.debug("Transforming Blox action '%s' from source format.", action_type)
-            payload = _transform_blox_action(source_action)
-
-            self.logger.info("Saving Blox action '%s' on target.", action_type)
-            save_response = tgt_blox.save_blox_action(payload)
-            if isinstance(save_response, dict) and "error" in save_response:
-                reason = save_response["error"]
-                self.logger.error("Failed to save Blox action '%s': %s", action_type, reason)
-                summary["failed"].append({"type": action_type, "reason": f"Save failed: {reason}"})
-                self._emit(emit, {"type": "error", "step": "migrate_action", "message": f"Save failed for '{action_type}'.", "reason": reason})
-                continue
-
-            self.logger.info("Successfully migrated Blox action '%s'.", action_type)
-            summary["succeeded"].append({"type": action_type})
-            self._emit(emit, {"type": "progress", "step": "migrate_action", "message": f"Migrated '{action_type}'.", "action": action})
+        self._run_concurrently(actions_to_migrate, _worker, concurrency, "Blox actions")
 
         # Final summary
         summary["succeeded_count"] = len(summary["succeeded"])
@@ -200,6 +237,7 @@ class BloxMergeMixin:
     def migrate_all_blox_actions(
         self,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate all Blox actions from source to target.
@@ -211,6 +249,8 @@ class BloxMergeMixin:
         ----------
         action : {"skip", "overwrite", "duplicate"}, default "skip"
             Conflict strategy applied to every Blox action.
+        concurrency : int, default 1
+            Same as in ``migrate_blox_actions``.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback.
 
@@ -222,4 +262,4 @@ class BloxMergeMixin:
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting full Blox action migration from source to target."})
         self.logger.info("Starting full Blox action migration from source to target.")
 
-        return self.migrate_blox_actions(action_types=None, action=action, emit=emit)
+        return self.migrate_blox_actions(action_types=None, action=action, concurrency=concurrency, emit=emit)

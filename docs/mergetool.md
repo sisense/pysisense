@@ -1,7 +1,7 @@
 MergeTool Class Documentation
 ==============================
 
-The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
+The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, data security rules, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
 
 Initialization
 --------------
@@ -27,7 +27,7 @@ Provide either two YAML config files or two pre-built `SisenseClient` instances.
 Notebook Migration
 ------------------
 
-### `migrate_notebooks(self, notebook_ids=None, notebook_names=None, action="skip", emit=None)`
+### `migrate_notebooks(self, notebook_ids=None, notebook_names=None, action="skip", concurrency=1, emit=None)`
 
 Migrates specific custom-code notebooks from the source to the target environment. Each notebook is exported from the source and created (or replaced) on the target. Conflict detection is based on `displayName`.
 
@@ -45,6 +45,8 @@ Migrates specific custom-code notebooks from the source to the target environmen
 
     -   `"duplicate"` — always create, regardless of existing notebooks.
 
+-   `concurrency` (int, optional): Maximum number of notebooks to migrate concurrently, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Notebooks are independent of each other, so any value is safe. Default is `1` (sequential). If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing.
+
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
 #### Returns:
@@ -53,13 +55,15 @@ Migrates specific custom-code notebooks from the source to the target environmen
 
 * * * * *
 
-### `migrate_all_notebooks(self, action="skip", emit=None)`
+### `migrate_all_notebooks(self, action="skip", concurrency=1, emit=None)`
 
 Migrates all custom-code notebooks from the source to the target environment.
 
 #### Parameters:
 
 -   `action` (str, optional): Conflict strategy applied to every notebook (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `concurrency` (int, optional): Same as in `migrate_notebooks`. Default is `1` (sequential).
 
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
@@ -72,7 +76,7 @@ Migrates all custom-code notebooks from the source to the target environment.
 Folder Migration
 ----------------
 
-### `migrate_folders(self, folder_ids=None, folder_names=None, action="skip", emit=None)`
+### `migrate_folders(self, folder_ids=None, folder_names=None, action="skip", concurrency=1, emit=None)`
 
 Migrates specific folders and their full subtrees from the source to the target environment. Resolves the requested root folders by OID or display name, expands each to its complete descendant tree, then recreates the hierarchy on the target in depth-first order (parents before children). Conflict detection is path-based (`parent/child` full path), so identically-named folders in different branches are handled independently.
 
@@ -92,7 +96,9 @@ Folders whose parent is not part of the migration are created at the root level 
 
     -   `"duplicate"` — always create, regardless of existing folders.
 
--   `emit` (callable, optional): Optional callback invoked with structured progress events. Each event is a `dict` with at least `type`, `step`, and `message` keys. `type` is one of `"started"`, `"progress"`, `"error"`, or `"completed"`.
+-   `concurrency` (int, optional): Maximum number of folders to create/delete concurrently within each hierarchy depth level, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Folders at the same depth are independent of each other — their parent was already migrated in an earlier, fully-completed depth level — so they're safe to run in parallel; different depths are still processed strictly in order. Values `<= 1` (default) process folders one at a time. If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing for the affected depth level.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events. Each event is a `dict` with at least `type`, `step`, and `message` keys. `type` is one of `"started"`, `"progress"`, `"error"`, or `"completed"`. When `concurrency` is greater than 1, this callback may be invoked from multiple worker threads concurrently for folders in the same depth level.
 
 #### Returns:
 
@@ -110,13 +116,15 @@ Folders whose parent is not part of the migration are created at the root level 
 
 * * * * *
 
-### `migrate_all_folders(self, action="skip", emit=None)`
+### `migrate_all_folders(self, action="skip", concurrency=1, emit=None)`
 
 Migrates all folders from the source to the target environment, preserving the full hierarchy.
 
 #### Parameters:
 
 -   `action` (str, optional): Conflict strategy applied to every folder (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `concurrency` (int, optional): Same as in `migrate_folders`. Default is `1` (sequential).
 
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
@@ -129,7 +137,7 @@ Migrates all folders from the source to the target environment, preserving the f
 Blox Action Migration
 ----------------------
 
-### `migrate_blox_actions(self, action_types=None, action="skip", emit=None)`
+### `migrate_blox_actions(self, action_types=None, action="skip", concurrency=1, emit=None)`
 
 Migrates specific Blox actions from the source to the target environment. Each action is fetched from the source, transformed into a save-ready payload, and created (or replaced) on the target. Conflict detection is based on the action's `type` field. Saving and deleting Blox actions is Linux-only, so the target environment must be a Linux deployment.
 
@@ -145,6 +153,8 @@ Migrates specific Blox actions from the source to the target environment. Each a
 
     -   `"duplicate"` — always create, regardless of existing actions.
 
+-   `concurrency` (int, optional): Maximum number of Blox actions to migrate concurrently, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Blox actions are independent of each other, so any value is safe. Default is `1` (sequential). If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing.
+
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
 #### Returns:
@@ -159,13 +169,15 @@ Migrates specific Blox actions from the source to the target environment. Each a
 
 * * * * *
 
-### `migrate_all_blox_actions(self, action="skip", emit=None)`
+### `migrate_all_blox_actions(self, action="skip", concurrency=1, emit=None)`
 
 Migrates all Blox actions from the source to the target environment.
 
 #### Parameters:
 
 -   `action` (str, optional): Conflict strategy applied to every action (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `concurrency` (int, optional): Same as in `migrate_blox_actions`. Default is `1` (sequential).
 
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
@@ -281,10 +293,130 @@ Migrates all eligible users from the source to the target environment. Excludes 
 
 * * * * *
 
+Data Model Migration
+---------------------
+
+### `migrate_datamodels(self, datamodel_ids=None, datamodel_names=None, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None)`
+
+Migrates specific data models from the source to the target environment. Each data model's schema is exported from the source and imported into the target via the schema import endpoint. Conflict detection is based on the data model's `title`. Embedded connection credentials are repointed via `provider_connection_map` when a matching provider entry is supplied, and stripped otherwise — they must be re-entered (or reconnected) on the target after migration.
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `action` (str, optional): Conflict strategy for data models whose `title` already exists on the target:
+
+    -   `"skip"` — leave the existing data model unchanged (default).
+
+    -   `"overwrite"` — replace the existing data model's schema with the source version, matched by the target model's own OID.
+
+    -   `"duplicate"` — always create a new data model titled `"<title> (Duplicate)"`, regardless of existing data models.
+
+-   `dependencies` (list or str, optional): One or more of `"dataSecurity"`, `"formulas"`, `"hierarchies"`, `"perspectives"` to include in the export. Defaults to all of them when omitted or `"all"`. Not supported when the source is a Windows deployment.
+
+-   `provider_connection_map` (dict, optional): Maps a connection provider name (for example `"Athena"`) to a target-environment connection OID.
+
+-   `shares` (bool, optional): Whether to also migrate each data model's shares after a successful import, remapping users and groups by email/name. Default is `False`.
+
+-   `concurrency` (int, optional): Maximum number of data models to migrate concurrently, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Data models are independent of each other, so any value is safe. Default is `1` (sequential). If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, source_oid, target_id}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_datamodels(self, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None)`
+
+Migrates all data models from the source to the target environment.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every data model (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `dependencies` (list or str, optional): Same as in `migrate_datamodels`.
+
+-   `provider_connection_map` (dict, optional): Same as in `migrate_datamodels`.
+
+-   `shares` (bool, optional): Same as in `migrate_datamodels`.
+
+-   `concurrency` (int, optional): Same as in `migrate_datamodels`. Default is `1` (sequential).
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_datamodels`.
+
+**Note:** Migrate data models before dashboards — dashboards reference the underlying data model's local Elasticube.
+
+* * * * *
+
+Data Security Migration
+-------------------------
+
+### `migrate_datasecurity(self, datamodel_ids=None, datamodel_names=None, emit=None)`
+
+Migrates row-level datasecurity rules for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each rule's raw datasecurity payload is fetched from the source, its `shares` are remapped to target user/group ids (matched by email for users and by name for groups), and the resolved rules are written onto the target data model via `update_datasecurity` (EXTRACT) or `set_live_datasecurity_add_many` (LIVE).
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, source_oid, rule_count}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_datasecurity(self, emit=None)`
+
+Migrates datasecurity rules for all data models from the source to the target environment. Data models not yet present on the target are skipped.
+
+#### Parameters:
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_datasecurity`.
+
+**Note:** Migrate data models before data security — datasecurity rules can only be written onto a data model that already exists on the target.
+
+* * * * *
+
 Dashboard Migration
 --------------------
 
-### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action="skip", emit=None)`
+### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action="skip", concurrency=1, emit=None)`
 
 Migrates specific dashboards from the source to the target environment. Each dashboard is exported from the source, has its embedded datasource references repointed to the target's local Elasticube, and is imported into the target via the bulk import endpoint, which matches dashboards by `oid` and applies `action` natively. After a successful import, the dashboard's owner and shares are remapped to target users/groups (matched by email/name), and the dashboard is moved into the target folder whose path matches its source parent folder — if that folder has already been migrated with `migrate_folders`.
 
@@ -301,6 +433,8 @@ Migrates specific dashboards from the source to the target environment. Each das
     -   `"overwrite"` — replace the existing dashboard with the source version.
 
     -   `"duplicate"` — always create, regardless of existing dashboards.
+
+-   `concurrency` (int, optional): Maximum number of dashboards to migrate concurrently, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Dashboards are independent of each other, so any value is safe. Default is `1` (sequential). If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing.
 
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 
@@ -320,13 +454,15 @@ Migrates specific dashboards from the source to the target environment. Each das
 
 * * * * *
 
-### `migrate_all_dashboards(self, action="skip", emit=None)`
+### `migrate_all_dashboards(self, action="skip", concurrency=1, emit=None)`
 
 Migrates all dashboards from the source to the target environment.
 
 #### Parameters:
 
 -   `action` (str, optional): Conflict strategy applied to every dashboard (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `concurrency` (int, optional): Same as in `migrate_dashboards`. Default is `1` (sequential).
 
 -   `emit` (callable, optional): Optional callback invoked with structured progress events.
 

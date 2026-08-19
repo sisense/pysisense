@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -64,12 +65,105 @@ def _resolve_share_entries(
     return resolved
 
 
+def _migrate_one_dashboard(
+    src_dashboard: Dashboard,
+    tgt_dashboard: Dashboard,
+    dashboard: dict[str, Any],
+    action: str,
+    target_oids: set[str],
+    user_id_to_email: dict[str, str],
+    email_to_target_id: dict[str, str],
+    group_id_to_name: dict[str, str],
+    src_path_map: dict[str, str],
+    tgt_path_to_oid: dict[str, str],
+    summary: dict[str, Any],
+    logger: Any,
+    progress: Callable[[dict[str, Any]], None],
+) -> None:
+    """Migrate a single dashboard, mutating ``summary`` in place.
+
+    Safe to call concurrently — dashboards are independent of each other.
+    """
+    source_oid = dashboard.get("oid")
+    title = dashboard.get("title", source_oid or "Unknown")
+
+    if not source_oid:
+        logger.warning("Skipping dashboard '%s' — missing oid field.", title)
+        summary["skipped"].append({"title": title, "source_oid": None, "reason": "Missing oid field."})
+        return
+
+    if source_oid in target_oids and action == "skip":
+        logger.info("Skipping '%s' — already exists on target.", title)
+        summary["skipped"].append({"title": title, "source_oid": source_oid, "reason": "Already exists on target."})
+        progress({"type": "progress", "step": "migrate_dashboard", "message": f"Skipped '{title}' (already exists).", "action": "skip"})
+        return
+
+    progress({"type": "progress", "step": "migrate_dashboard", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
+
+    exported = src_dashboard.export_dashboard(source_oid)
+    if "error" in exported:
+        reason = exported["error"]
+        logger.error("Failed to export dashboard '%s': %s", title, reason)
+        summary["failed"].append({"title": title, "source_oid": source_oid, "reason": f"Export failed: {reason}"})
+        progress({"type": "error", "step": "migrate_dashboard", "message": f"Export failed for '{title}'.", "reason": reason})
+        return
+
+    updates_made = _update_datasource_references(exported)
+    logger.debug("Dashboard '%s': updated %s datasource reference(s).", title, updates_made)
+
+    import_response = tgt_dashboard.import_dashboards_bulk([exported], action=action)
+    if "error" in import_response:
+        reason = import_response["error"]
+        logger.error("Failed to import dashboard '%s': %s", title, reason)
+        summary["failed"].append({"title": title, "source_oid": source_oid, "reason": f"Import failed: {reason}"})
+        progress({"type": "error", "step": "migrate_dashboard", "message": f"Import failed for '{title}'.", "reason": reason})
+        return
+
+    succeeded_entries = import_response.get("succeded") or import_response.get("succeeded") or []
+    if not succeeded_entries:
+        reason = "Import did not report success."
+        logger.error("Failed to import dashboard '%s': %s", title, reason)
+        summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
+        progress({"type": "error", "step": "migrate_dashboard", "message": f"Import failed for '{title}'.", "reason": reason})
+        return
+
+    new_oid = succeeded_entries[0].get("oid", source_oid)
+
+    # Owner remap
+    owner_email = user_id_to_email.get(exported.get("owner"))
+    target_owner_id = email_to_target_id.get(owner_email) if owner_email else None
+    if target_owner_id:
+        tgt_dashboard.change_dashboard_owner(new_oid, target_owner_id)
+    elif exported.get("owner"):
+        logger.warning("Could not resolve target owner for dashboard '%s' — leaving owner unchanged.", title)
+
+    # Share remap
+    resolved_shares = _resolve_share_entries(exported.get("shares") or [], user_id_to_email, group_id_to_name)
+    if resolved_shares:
+        tgt_dashboard.add_dashboard_shares(new_oid, resolved_shares)
+
+    # Folder placement
+    parent_folder_oid = exported.get("parentFolder")
+    if parent_folder_oid:
+        folder_path = src_path_map.get(parent_folder_oid)
+        target_folder_oid = tgt_path_to_oid.get(folder_path) if folder_path else None
+        if target_folder_oid:
+            tgt_dashboard.move_dashboard_to_folder(new_oid, target_folder_oid)
+        else:
+            logger.warning("Target folder for dashboard '%s' not found — leaving it at the root. Migrate folders first.", title)
+
+    logger.info("Successfully migrated dashboard '%s'.", title)
+    summary["succeeded"].append({"title": title, "oid": new_oid, "source_oid": source_oid})
+    progress({"type": "progress", "step": "migrate_dashboard", "message": f"Migrated '{title}'.", "action": action})
+
+
 class DashboardMergeMixin:
     def migrate_dashboards(
         self,
         dashboard_ids: list[str] | None = None,
         dashboard_names: list[str] | None = None,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate specific dashboards from source to target.
@@ -101,9 +195,17 @@ class DashboardMergeMixin:
             - ``"overwrite"`` — replace the existing dashboard with the
               source version.
             - ``"duplicate"`` — always create, regardless of conflicts.
+        concurrency : int, default 1
+            Maximum number of dashboards to migrate concurrently, run via a
+            background thread pool (``asyncio.to_thread``) since the
+            underlying HTTP client is synchronous. Dashboards are independent
+            of each other, so any value is safe. Values <= 1 (the default)
+            process dashboards one at a time.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback. Each invocation receives a dict with at
-            least ``type``, ``step``, and ``message`` keys.
+            least ``type``, ``step``, and ``message`` keys. When
+            ``concurrency`` is greater than 1, this callback may be invoked
+            from multiple worker threads concurrently.
 
         Returns
         -------
@@ -126,6 +228,12 @@ class DashboardMergeMixin:
         ValueError
             If both or neither of ``dashboard_ids`` and ``dashboard_names``
             are provided.
+
+        Notes
+        -----
+        If called from code that is already running an asyncio event loop,
+        ``concurrency`` greater than 1 falls back to sequential processing (a
+        nested event loop cannot be started) and logs a warning.
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting dashboard migration from source to target."})
 
@@ -221,79 +329,28 @@ class DashboardMergeMixin:
         tgt_path_map = _build_path_map(_build_oid_to_folder(tgt_folders))
         tgt_path_to_oid: dict[str, str] = {path: oid for oid, path in tgt_path_map.items() if path}
 
-        # Step 6: Migrate each dashboard
-        for dashboard in dashboards_to_migrate:
-            source_oid = dashboard.get("oid")
-            title = dashboard.get("title", source_oid or "Unknown")
+        # Step 6: Migrate each dashboard — independent of each other, so the
+        # whole set can run concurrently when concurrency > 1.
+        progress = functools.partial(self._emit, emit)
 
-            if not source_oid:
-                self.logger.warning("Skipping dashboard '%s' — missing oid field.", title)
-                summary["skipped"].append({"title": title, "source_oid": None, "reason": "Missing oid field."})
-                continue
+        def _worker(dashboard: dict[str, Any]) -> None:
+            _migrate_one_dashboard(
+                src_dashboard,
+                tgt_dashboard,
+                dashboard,
+                action,
+                target_oids,
+                user_id_to_email,
+                email_to_target_id,
+                group_id_to_name,
+                src_path_map,
+                tgt_path_to_oid,
+                summary,
+                self.logger,
+                progress,
+            )
 
-            if source_oid in target_oids and action == "skip":
-                self.logger.info("Skipping '%s' — already exists on target.", title)
-                summary["skipped"].append({"title": title, "source_oid": source_oid, "reason": "Already exists on target."})
-                self._emit(emit, {"type": "progress", "step": "migrate_dashboard", "message": f"Skipped '{title}' (already exists).", "action": "skip"})
-                continue
-
-            self._emit(emit, {"type": "progress", "step": "migrate_dashboard", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
-
-            exported = src_dashboard.export_dashboard(source_oid)
-            if "error" in exported:
-                reason = exported["error"]
-                self.logger.error("Failed to export dashboard '%s': %s", title, reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": f"Export failed: {reason}"})
-                self._emit(emit, {"type": "error", "step": "migrate_dashboard", "message": f"Export failed for '{title}'.", "reason": reason})
-                continue
-
-            updates_made = _update_datasource_references(exported)
-            self.logger.debug("Dashboard '%s': updated %s datasource reference(s).", title, updates_made)
-
-            import_response = tgt_dashboard.import_dashboards_bulk([exported], action=action)
-            if "error" in import_response:
-                reason = import_response["error"]
-                self.logger.error("Failed to import dashboard '%s': %s", title, reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": f"Import failed: {reason}"})
-                self._emit(emit, {"type": "error", "step": "migrate_dashboard", "message": f"Import failed for '{title}'.", "reason": reason})
-                continue
-
-            succeeded_entries = import_response.get("succeded") or import_response.get("succeeded") or []
-            if not succeeded_entries:
-                reason = "Import did not report success."
-                self.logger.error("Failed to import dashboard '%s': %s", title, reason)
-                summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
-                self._emit(emit, {"type": "error", "step": "migrate_dashboard", "message": f"Import failed for '{title}'.", "reason": reason})
-                continue
-
-            new_oid = succeeded_entries[0].get("oid", source_oid)
-
-            # Owner remap
-            owner_email = user_id_to_email.get(exported.get("owner"))
-            target_owner_id = email_to_target_id.get(owner_email) if owner_email else None
-            if target_owner_id:
-                tgt_dashboard.change_dashboard_owner(new_oid, target_owner_id)
-            elif exported.get("owner"):
-                self.logger.warning("Could not resolve target owner for dashboard '%s' — leaving owner unchanged.", title)
-
-            # Share remap
-            resolved_shares = _resolve_share_entries(exported.get("shares") or [], user_id_to_email, group_id_to_name)
-            if resolved_shares:
-                tgt_dashboard.add_dashboard_shares(new_oid, resolved_shares)
-
-            # Folder placement
-            parent_folder_oid = exported.get("parentFolder")
-            if parent_folder_oid:
-                folder_path = src_path_map.get(parent_folder_oid)
-                target_folder_oid = tgt_path_to_oid.get(folder_path) if folder_path else None
-                if target_folder_oid:
-                    tgt_dashboard.move_dashboard_to_folder(new_oid, target_folder_oid)
-                else:
-                    self.logger.warning("Target folder for dashboard '%s' not found — leaving it at the root. Migrate folders first.", title)
-
-            self.logger.info("Successfully migrated dashboard '%s'.", title)
-            summary["succeeded"].append({"title": title, "oid": new_oid, "source_oid": source_oid})
-            self._emit(emit, {"type": "progress", "step": "migrate_dashboard", "message": f"Migrated '{title}'.", "action": action})
+        self._run_concurrently(dashboards_to_migrate, _worker, concurrency, "dashboards")
 
         # Final summary
         summary["succeeded_count"] = len(summary["succeeded"])
@@ -328,6 +385,7 @@ class DashboardMergeMixin:
     def migrate_all_dashboards(
         self,
         action: Literal["skip", "overwrite", "duplicate"] = "skip",
+        concurrency: int = 1,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """Migrate all dashboards from source to target.
@@ -339,6 +397,8 @@ class DashboardMergeMixin:
         ----------
         action : {"skip", "overwrite", "duplicate"}, default "skip"
             Conflict strategy applied to every dashboard.
+        concurrency : int, default 1
+            Same as in ``migrate_dashboards``.
         emit : Callable[[dict[str, Any]], None], optional
             Optional progress callback.
 
@@ -372,4 +432,4 @@ class DashboardMergeMixin:
             self._emit(emit, {"type": "completed", "step": "done", "message": "No dashboards found on source.", "status": "noop"})
             return _empty_summary(ok=True, status="noop")
 
-        return self.migrate_dashboards(dashboard_ids=dashboard_ids, action=action, emit=emit)
+        return self.migrate_dashboards(dashboard_ids=dashboard_ids, action=action, concurrency=concurrency, emit=emit)

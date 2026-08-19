@@ -64,6 +64,7 @@ print(json.dumps(results, indent=4))
 ```python
 results = merge.migrate_all_notebooks(
     action="skip",  # Options: "skip", "overwrite", "duplicate"
+    concurrency=5,  # Notebooks are independent — migrate up to 5 at once
 )
 print(json.dumps(results, indent=4))
 ```
@@ -113,7 +114,21 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 7: Using an emit callback for progress tracking
+## Example 7: Migrate Folders Concurrently
+
+Folders in the same hierarchy depth level are independent of each other (their parent was already migrated in the previous level), so they can be created concurrently. Different depths are still processed strictly in order.
+
+```python
+results = merge.migrate_all_folders(
+    action="skip",
+    concurrency=5,  # Up to 5 folders per depth level created/deleted at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 8: Using an emit callback for progress tracking
 
 ```python
 def on_progress(event: dict) -> None:
@@ -126,7 +141,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 8: Migrate Specific Blox Actions by Type
+## Example 9: Migrate Specific Blox Actions by Type
 
 ```python
 action_types = [
@@ -142,18 +157,19 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 9: Migrate All Blox Actions
+## Example 10: Migrate All Blox Actions
 
 ```python
 results = merge.migrate_all_blox_actions(
     action="overwrite",  # Deletes existing action on target then recreates from source
+    concurrency=5,  # Blox actions are independent — migrate up to 5 at once
 )
 print(json.dumps(results, indent=4))
 ```
 
 ---
 
-## Example 10: Migrate Specific Groups by Name
+## Example 11: Migrate Specific Groups by Name
 
 ```python
 group_names = [
@@ -169,7 +185,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 11: Migrate All Groups
+## Example 12: Migrate All Groups
 
 ```python
 results = merge.migrate_all_groups(
@@ -180,7 +196,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 12: Migrate Specific Users by Email
+## Example 13: Migrate Specific Users by Email
 
 Migrate groups before users — user payloads reference target group IDs.
 
@@ -198,7 +214,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 13: Migrate All Users
+## Example 14: Migrate All Users
 
 ```python
 results = merge.migrate_all_users(
@@ -210,9 +226,79 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 14: Migrate Specific Dashboards by ID
+## Example 15: Migrate Specific Data Models by Name
 
-Migrate groups, users, and folders before dashboards — dashboard owner/share remapping and folder placement depend on all three.
+```python
+datamodel_names = [
+    "Sales Elasticube",
+    "Marketing Live Model",
+]
+results = merge.migrate_datamodels(
+    datamodel_names=datamodel_names,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    dependencies="all",  # Or a list like ["dataSecurity", "formulas"]
+    provider_connection_map={"Athena": "target-connection-oid"},
+    shares=False,
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 16: Migrate Specific Data Models by ID
+
+```python
+datamodel_ids = [
+    "datamodel-oid-1",
+    "datamodel-oid-2",
+]
+results = merge.migrate_datamodels(
+    datamodel_ids=datamodel_ids,
+    action="overwrite",  # Replaces the existing model on target with the source schema
+    shares=True,  # Also remap and migrate shares (users/groups matched by email/name)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 17: Migrate All Data Models
+
+```python
+results = merge.migrate_all_datamodels(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    concurrency=5,  # Data models are independent — migrate up to 5 at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 18: Migrate Datasecurity for Specific Data Models
+
+Migrate data models before data security — rules can only be written onto a data model that already exists on the target.
+
+```python
+results = merge.migrate_datasecurity(
+    datamodel_names=["Sales Elasticube"],
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 19: Migrate Datasecurity for All Data Models
+
+```python
+results = merge.migrate_all_datasecurity()
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 20: Migrate Specific Dashboards by ID
+
+Migrate groups, users, folders, and data models before dashboards — dashboard owner/share remapping and folder placement depend on the first three, and dashboard widgets reference the data models by title.
 
 ```python
 dashboard_ids = [
@@ -228,7 +314,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 15: Migrate Specific Dashboards by Name
+## Example 21: Migrate Specific Dashboards by Name
 
 ```python
 dashboard_names = [
@@ -244,11 +330,12 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 16: Migrate All Dashboards
+## Example 22: Migrate All Dashboards
 
 ```python
 results = merge.migrate_all_dashboards(
     action="skip",  # Options: "skip", "overwrite", "duplicate"
+    concurrency=5,  # Dashboards are independent — migrate up to 5 at once
 )
 print(json.dumps(results, indent=4))
 ```
@@ -261,11 +348,15 @@ print(json.dumps(results, indent=4))
 - Folder migration preserves the full hierarchy — child folders are always created under their parent.
 - Folders whose parent is not in the migration list are created at the root level on the target.
 - `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating — use with caution.
+- Every migration method accepts a `concurrency` parameter to process multiple items in parallel via a background thread pool (the HTTP client is synchronous, so this is a concurrency scheduler, not non-blocking I/O). Notebooks, Blox actions, data models, and dashboards are independent of each other, so any `concurrency` value is safe there. Folder migration is the one exception — folders are batched by hierarchy depth level, and only siblings within the same level run concurrently, since a child folder's target parent must already exist.
 - Blox action migration requires the target environment to be a Linux deployment — saving and deleting Blox actions is not supported on Windows.
 - Group migration excludes the built-in `Admins`, `All users in system`, and `Everyone` groups when using `migrate_all_groups`.
 - User migration excludes users with the built-in `super` role when using `migrate_all_users`, and resolves roles across environments (including multi-tenant `tenantAdmin` and Windows `admin` remapping).
 - Migrate groups before users, and users before dashboards — user payloads reference target group IDs, and dashboard shares reference target user/group IDs.
 - Migrate folders before dashboards so each dashboard can be placed into its matching target folder; dashboards whose parent folder path isn't found on the target are left at the root.
+- Data model migration matches conflicts by `title` (not OID). Connection credentials are never copied as-is — map providers to a target connection via `provider_connection_map`, or reconnect manually on the target after migration.
+- Migrate data models before dashboards — dashboard widgets reference their data model's local Elasticube by title.
+- Datasecurity migration requires the target data model to already exist — migrate data models before data security, and shares are matched by email (users) or name (groups), same as data model shares.
 - Dashboard migration matches conflicts by `oid` (not title) — re-running with `"skip"` after a partial migration will correctly skip already-migrated dashboards.
 - For more details, refer to `docs/mergetool.md`.
 
