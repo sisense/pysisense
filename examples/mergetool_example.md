@@ -296,7 +296,53 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 20: Migrate Specific Dashboards by ID
+## Example 20: Migrate Saved Formulas for Specific Data Models
+
+Migrate data models before saved formulas — formulas can only be created on a datasource that already exists on the target.
+
+```python
+results = merge.migrate_saved_formulas(
+    datamodel_names=["Sales Elasticube"],
+    action="skip",  # Options: "skip", "overwrite", "duplicate" ("overwrite" behaves like "duplicate" — no update/delete endpoint exists)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 21: Migrate Saved Formulas for All Data Models
+
+```python
+results = merge.migrate_all_saved_formulas()
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 22: Migrate Saved Filters for Specific Data Models
+
+Migrate data models before saved filters — filters can only be created on a datasource that already exists on the target.
+
+```python
+results = merge.migrate_saved_filters(
+    datamodel_names=["Sales Elasticube"],
+    action="skip",  # Options: "skip", "overwrite", "duplicate" ("overwrite" behaves like "duplicate" — no update/delete endpoint exists)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 23: Migrate Saved Filters for All Data Models
+
+```python
+results = merge.migrate_all_saved_filters()
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 24: Migrate Specific Dashboards by ID
 
 Migrate groups, users, folders, and data models before dashboards — dashboard owner/share remapping and folder placement depend on the first three, and dashboard widgets reference the data models by title.
 
@@ -314,7 +360,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 21: Migrate Specific Dashboards by Name
+## Example 25: Migrate Specific Dashboards by Name
 
 ```python
 dashboard_names = [
@@ -330,7 +376,7 @@ print(json.dumps(results, indent=4))
 
 ---
 
-## Example 22: Migrate All Dashboards
+## Example 26: Migrate All Dashboards
 
 ```python
 results = merge.migrate_all_dashboards(

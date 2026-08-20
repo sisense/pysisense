@@ -1,7 +1,7 @@
 MergeTool Class Documentation
 ==============================
 
-The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, data security rules, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
+The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, data security rules, saved formulas, saved filters, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
 
 Initialization
 --------------
@@ -410,6 +410,112 @@ Migrates datasecurity rules for all data models from the source to the target en
 -   `dict`: Same structure as `migrate_datasecurity`.
 
 **Note:** Migrate data models before data security — datasecurity rules can only be written onto a data model that already exists on the target.
+
+* * * * *
+
+Saved Formula Migration
+-------------------------
+
+### `migrate_saved_formulas(self, datamodel_ids=None, datamodel_names=None, action="skip", emit=None)`
+
+Migrates saved formula measures for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each formula is fetched from the source via the metadata measures endpoint and created on the target. Conflict detection is based on the formula's `title`.
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `action` (str, optional): Conflict strategy for formulas whose `title` already exists on the target datasource:
+
+    -   `"skip"` — leave the existing formula unchanged (default).
+
+    -   `"overwrite"` or `"duplicate"` — always create, regardless of conflicts. The Sisense metadata API exposes no update or delete endpoint for saved formulas, so `"overwrite"` cannot replace the existing formula in place and behaves identically to `"duplicate"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{datamodel, formula}`)
+    -   `skipped` (list of `{datamodel, formula, reason}`)
+    -   `failed` (list of `{datamodel, formula, reason}`)
+    -   `source_count` (total saved formulas found across the resolved data models), `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_saved_formulas(self, action="skip", emit=None)`
+
+Migrates saved formula measures for all data models from the source to the target environment. Data models not yet present on the target are skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Same as in `migrate_saved_formulas`. Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_saved_formulas`.
+
+* * * * *
+
+Saved Filter Migration
+------------------------
+
+### `migrate_saved_filters(self, datamodel_ids=None, datamodel_names=None, action="skip", emit=None)`
+
+Migrates saved filter dimensions for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each data model's dimensions are fetched from the source, filtered down to the ones carrying a saved filter definition (a truthy `filter` key), and recreated on the target via a raw metadata query. Conflict detection is based on the filter's `title`.
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `action` (str, optional): Conflict strategy for filters whose `title` already exists on the target datasource:
+
+    -   `"skip"` — leave the existing filter unchanged (default).
+
+    -   `"overwrite"` or `"duplicate"` — always create, regardless of conflicts. The Sisense metadata API exposes no update or delete endpoint for saved filters, so `"overwrite"` cannot replace the existing filter in place and behaves identically to `"duplicate"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{datamodel, filter}`)
+    -   `skipped` (list of `{datamodel, filter, reason}`)
+    -   `failed` (list of `{datamodel, filter, reason}`)
+    -   `source_count` (total saved filters found across the resolved data models), `succeeded_count`, `skipped_count`, `failed_count` (int)
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_saved_filters(self, action="skip", emit=None)`
+
+Migrates saved filter dimensions for all data models from the source to the target environment. Data models not yet present on the target are skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Same as in `migrate_saved_filters`. Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_saved_filters`.
 
 * * * * *
 

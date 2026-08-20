@@ -52,7 +52,7 @@ uv run pre-commit install --hook-type commit-msg
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
-| `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, group, user, data model, and dashboard migration |
+| `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, group, user, data model, data security, saved formula, saved filter, and dashboard migration |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
@@ -103,6 +103,8 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
 | | `datasecurity.py` | `migrate_datasecurity`, `migrate_all_datasecurity` |
+| | `formulas.py` | `migrate_saved_formulas`, `migrate_all_saved_formulas` |
+| | `filters.py` | `migrate_saved_filters`, `migrate_all_saved_filters` |
 | | `dashboards.py` | `migrate_dashboards`, `migrate_all_dashboards` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |

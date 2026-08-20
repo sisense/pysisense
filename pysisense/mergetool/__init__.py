@@ -8,7 +8,9 @@ from .custom_code import CustomCodeMergeMixin
 from .dashboards import DashboardMergeMixin
 from .datamodels import DatamodelsMergeMixin
 from .datasecurity import DatasecurityMergeMixin
+from .filters import FiltersMergeMixin
 from .folder import FolderMergeMixin
+from .formulas import FormulasMergeMixin
 from .groups import GroupsMergeMixin
 from .users import UsersMergeMixin
 
@@ -23,16 +25,18 @@ class MergeTool(
     UsersMergeMixin,
     DatamodelsMergeMixin,
     DatasecurityMergeMixin,
+    FormulasMergeMixin,
+    FiltersMergeMixin,
     DashboardMergeMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
 
     Connects to a source and a target Sisense instance (via YAML config files
     or injected clients) and merges custom-code notebooks, folders, Blox
-    actions, groups, users, data models, and dashboards from one to the
-    other. Does not operate on a single instance — use CustomCode, Folder,
-    Blox, AccessManagement, DataModel, or Dashboard for single-environment
-    changes.
+    actions, groups, users, data models, data security rules, saved
+    formulas, saved filters, and dashboards from one to the other. Does not
+    operate on a single instance — use CustomCode, Folder, Blox,
+    AccessManagement, DataModel, or Metadata for single-environment changes.
 
     Modules
     -------
@@ -64,6 +68,14 @@ class MergeTool(
         rules for data models that already exist on the target, remapping
         rule shares to target users and groups by email/name. Migrate data
         models before data security.
+    formulas :
+        Saved formula migration — copy saved formula measures for data
+        models that already exist on the target, with skip or
+        duplicate-on-create conflict handling.
+    filters :
+        Saved filter migration — copy saved filter dimensions for data
+        models that already exist on the target, with skip or
+        duplicate-on-create conflict handling.
     dashboards :
         Dashboard migration — export dashboards from source and import them
         into target with skip, overwrite, or duplicate conflict handling,
