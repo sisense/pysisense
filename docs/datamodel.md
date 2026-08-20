@@ -502,6 +502,8 @@ Retrieves raw share entries for a LIVE DataModel via `GET /api/v1/elasticubes/li
 
 Replaces share entries for an EXTRACT (Elasticube) DataModel via `PUT /api/elasticubes/localhost/{datamodel_title}/permissions`, sending the full raw share list. Use `add_datamodel_shares` instead for name/email-based share management.
 
+Uses `PUT` because that's what the EXTRACT permissions endpoint requires — the LIVE counterpart uses `PATCH` (see below). This is an API difference between the two endpoints, not an inconsistency between the two methods.
+
 #### Parameters:
 
 * `datamodel_title` (str): Title of the EXTRACT DataModel.

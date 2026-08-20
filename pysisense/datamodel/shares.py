@@ -274,6 +274,11 @@ class SharesMixin:
         ``add_datamodel_shares`` instead for name/email-based share
         management.
 
+        Uses ``PUT`` because that is what the EXTRACT permissions endpoint
+        requires — the LIVE counterpart, ``update_datamodel_permissions_live``,
+        requires ``PATCH`` instead. This is an API difference between the two
+        endpoints, not an inconsistency between the two methods.
+
         Parameters
         ----------
         datamodel_title : str
@@ -316,6 +321,11 @@ class SharesMixin:
         with the full raw share list (each entry keyed by ``partyId``). The
         LIVE model must already be published — publish it first with
         ``deploy_datamodel`` if it has never been built.
+
+        Uses ``PATCH`` because that is what the LIVE permissions endpoint
+        requires — the EXTRACT counterpart, ``update_datamodel_permissions_extract``,
+        requires ``PUT`` instead. This is an API difference between the two
+        endpoints, not an inconsistency between the two methods.
 
         Parameters
         ----------

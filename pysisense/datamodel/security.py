@@ -13,13 +13,31 @@ class SecurityMixin:
             return f"/api/v1/elasticubes/live/{resolved_name}/datasecurity"
         return None
 
+    def _fetch_datasecurity_rows(self, url: str) -> tuple[list[dict[str, Any]] | None, str | None]:
+        """Fetch and parse raw datasecurity rows from a resolved endpoint.
+
+        Returns ``(rows, error_message)``. ``rows`` is ``None`` when the fetch
+        or parse failed, in which case ``error_message`` describes why.
+        """
+        self.logger.debug(f"Fetching datasecurity from '{url}'")
+        response = self.api_client.get(url)
+        if response is None or response.status_code != 200:
+            return None, "Failed to fetch datasecurity rules."
+
+        try:
+            rows = response.json()
+        except Exception:
+            return None, "Invalid JSON returned while fetching datasecurity rules."
+
+        self.logger.debug(f"Datasecurity data: {rows}")
+        return rows, None
+
     def _fetch_datasecurity(self, datamodel_name: str) -> tuple[str | None, list[dict[str, Any]] | None]:
         """Resolve a data model and fetch its raw datasecurity rules.
 
         Returns ``(resolved_name, rows)`` where ``resolved_name`` is ``None`` when the
         model cannot be resolved, and ``rows`` is ``None`` when the fetch failed.
         """
-        # Step 1: Get datamodel object
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
@@ -27,20 +45,14 @@ class SecurityMixin:
 
         resolved_name = datamodel.get("title")
         datamodel_type = datamodel.get("type")
-
-        # Step 2: Build API URL
         url = self._build_datasecurity_url(resolved_name, datamodel_type) or ""
 
-        # Step 3: Fetch datasecurity
-        self.logger.debug(f"Fetching datasecurity from '{url}'")
-        datasecurity_response = self.api_client.get(url)
-        if not datasecurity_response or datasecurity_response.status_code != 200:
+        rows, err = self._fetch_datasecurity_rows(url)
+        if err:
             self.logger.warning(f"Could not fetch datasecurity for DataModel '{resolved_name}'.")
             return resolved_name, None
 
-        datasecurity_data = datasecurity_response.json()
-        self.logger.debug(f"Datasecurity data: {datasecurity_data}")
-        return resolved_name, datasecurity_data
+        return resolved_name, rows
 
     def get_datasecurity_raw(self, datamodel_name: str, datamodel_type: str | None = None) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve the raw, unprocessed datasecurity rules for a data model.
@@ -78,19 +90,12 @@ class SecurityMixin:
                 self.logger.error(msg)
                 return {"error": msg}
 
-            self.logger.debug(f"Fetching raw datasecurity from '{url}'")
-            response = self.api_client.get(url)
-            if response is None or response.status_code != 200:
-                msg = f"Failed to fetch raw datasecurity rules for '{datamodel_name}'."
+            rows, err = self._fetch_datasecurity_rows(url)
+            if err:
+                msg = f"{err} ('{datamodel_name}')"
                 self.logger.error(msg)
                 return {"error": msg}
-
-            try:
-                return response.json()
-            except Exception:
-                msg = f"Invalid JSON returned while fetching raw datasecurity rules for '{datamodel_name}'."
-                self.logger.error(msg)
-                return {"error": msg}
+            return rows
 
         resolved_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
         if resolved_name is None:
