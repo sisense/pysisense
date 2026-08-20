@@ -248,17 +248,15 @@ class DatasecurityMergeMixin:
 
             self._emit(emit, {"type": "progress", "step": "migrate_datasecurity", "message": f"Migrating datasecurity for '{title}'.", "source_oid": source_oid})
 
-            fetch_url = f"/api/v1/elasticubes/live/{title}/datasecurity" if dm_type == "live" else f"/api/elasticubes/localhost/{title}/datasecurity"
-            fetch_response = self.source_client.get(fetch_url)
-            if fetch_response is None or fetch_response.status_code != 200:
-                reason = f"Failed to fetch datasecurity rules for '{title}' from source: {self._extract_error_detail(fetch_response)}"
+            raw_result = src_datamodel.get_datasecurity_raw(title, datamodel_type=dm_type)
+            if isinstance(raw_result, dict) and "error" in raw_result:
+                reason = f"Failed to fetch datasecurity rules for '{title}' from source: {raw_result['error']}"
                 self.logger.error(reason)
                 summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
                 self._emit(emit, {"type": "error", "step": "migrate_datasecurity", "message": reason})
                 continue
 
-            payload, _ = self._safe_json(fetch_response)
-            source_rules: list[dict[str, Any]] = payload if isinstance(payload, list) else []
+            source_rules: list[dict[str, Any]] = raw_result if isinstance(raw_result, list) else []
 
             if not source_rules:
                 self.logger.info("No datasecurity rules found for '%s' on source.", title)

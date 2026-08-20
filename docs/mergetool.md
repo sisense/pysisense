@@ -314,7 +314,7 @@ Migrates specific data models from the source to the target environment. Each da
 
     -   `"duplicate"` — always create a new data model titled `"<title> (Duplicate)"`, regardless of existing data models.
 
--   `dependencies` (list or str, optional): One or more of `"dataSecurity"`, `"formulas"`, `"hierarchies"`, `"perspectives"` to include in the export. Defaults to all of them when omitted or `"all"`. Not supported when the source is a Windows deployment.
+-   `dependencies` (list or str, optional): One or more of `"dataSecurity"`, `"formulas"`, `"hierarchies"`, `"perspectives"` to include in the export. Defaults to all of them when omitted or `"all"`. Windows: has no effect when the source is a Windows deployment, its export endpoint accepts no dependencies parameter.
 
 -   `provider_connection_map` (dict, optional): Maps a connection provider name (for example `"Athena"`) to a target-environment connection OID.
 

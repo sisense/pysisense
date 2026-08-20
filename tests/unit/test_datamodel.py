@@ -745,3 +745,181 @@ class TestSetLiveDatasecurityAddMany:
         dm = _make_dm()
         result = dm.set_live_datasecurity_add_many("LiveModel", {"bad": "input"})
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_datasecurity_raw
+# ---------------------------------------------------------------------------
+
+
+class TestGetDatasecurityRaw:
+    def test_returns_raw_rules_with_explicit_type(self):
+        dm = _make_dm(get_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, _DS_RULES)})
+        result = dm.get_datasecurity_raw("SalesCube", datamodel_type="extract")
+        assert result == _DS_RULES
+
+    def test_explicit_type_skips_resolve_call(self):
+        # No /api/v2/datamodels/schema fixture registered — would error if the resolve step ran.
+        dm = _make_dm(get_responses={"/api/v1/elasticubes/live/LiveModel/datasecurity": FakeResponse(200, _DS_RULES)})
+        result = dm.get_datasecurity_raw("LiveModel", datamodel_type="live")
+        assert result == _DS_RULES
+
+    def test_unsupported_type_returns_error(self):
+        dm = _make_dm()
+        result = dm.get_datasecurity_raw("SalesCube", datamodel_type="bogus")
+        assert "error" in result
+
+    def test_resolves_by_name_when_type_omitted(self):
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL),
+                "/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, _DS_RULES),
+            }
+        )
+        result = dm.get_datasecurity_raw("SalesCube")
+        assert result == _DS_RULES
+
+    def test_returns_error_when_model_not_found(self):
+        dm = _make_dm()
+        result = dm.get_datasecurity_raw("Ghost")
+        assert "error" in result
+
+    def test_returns_error_on_fetch_failure(self):
+        dm = _make_dm(get_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(500, {"error": "boom"})})
+        result = dm.get_datasecurity_raw("SalesCube", datamodel_type="extract")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_datamodel_permissions_extract / get_datamodel_permissions_live
+# ---------------------------------------------------------------------------
+
+
+class TestGetDatamodelPermissionsExtract:
+    def test_returns_raw_shares_list(self):
+        dm = _make_dm(get_responses={"/api/elasticubes/localhost/SalesCube/permissions": FakeResponse(200, {"shares": [{"type": "user", "partyId": "u1", "permission": "a"}]})})
+        result = dm.get_datamodel_permissions_extract("SalesCube")
+        assert result == [{"type": "user", "partyId": "u1", "permission": "a"}]
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(get_responses={"/api/elasticubes/localhost/SalesCube/permissions": FakeResponse(500, {"error": "boom"})})
+        result = dm.get_datamodel_permissions_extract("SalesCube")
+        assert "error" in result
+
+    def test_no_response_returns_error(self):
+        dm = _make_dm()
+        result = dm.get_datamodel_permissions_extract("SalesCube")
+        assert "error" in result
+
+
+class TestGetDatamodelPermissionsLive:
+    def test_returns_raw_shares_list(self):
+        dm = _make_dm(get_responses={"/api/v1/elasticubes/live/dm_live/permissions": FakeResponse(200, [{"type": "group", "partyId": "g1", "permission": "a"}])})
+        result = dm.get_datamodel_permissions_live("dm_live")
+        assert result == [{"type": "group", "partyId": "g1", "permission": "a"}]
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(get_responses={"/api/v1/elasticubes/live/dm_live/permissions": FakeResponse(500, {"error": "boom"})})
+        result = dm.get_datamodel_permissions_live("dm_live")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# update_datamodel_permissions_extract / update_datamodel_permissions_live
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateDatamodelPermissionsExtract:
+    def test_returns_response_on_success(self):
+        dm = _make_dm(put_responses={"/api/elasticubes/localhost/SalesCube/permissions": FakeResponse(200, {"ok": True})})
+        result = dm.update_datamodel_permissions_extract("SalesCube", [{"partyId": "u1", "type": "user", "permission": "a"}])
+        assert "error" not in result
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(put_responses={"/api/elasticubes/localhost/SalesCube/permissions": FakeResponse(403, {})})
+        result = dm.update_datamodel_permissions_extract("SalesCube", [])
+        assert "error" in result
+
+    def test_returns_error_when_shares_not_a_list(self):
+        dm = _make_dm()
+        result = dm.update_datamodel_permissions_extract("SalesCube", {"bad": "input"})
+        assert "error" in result
+
+
+class TestUpdateDatamodelPermissionsLive:
+    def test_returns_response_on_success(self):
+        dm = _make_dm(patch_responses={"/api/v1/elasticubes/live/dm_live/permissions": FakeResponse(200, {"ok": True})})
+        result = dm.update_datamodel_permissions_live("dm_live", [{"partyId": "g1", "type": "group", "permission": "a"}])
+        assert "error" not in result
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(patch_responses={"/api/v1/elasticubes/live/dm_live/permissions": FakeResponse(403, {})})
+        result = dm.update_datamodel_permissions_live("dm_live", [])
+        assert "error" in result
+
+    def test_returns_error_when_shares_not_a_list(self):
+        dm = _make_dm()
+        result = dm.update_datamodel_permissions_live("dm_live", {"bad": "input"})
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# export_datamodel_schema
+# ---------------------------------------------------------------------------
+
+
+class TestExportDatamodelSchema:
+    def test_returns_schema_on_success(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodel-exports/schema": FakeResponse(200, {"oid": "dm1", "title": "SalesCube"})})
+        result = dm.export_datamodel_schema("dm1")
+        assert result == {"oid": "dm1", "title": "SalesCube"}
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodel-exports/schema": FakeResponse(500, {"error": "boom"})})
+        result = dm.export_datamodel_schema("dm1")
+        assert "error" in result
+
+    def test_windows_uses_stream_endpoint(self):
+        dm = _make_dm(get_responses={"/api/v1/elasticubes/dm1/datamodel-exports/stream/schema": FakeResponse(200, {"oid": "dm1", "title": "SalesCube"})})
+        dm.api_client.operating_system = "windows"
+        result = dm.export_datamodel_schema("dm1", dependencies=["dataContext"])
+        assert result == {"oid": "dm1", "title": "SalesCube"}
+
+    def test_returns_error_on_non_dict_json(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodel-exports/schema": FakeResponse(200, ["not", "a", "dict"])})
+        result = dm.export_datamodel_schema("dm1")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# import_datamodel_schema
+# ---------------------------------------------------------------------------
+
+
+class TestImportDatamodelSchema:
+    def test_plain_create_returns_datamodel_id(self):
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "new-oid"})})
+        result = dm.import_datamodel_schema({"title": "SalesCube"})
+        assert result == {"datamodel_id": "new-oid", "already_exists": False}
+
+    def test_overwrite_targets_existing_id(self):
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema?datamodelId=dm1": FakeResponse(201, {"oid": "dm1"})})
+        result = dm.import_datamodel_schema({"title": "SalesCube"}, action="overwrite", target_datamodel_id="dm1")
+        assert result == {"datamodel_id": "dm1", "already_exists": False}
+
+    def test_duplicate_uses_new_title_query(self):
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema?newTitle=SalesCube (Duplicate)": FakeResponse(201, {"oid": "dm2"})})
+        result = dm.import_datamodel_schema({"title": "SalesCube"}, action="duplicate")
+        assert result == {"datamodel_id": "dm2", "already_exists": False}
+
+    def test_already_exists_conflict_is_flagged(self):
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema": FakeResponse(400, {"title": "ElasticubeAlreadyExists"})})
+        result = dm.import_datamodel_schema({"title": "SalesCube"})
+        assert result["already_exists"] is True
+        assert "error" in result
+
+    def test_other_failure_is_not_flagged_as_already_exists(self):
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema": FakeResponse(400, {"error": "bad request"})})
+        result = dm.import_datamodel_schema({"title": "SalesCube"})
+        assert result["already_exists"] is False
+        assert "error" in result

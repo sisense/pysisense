@@ -419,6 +419,21 @@ Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticub
 
 ---
 
+### `get_datasecurity_raw(self, datamodel_name, datamodel_type=None)`
+
+Retrieves the raw, unprocessed datasecurity rules for a DataModel — each rule exactly as the API returns it (`members`, `exclusionary`, raw `shares`), with no flattening, deduplication, or share-name resolution. Use this instead of `get_datasecurity`/`get_datasecurity_detail` when a rule needs to be round-tripped as-is, for example when migrating rules between environments.
+
+#### Parameters:
+
+* `datamodel_name` (str): Name (title) of the DataModel to retrieve raw datasecurity rules for.
+* `datamodel_type` (str, optional): The DataModel's type (`"extract"` or `"live"`), if already known. When provided, the datasecurity endpoint is built directly, skipping the DataModel resolve call. When omitted, the DataModel is resolved by name first.
+
+#### Returns:
+
+* `list[dict] | dict`: The raw list of datasecurity rule objects from the API, or `{"error": "..."}` on failure (including when the DataModel cannot be resolved).
+
+---
+
 ### `get_model_schema(self, datamodel_name)`
 
 Retrieves the schema of a DataModel, including tables and columns.
@@ -452,6 +467,64 @@ Adds share entries (users and groups) to a DataModel.
 #### Returns:
 
 * `dict`: Result of the share addition operation.
+
+---
+
+### `get_datamodel_permissions_extract(self, datamodel_title)`
+
+Retrieves raw share entries for an EXTRACT (Elasticube) DataModel via `GET /api/elasticubes/localhost/{datamodel_title}/permissions`. Returns the raw `shares` list — each entry keyed by `partyId` and not resolved to a user/group name. Use `get_datamodel_shares` instead for a resolved, human-readable view.
+
+#### Parameters:
+
+* `datamodel_title` (str): Title of the EXTRACT DataModel.
+
+#### Returns:
+
+* `list[dict] | dict`: The raw list of share objects from the API, or `{"error": "..."}` on failure.
+
+---
+
+### `get_datamodel_permissions_live(self, datamodel_id)`
+
+Retrieves raw share entries for a LIVE DataModel via `GET /api/v1/elasticubes/live/{datamodel_id}/permissions`. Returns the raw share list — each entry keyed by `partyId` and not resolved to a user/group name.
+
+#### Parameters:
+
+* `datamodel_id` (str): OID of the LIVE DataModel.
+
+#### Returns:
+
+* `list[dict] | dict`: The raw list of share objects from the API, or `{"error": "..."}` on failure.
+
+---
+
+### `update_datamodel_permissions_extract(self, datamodel_title, shares)`
+
+Replaces share entries for an EXTRACT (Elasticube) DataModel via `PUT /api/elasticubes/localhost/{datamodel_title}/permissions`, sending the full raw share list. Use `add_datamodel_shares` instead for name/email-based share management.
+
+#### Parameters:
+
+* `datamodel_title` (str): Title of the EXTRACT DataModel.
+* `shares` (list[dict]): Raw share objects, each with `partyId`, `type` (`"user"` or `"group"`), and `permission`.
+
+#### Returns:
+
+* `dict`: API response on success, or `{"error": "..."}` on failure.
+
+---
+
+### `update_datamodel_permissions_live(self, datamodel_id, shares)`
+
+Replaces share entries for a LIVE DataModel via `PATCH /api/v1/elasticubes/live/{datamodel_id}/permissions`, sending the full raw share list. The LIVE model must already be published — publish it first with `deploy_datamodel` if it has never been built.
+
+#### Parameters:
+
+* `datamodel_id` (str): OID of the LIVE DataModel.
+* `shares` (list[dict]): Raw share objects, each with `partyId`, `type` (`"user"` or `"group"`), and `permission`.
+
+#### Returns:
+
+* `dict`: API response on success, or `{"error": "..."}` on failure.
 
 ---
 
@@ -514,6 +587,38 @@ ID, it falls back to the “get by name” logic.
   - `datamodel_id` (str or None): Resolved data model ID (`oid`) if found, otherwise `None`.
   - `datamodel_title` (str or None): Resolved data model title if found, otherwise `None`.
   - `error` (str or None): Error message if `success` is `False`, otherwise `None`.
+
+* * * * *
+
+### `export_datamodel_schema(datamodel_id, dependencies=None)`
+
+Exports a data model's full schema definition for re-import elsewhere (`GET /api/v2/datamodel-exports/schema`, or the legacy streaming export endpoint on Windows deployments). Returns the exported schema JSON as-is, ready to be passed to `import_datamodel_schema` — typically against a different Sisense environment.
+
+**Parameters:**
+
+-   `datamodel_id` (str): OID of the data model to export.
+-   `dependencies` (list[str], optional): API dependency identifiers to include in the export (for example `"dataContext"`, `"scopeConfiguration"`, `"formulaManagement"`, `"drillHierarchies"`, `"perspectives"`). Windows: has no effect, the export endpoint used there accepts no dependencies parameter.
+
+**Returns:**
+
+-   `dict`: The exported schema object on success, or `{"error": "..."}` on failure.
+
+* * * * *
+
+### `import_datamodel_schema(schema, action=None, target_datamodel_id=None, new_title=None)`
+
+Imports a data model schema (as produced by `export_datamodel_schema`) via `POST /api/v2/datamodel-imports/schema`. When `action="overwrite"` and `target_datamodel_id` is provided, targets that existing data model via the `datamodelId` query parameter; if not found (404), automatically retries as a plain create. When `action="duplicate"`, imports as a new data model titled `new_title` (or `"<title> (Duplicate)"` when omitted). Any other `action` value performs a plain create.
+
+**Parameters:**
+
+-   `schema` (dict): Schema object to import, typically produced by `export_datamodel_schema`.
+-   `action` (str, optional): One of `"overwrite"` or `"duplicate"`. Any other value (including `None`) performs a plain create.
+-   `target_datamodel_id` (str, optional): OID of the existing data model to overwrite. Required for `action="overwrite"` to take effect.
+-   `new_title` (str, optional): Title for the duplicated data model. Used only when `action="duplicate"`.
+
+**Returns:**
+
+-   `dict`: `{"datamodel_id": <str or None>, "already_exists": False}` on success, or `{"error": "...", "already_exists": bool}` on failure. `already_exists` is `True` when the import failed because a data model with the same title already exists on the target under a different ID.
 
 * * * * *
 

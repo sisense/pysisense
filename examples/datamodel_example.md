@@ -658,3 +658,79 @@ rules = [{"table": "Sales", "column": "Country", "datatype": "text", "members": 
 response = datamodel.set_live_datasecurity_add_many("LiveSalesCube", rules)
 print(json.dumps(response, indent=4))
 ```
+
+---
+
+## Example 27: Get Raw Datasecurity Rules (for Migration)
+
+Retrieve datasecurity rules exactly as the API returns them — unflattened, with raw `shares` — suitable for round-tripping to another environment.
+
+```python
+rules = datamodel.get_datasecurity_raw("SalesCube", datamodel_type="extract")
+print(json.dumps(rules, indent=4))
+```
+
+---
+
+## Example 28: Export a Data Model Schema
+
+Export a data model's full schema, ready to be imported into a different Sisense environment.
+
+```python
+schema = datamodel.export_datamodel_schema("datamodel-oid-here", dependencies=["dataContext", "formulaManagement"])
+print(schema.get("title"))
+```
+
+---
+
+## Example 29: Import a Data Model Schema
+
+Import a previously exported schema — as a plain create, an overwrite of an existing model, or a duplicate under a new title.
+
+```python
+# Plain create
+result = datamodel.import_datamodel_schema(schema)
+
+# Overwrite an existing model by OID (falls back to a plain create if the target OID is not found)
+result = datamodel.import_datamodel_schema(schema, action="overwrite", target_datamodel_id="existing-datamodel-oid")
+
+# Duplicate under a new title
+result = datamodel.import_datamodel_schema(schema, action="duplicate", new_title="SalesCube (Copy)")
+
+print(result)
+# {"datamodel_id": "new-oid", "already_exists": False}
+```
+
+---
+
+## Example 30: Get Raw Permissions (for Migration)
+
+Retrieve a data model's share entries exactly as the API returns them — keyed by `partyId`, unresolved to names — suitable for round-tripping to another environment.
+
+```python
+extract_shares = datamodel.get_datamodel_permissions_extract("SalesCube")
+live_shares = datamodel.get_datamodel_permissions_live("live-datamodel-oid")
+print(extract_shares)
+```
+
+---
+
+## Example 31: Replace Raw Permissions (Extract Model)
+
+```python
+shares = [{"partyId": "user_oid_here", "type": "user", "permission": "a"}]
+response = datamodel.update_datamodel_permissions_extract("SalesCube", shares)
+print(response)
+```
+
+---
+
+## Example 32: Replace Raw Permissions (Live Model)
+
+The LIVE model must already be published — publish it first with `deploy_datamodel` if it has never been built.
+
+```python
+shares = [{"partyId": "group_oid_here", "type": "group", "permission": "a"}]
+response = datamodel.update_datamodel_permissions_live("live-datamodel-oid", shares)
+print(response)
+```

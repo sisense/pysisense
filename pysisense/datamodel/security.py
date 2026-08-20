@@ -4,6 +4,15 @@ from typing import Any
 
 
 class SecurityMixin:
+    def _build_datasecurity_url(self, resolved_name: str, datamodel_type: str) -> str | None:
+        """Build the datasecurity endpoint for a resolved data model name/type, or ``None`` if unsupported."""
+        normalized_type = (datamodel_type or "").upper()
+        if normalized_type == "EXTRACT":
+            return f"/api/elasticubes/localhost/{resolved_name}/datasecurity"
+        if normalized_type == "LIVE":
+            return f"/api/v1/elasticubes/live/{resolved_name}/datasecurity"
+        return None
+
     def _fetch_datasecurity(self, datamodel_name: str) -> tuple[str | None, list[dict[str, Any]] | None]:
         """Resolve a data model and fetch its raw datasecurity rules.
 
@@ -20,11 +29,7 @@ class SecurityMixin:
         datamodel_type = datamodel.get("type")
 
         # Step 2: Build API URL
-        url = ""
-        if datamodel_type.upper() == "EXTRACT":
-            url = f"/api/elasticubes/localhost/{resolved_name}/datasecurity"
-        elif datamodel_type.upper() == "LIVE":
-            url = f"/api/v1/elasticubes/live/{resolved_name}/datasecurity"
+        url = self._build_datasecurity_url(resolved_name, datamodel_type) or ""
 
         # Step 3: Fetch datasecurity
         self.logger.debug(f"Fetching datasecurity from '{url}'")
@@ -36,6 +41,63 @@ class SecurityMixin:
         datasecurity_data = datasecurity_response.json()
         self.logger.debug(f"Datasecurity data: {datasecurity_data}")
         return resolved_name, datasecurity_data
+
+    def get_datasecurity_raw(self, datamodel_name: str, datamodel_type: str | None = None) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve the raw, unprocessed datasecurity rules for a data model.
+
+        Unlike ``get_datasecurity``/``get_datasecurity_detail``, this returns
+        each rule exactly as the API provides it — including ``members``,
+        ``exclusionary``, and raw ``shares`` — with no flattening,
+        deduplication, or share-name resolution. Intended for callers that
+        need to round-trip a full rule definition, for example migrating
+        rules between environments.
+
+        Parameters
+        ----------
+        datamodel_name : str
+            Name (title) of the data model to retrieve raw datasecurity
+            rules for.
+        datamodel_type : str or None, optional
+            The data model's type (``"extract"`` or ``"live"``), if already
+            known. When provided, the datasecurity endpoint is built
+            directly from ``datamodel_name`` and this type, skipping the
+            data model resolve call. When omitted, the data model is
+            resolved by name first (matching ``get_datasecurity``).
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            The raw list of datasecurity rule objects from the API, or
+            ``{"error": "..."}`` on failure (including when the data model
+            cannot be resolved).
+        """
+        if datamodel_type is not None:
+            url = self._build_datasecurity_url(datamodel_name, datamodel_type)
+            if url is None:
+                msg = f"Unsupported datamodel_type '{datamodel_type}' for '{datamodel_name}'."
+                self.logger.error(msg)
+                return {"error": msg}
+
+            self.logger.debug(f"Fetching raw datasecurity from '{url}'")
+            response = self.api_client.get(url)
+            if response is None or response.status_code != 200:
+                msg = f"Failed to fetch raw datasecurity rules for '{datamodel_name}'."
+                self.logger.error(msg)
+                return {"error": msg}
+
+            try:
+                return response.json()
+            except Exception:
+                msg = f"Invalid JSON returned while fetching raw datasecurity rules for '{datamodel_name}'."
+                self.logger.error(msg)
+                return {"error": msg}
+
+        resolved_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
+        if resolved_name is None:
+            return {"error": f"DataModel '{datamodel_name}' not found."}
+        if datasecurity_data is None:
+            return {"error": f"Failed to fetch raw datasecurity rules for '{resolved_name}'."}
+        return datasecurity_data
 
     def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]]:
         """Retrieve datasecurity table and column entries for a given data model.
