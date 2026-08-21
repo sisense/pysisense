@@ -25,7 +25,8 @@ class DataModel(
     -------
     core :
         Data model schema — get, list, describe, load, and delete data
-        models; resolve by ID or title; list elasticubes.
+        models; resolve by ID or title; list elasticubes; export/import a
+        full schema definition for cross-environment migration.
     connections :
         Connection management — get, update, and create data source
         connections; generate connection payloads for supported providers.
@@ -34,10 +35,12 @@ class DataModel(
         deploy a data model with configurable build behavior.
     security :
         Row-level security — get, update, and bulk-add datasecurity rules
-        that restrict data access per user or group.
+        that restrict data access per user or group; retrieve raw,
+        unprocessed rules for round-tripping between environments.
     shares :
         Data model access — get and add share entries (users and groups)
-        with READ, USE, or EDIT permission levels.
+        with READ, USE, or EDIT permission levels; get/replace raw
+        (partyId-keyed) permissions for cross-environment migration.
     data :
         Data retrieval — query table contents via SQL; get row counts per
         table across an entire data model (``get_data``, ``get_row_count``).

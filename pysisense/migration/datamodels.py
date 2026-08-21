@@ -45,6 +45,9 @@ class DatamodelsMigrationMixin:
             - "perspectives" (for Perspectives)
 
             If left blank or set to "all", all dependencies are included by default.
+
+            Windows: the export endpoint used on Windows sources has no
+            dependencies parameter, so this argument has no effect there.
         shares : bool, default False
             Whether to also migrate the data model's shares.
         action : str or None, default None

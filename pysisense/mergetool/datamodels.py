@@ -49,12 +49,6 @@ def _apply_connection_map(data_model: dict[str, Any], provider_connection_map: d
             connection["parameters"] = ""
 
 
-def _extract_source_shares(dm_type: str | None, payload: Any) -> list[dict[str, Any]]:
-    if dm_type == "extract":
-        return payload.get("shares", []) if isinstance(payload, dict) else []
-    return payload if isinstance(payload, list) else []
-
-
 def _resolve_datamodel_share_entries(
     shares: list[dict[str, Any]],
     user_id_to_email: dict[str, str],
@@ -126,7 +120,8 @@ class DatamodelsMergeMixin:
             Dependencies to include in the export. One or more of
             ``"dataSecurity"``, ``"formulas"``, ``"hierarchies"``,
             ``"perspectives"``. Defaults to all of them when ``None`` or
-            ``"all"``. Not supported when the source is a Windows deployment.
+            ``"all"``. Windows: has no effect when the source is a Windows
+            deployment — its export endpoint accepts no dependencies parameter.
         provider_connection_map : dict[str, str] or None, default None
             Maps a connection provider name (for example ``"Athena"``) to a
             target-environment connection OID. Datasets whose provider is not
@@ -277,6 +272,8 @@ class DatamodelsMergeMixin:
                 target_oid_by_title=target_oid_by_title,
                 summary=summary,
                 shares=shares,
+                src_datamodel=src_datamodel,
+                tgt_datamodel=tgt_datamodel,
                 user_id_to_email=user_id_to_email,
                 email_to_target_id=email_to_target_id,
                 group_id_to_name=group_id_to_name,
@@ -326,6 +323,8 @@ class DatamodelsMergeMixin:
         target_oid_by_title: dict[str, str],
         summary: dict[str, Any],
         shares: bool,
+        src_datamodel: DataModel,
+        tgt_datamodel: DataModel,
         user_id_to_email: dict[str, str],
         email_to_target_id: dict[str, str],
         group_id_to_name: dict[str, str],
@@ -356,31 +355,9 @@ class DatamodelsMergeMixin:
         self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
 
         # Export schema from source
-        source_os = self.source_client.operating_system
-        if source_os == "windows":
-            if api_dependencies:
-                self.logger.warning(
-                    "Windows datamodel export does not support dependenciesIdsToInclude — dependencies (%s) will not be migrated for '%s'.",
-                    api_dependencies,
-                    title,
-                )
-            export_response = self.source_client.get(f"/api/v1/elasticubes/{source_oid}/datamodel-exports/stream/schema")
-        else:
-            export_response = self.source_client.get(
-                "/api/v2/datamodel-exports/schema",
-                params={"datamodelId": source_oid, "type": "schema-latest", "dependenciesIdsToInclude": ",".join(api_dependencies)},
-            )
-
-        if export_response is None or export_response.status_code != 200:
-            reason = f"Export failed: {self._extract_error_detail(export_response)}"
-            self.logger.error("Failed to export datamodel '%s': %s", title, reason)
-            summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
-            self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
-            return
-
-        data_model_json, err = self._safe_json(export_response)
-        if not isinstance(data_model_json, dict):
-            reason = f"Export failed: {err or 'Export returned non-dict JSON'}"
+        data_model_json = src_datamodel.export_datamodel_schema(source_oid, dependencies=api_dependencies)
+        if "error" in data_model_json:
+            reason = f"Export failed: {data_model_json['error']}"
             self.logger.error("Failed to export datamodel '%s': %s", title, reason)
             summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
             self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
@@ -389,28 +366,10 @@ class DatamodelsMergeMixin:
         _apply_connection_map(data_model_json, provider_connection_map)
 
         # Import schema into target
-        query_string = ""
-        if action == "overwrite" and existing_target_oid:
-            query_string = f"?datamodelId={existing_target_oid}"
-        elif action == "duplicate":
-            query_string = f"?newTitle={title} (Duplicate)"
+        import_result = tgt_datamodel.import_datamodel_schema(data_model_json, action=action, target_datamodel_id=existing_target_oid)
 
-        import_response = self.target_client.post(f"/api/v2/datamodel-imports/schema{query_string}", data=data_model_json)
-
-        if import_response is not None and import_response.status_code == 404 and action == "overwrite" and existing_target_oid:
-            self.logger.warning("Overwrite target for '%s' not found (404). Retrying without overwrite.", title)
-            import_response = self.target_client.post("/api/v2/datamodel-imports/schema", data=data_model_json)
-
-        import_payload, _ = self._safe_json(import_response)
-        target_id: str | None = None
-        if isinstance(import_payload, dict):
-            for key in ("oid", "id", "datamodelId"):
-                value = import_payload.get(key)
-                if isinstance(value, str):
-                    target_id = value
-                    break
-
-        if import_response is not None and import_response.status_code == 201:
+        if "error" not in import_result:
+            target_id = import_result.get("datamodel_id")
             self.logger.info("Successfully migrated datamodel '%s'.", title)
             summary["succeeded"].append({"title": title, "source_oid": source_oid, "target_id": target_id})
             self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrated '{title}'.", "action": action})
@@ -421,19 +380,21 @@ class DatamodelsMergeMixin:
                     dm_type=dm_type,
                     source_oid=source_oid,
                     target_id=target_id,
+                    src_datamodel=src_datamodel,
+                    tgt_datamodel=tgt_datamodel,
                     user_id_to_email=user_id_to_email,
                     email_to_target_id=email_to_target_id,
                     group_id_to_name=group_id_to_name,
                     group_name_to_target_id=group_name_to_target_id,
                     emit=emit,
                 )
-        elif import_response is not None and import_response.status_code == 400 and isinstance(import_payload, dict) and import_payload.get("title") == "ElasticubeAlreadyExists":
+        elif import_result.get("already_exists"):
             reason = f"Datamodel '{title}' already exists on the target with a different ID. Use action='duplicate', or delete the existing model manually."
             self.logger.error(reason)
             summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
             self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
         else:
-            reason = f"Import failed: {self._extract_error_detail(import_response)}"
+            reason = f"Import failed: {import_result['error']}"
             self.logger.error("Failed to import datamodel '%s': %s", title, reason)
             summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
             self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
@@ -445,6 +406,8 @@ class DatamodelsMergeMixin:
         dm_type: str | None,
         source_oid: str,
         target_id: str | None,
+        src_datamodel: DataModel,
+        tgt_datamodel: DataModel,
         user_id_to_email: dict[str, str],
         email_to_target_id: dict[str, str],
         group_id_to_name: dict[str, str],
@@ -453,20 +416,19 @@ class DatamodelsMergeMixin:
     ) -> None:
         """Best-effort share migration for a single, already-imported datamodel."""
         if dm_type == "extract":
-            shares_response = self.source_client.get(f"/api/elasticubes/localhost/{title}/permissions")
+            source_shares_result = src_datamodel.get_datamodel_permissions_extract(title)
         elif dm_type == "live":
-            shares_response = self.source_client.get(f"/api/v1/elasticubes/live/{source_oid}/permissions")
+            source_shares_result = src_datamodel.get_datamodel_permissions_live(source_oid)
         else:
             self.logger.warning("Unknown datamodel type '%s' for '%s' — skipping shares.", dm_type, title)
             return
 
-        if shares_response is None or shares_response.status_code != 200:
-            self.logger.error("Failed to fetch shares for datamodel '%s': %s", title, self._extract_error_detail(shares_response))
+        if isinstance(source_shares_result, dict) and "error" in source_shares_result:
+            self.logger.error("Failed to fetch shares for datamodel '%s': %s", title, source_shares_result["error"])
             self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Failed to fetch shares for '{title}'."})
             return
 
-        payload, _ = self._safe_json(shares_response)
-        source_shares = _extract_source_shares(dm_type, payload)
+        source_shares: list[dict[str, Any]] = source_shares_result if isinstance(source_shares_result, list) else []
 
         new_shares = _resolve_datamodel_share_entries(source_shares, user_id_to_email, email_to_target_id, group_id_to_name, group_name_to_target_id)
         if not new_shares:
@@ -474,7 +436,7 @@ class DatamodelsMergeMixin:
             return
 
         if dm_type == "extract":
-            response = self.target_client.put(f"/api/elasticubes/localhost/{title}/permissions", data=new_shares)
+            write_result = tgt_datamodel.update_datamodel_permissions_extract(title, new_shares)
         else:
             if not target_id:
                 self.logger.error("Cannot migrate shares for live datamodel '%s' — target id could not be resolved.", title)
@@ -482,19 +444,19 @@ class DatamodelsMergeMixin:
                 return
 
             self.logger.info("Publishing datamodel '%s' to update shares.", title)
-            publish_response = self.target_client.post("/api/v2/builds", data={"datamodelId": target_id, "buildType": "publish"})
-            if publish_response is None or publish_response.status_code != 201:
-                self.logger.error("Failed to publish datamodel '%s' before updating shares: %s", title, self._extract_error_detail(publish_response))
+            publish_result = tgt_datamodel.deploy_datamodel(title)
+            if isinstance(publish_result, dict) and "error" in publish_result:
+                self.logger.error("Failed to publish datamodel '%s' before updating shares: %s", title, publish_result["error"])
                 self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Failed to publish '{title}' before updating shares."})
                 return
 
-            response = self.target_client.patch(f"/api/v1/elasticubes/live/{target_id}/permissions", data=new_shares)
+            write_result = tgt_datamodel.update_datamodel_permissions_live(target_id, new_shares)
 
-        if response is not None and response.status_code in (200, 201):
+        if not (isinstance(write_result, dict) and "error" in write_result):
             self.logger.info("Migrated %s share(s) for datamodel '%s'.", len(new_shares), title)
             self._emit(emit, {"type": "progress", "step": "migrate_shares", "message": f"Migrated shares for '{title}'.", "count": len(new_shares)})
         else:
-            self.logger.error("Failed to migrate shares for datamodel '%s': %s", title, self._extract_error_detail(response))
+            self.logger.error("Failed to migrate shares for datamodel '%s': %s", title, write_result["error"])
             self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Failed to migrate shares for '{title}'."})
 
     def migrate_all_datamodels(

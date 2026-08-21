@@ -294,6 +294,35 @@ class TestMigrateDatamodelsShares:
         put_call = next(c for c in calls if c[0] == "PUT" and c[1] == "/api/elasticubes/localhost/Sales Cube/permissions")
         assert put_call[2] == [{"partyId": "tgt_user_1", "type": "user", "permission": "a"}]
 
+    def test_live_shares_are_published_then_patched(self):
+        src_get, src_post = _basic_source([_MARKETING_LIVE], export_response=FakeResponse(200, {"oid": "dm2", "title": "Marketing Live"}))
+        src_get["/api/v1/users"] = FakeResponse(200, [])
+        src_get["/api/v1/groups"] = FakeResponse(200, [{"_id": "src_group_1", "name": "Sales Team"}])
+        src_get["/api/v1/elasticubes/live/dm2/permissions"] = FakeResponse(200, [{"type": "group", "partyId": "src_group_1", "permission": "a"}])
+
+        tgt_get = {
+            "/api/v1/users": FakeResponse(200, []),
+            "/api/v1/groups": FakeResponse(200, [{"_id": "tgt_group_1", "name": "Sales Team"}]),
+            "/api/v2/datamodels/schema": FakeResponse(200, {"oid": "new", "title": "Marketing Live", "type": "live"}),
+        }
+        _, tgt_post = _basic_target(
+            tgt_post_extra={
+                "/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "new"}),
+                "/api/v2/builds": FakeResponse(201, {}),
+            }
+        )
+        tgt_patch = {"/api/v1/elasticubes/live/new/permissions": FakeResponse(200, {})}
+
+        merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_patch=tgt_patch, capture_target=True)
+
+        result = merge.migrate_datamodels(datamodel_ids=["dm2"], shares=True)
+
+        assert result["succeeded_count"] == 1
+        calls = merge.target_client.calls
+        assert any(c[0] == "POST" and c[1] == "/api/v2/builds" for c in calls)
+        patch_call = next(c for c in calls if c[0] == "PATCH" and c[1] == "/api/v1/elasticubes/live/new/permissions")
+        assert patch_call[2] == [{"partyId": "tgt_group_1", "type": "group", "permission": "a"}]
+
     def test_shares_disabled_by_default_makes_no_share_calls(self):
         src_get, src_post = _basic_source([_SALES_EXTRACT], export_response=FakeResponse(200, _EXPORTED_SALES))
         _, tgt_post = _basic_target(tgt_post_extra={"/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "dm1"})})
