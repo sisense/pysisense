@@ -307,7 +307,10 @@ Changes ownership of folders and optionally dashboards.
 
 **Returns:**
 
--   None (logs and updates executed internally).
+-   `dict`: `{"total_folders_changed": int, "total_dashboards_changed": int}`
+    on success, `{"error": "..."}` if the executing user or new owner
+    cannot be resolved, or `None` when there are no folders or dashboards
+    to change.
 
 * * * * *
 
@@ -380,6 +383,16 @@ Retrieves all dashboard share settings, including user and group shares.
 **Returns:**
 
 -   `list`: Dashboard title, share type, and share name.
+
+* * * * *
+
+### `get_user_email_and_group_name_maps(self)`
+
+Fetches all users and groups and builds ID-to-name lookup maps, for resolving share entries (which reference users and groups only by ID) into readable emails and group names. Used internally by `get_all_dashboard_shares` and by `Dashboard.get_dashboard_share`.
+
+**Returns:**
+
+-   `dict`: `{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}` on success, or `{"error": "..."}` if either lookup fails.
 
 * * * * *
 

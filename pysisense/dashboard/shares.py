@@ -249,25 +249,16 @@ class SharesMixin:
             self.logger.info(f"Dashboard '{dashboard_name}' has no shares.")
             return []
 
-        # Step 2: Fetch all users
-        users_response = self.api_client.get("/api/v1/users")
-        if not users_response or users_response.status_code != 200:
-            self.logger.error("Failed to fetch users.")
+        # Step 2: Fetch user/group ID-to-name lookup maps
+        maps = self.access_mgmt.get_user_email_and_group_name_maps()
+        if "error" in maps:
+            self.logger.error(f"Failed to fetch users or groups: {maps['error']}")
             return []
 
-        users_data = users_response.json()
-        users_detail = {user["_id"]: user.get("email", "Unknown Email") for user in users_data}
+        users_detail = maps["users_by_id"]
+        groups_detail = maps["groups_by_id"]
 
-        # Step 3: Fetch all groups
-        groups_response = self.api_client.get("/api/v1/groups")
-        if not groups_response or groups_response.status_code != 200:
-            self.logger.error("Failed to fetch groups.")
-            return []
-
-        groups_data = groups_response.json()
-        groups_detail = {group["_id"]: group.get("name", "Unknown Group") for group in groups_data}
-
-        # Step 4: Resolve shares
+        # Step 3: Resolve shares
         shared_list = []
         for share in shares:
             share_type = share.get("type")

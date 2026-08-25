@@ -91,7 +91,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `groups.py` | `get_group`, `get_groups`, `create_groups_bulk`, `delete_group`, `users_per_group`, `users_per_group_all` |
 | | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
-| | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
+| | `admin.py` | `get_all_dashboard_shares`, `get_user_email_and_group_name_maps`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
 | `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk` |

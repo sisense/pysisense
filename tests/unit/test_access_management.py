@@ -634,6 +634,43 @@ class TestChangeFolderAndDashboardOwnership:
         result = am.change_folder_and_dashboard_ownership("executor@example.com", "MyFolder", "newowner@example.com")
         assert result == {"total_folders_changed": 1, "total_dashboards_changed": 1}
 
+    def test_fallback_path_does_not_crash_when_dashboard_search_post_fails(self):
+        # Regression: the folder-not-found fallback path used to call .json()
+        # directly on the dashboard-search POST response with no None-check,
+        # crashing with AttributeError if that POST failed. It now goes
+        # through the shared _fetch_all_dashboards_paginated() helper, which
+        # handles a failed/missing response gracefully.
+        navver_without_match = {"folders": [{"oid": "other", "name": "OtherFolder", "dashboards": [], "folders": []}]}
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, _OWNERSHIP_USERS),
+                "/api/v1/navver": FakeResponse(200, navver_without_match),
+                "/api/v1/folders": FakeResponse(200, []),
+            },
+            # No post_responses for /api/v1/dashboards/searches -> None -> used
+            # to crash inside the pagination loop before reaching this point.
+        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "NoSuchFolder", "newowner@example.com")
+        assert result is None
+
+    def test_fallback_path_collects_dashboards_across_multiple_pages(self):
+        page_1 = FakeResponse(200, {"items": [{"oid": "dashA", "title": "A", "parentFolder": "folderX", "shares": []}]})
+        page_2_empty = FakeResponse(200, {"items": []})
+        navver_without_match = {"folders": []}
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, _OWNERSHIP_USERS),
+                "/api/v1/navver": FakeResponse(200, navver_without_match),
+                "/api/v1/folders": FakeResponse(200, []),
+            },
+            post_responses={
+                "/api/v1/dashboards/searches": [page_1, page_2_empty],
+                "/api/shares/dashboard/dashA": FakeResponse(200, {"shared": True}),
+            },
+        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "NoSuchFolder", "newowner@example.com")
+        assert result is None  # folder still not found after the access-grant retry
+
 
 # ---------------------------------------------------------------------------
 # get_datamodel_columns
@@ -748,6 +785,88 @@ class TestGetAllDashboardShares:
         am = _make_am()  # no POST responses → None → breaks loop → users/groups fail → []
         result = am.get_all_dashboard_shares()
         assert result == []
+
+    def test_resolves_shares_across_multiple_pages(self):
+        # Regression: previously untested — the dashboard-pagination loop was
+        # never exercised with an actual non-empty page followed by the
+        # terminating empty page. Also covers the shared
+        # _fetch_all_dashboards_paginated() helper (used by both this method
+        # and change_folder_and_dashboard_ownership's fallback path).
+        page_1 = FakeResponse(200, {"items": [{"title": "Sales", "shares": [{"type": "user", "shareId": "u1"}, {"type": "group", "shareId": "g1"}]}, {"title": "Marketing", "shares": []}]})
+        page_2_empty = FakeResponse(200, {"items": []})
+        am = _make_am(
+            post_responses={"/api/v1/dashboards/searches": [page_1, page_2_empty]},
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
+            },
+        )
+        result = am.get_all_dashboard_shares()
+        assert result == [
+            {"dashboard": "Sales", "type": "user", "name": "alice@example.com"},
+            {"dashboard": "Sales", "type": "group", "name": "Engineers"},
+            {"dashboard": "Marketing", "type": None, "name": None},
+        ]
+
+    def test_distinguishes_empty_string_email_from_unresolved_share(self):
+        # Regression: the refactor to get_user_email_and_group_name_maps() must
+        # use "shareId in map" membership checks, not truthiness of the
+        # resolved value — a user whose email is genuinely "" must still be
+        # resolved (name: ""), not treated the same as an unresolvable shareId.
+        page_1 = FakeResponse(
+            200,
+            {
+                "items": [
+                    {
+                        "title": "Sales",
+                        "shares": [
+                            {"type": "user", "shareId": "u_empty_email"},
+                            {"type": "user", "shareId": "u_missing"},
+                        ],
+                    }
+                ]
+            },
+        )
+        page_2_empty = FakeResponse(200, {"items": []})
+        am = _make_am(
+            post_responses={"/api/v1/dashboards/searches": [page_1, page_2_empty]},
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [{"_id": "u_empty_email", "email": ""}]),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+        )
+        result = am.get_all_dashboard_shares()
+        assert result == [
+            {"dashboard": "Sales", "type": "user", "name": ""},
+            {"dashboard": "Sales", "type": None, "name": None},
+        ]
+
+
+# ---------------------------------------------------------------------------
+# get_user_email_and_group_name_maps
+# ---------------------------------------------------------------------------
+
+
+class TestGetUserEmailAndGroupNameMaps:
+    def test_returns_id_to_name_maps_on_success(self):
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
+            }
+        )
+        result = am.get_user_email_and_group_name_maps()
+        assert result == {"users_by_id": {"u1": "alice@example.com"}, "groups_by_id": {"g1": "Engineers"}}
+
+    def test_returns_error_when_users_api_fails(self):
+        am = _make_am()
+        result = am.get_user_email_and_group_name_maps()
+        assert "error" in result
+
+    def test_returns_error_when_groups_api_fails(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "a@b.com"}])})
+        result = am.get_user_email_and_group_name_maps()
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------

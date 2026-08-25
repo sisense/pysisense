@@ -378,6 +378,26 @@ class TestGetDashboardShare:
         result = dash.get_dashboard_share("NoSuchDash")
         assert result == []
 
+    def test_resolves_user_and_group_shares_via_shared_access_mgmt_helper(self):
+        # Regression: get_dashboard_share now resolves shares via
+        # AccessManagement.get_user_email_and_group_name_maps() (self.access_mgmt)
+        # instead of its own direct /api/v1/users + /api/v1/groups fetch —
+        # confirms the shared helper produces the same resolved/unresolved
+        # distinction as before, across the class boundary.
+        dashboard_with_shares = {**_DASHBOARD, "shares": [{"type": "user", "shareId": "user123"}, {"type": "group", "shareId": "grp1"}, {"type": "user", "shareId": "u_missing"}]}
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [dashboard_with_shares]),
+                "/api/v1/users": FakeResponse(200, [_USER]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "grp1", "name": "Engineers"}]),
+            }
+        )
+        result = dash.get_dashboard_share("Sales Report")
+        assert result == [
+            {"type": "user", "name": _USER["email"]},
+            {"type": "group", "name": "Engineers"},
+        ]
+
 
 # ---------------------------------------------------------------------------
 # get_dashboard_shares_v1
