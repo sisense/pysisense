@@ -452,6 +452,11 @@ Retrieves the schema of a DataModel, including tables and columns.
 
 Adds share entries (users and groups) to a DataModel.
 
+**Known limitation:** share writes are currently disabled for EXTRACT
+(Elasticube) DataModels — the method returns `{"error": "..."}` immediately
+for any EXTRACT model, regardless of the `shares` payload. Only LIVE
+DataModels are supported today.
+
 #### Parameters:
 
 * `datamodel_name` (str): Name of the DataModel to add shares to.

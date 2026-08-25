@@ -389,6 +389,29 @@ class TestGetDatamodelShares:
         result = dm.get_datamodel_shares("SalesModel")
         assert isinstance(result, list)
 
+    def test_resolves_user_and_group_shares_via_shared_fetch_helper(self):
+        # Regression: get_datamodel_shares and add_datamodel_shares now share
+        # _fetch_users_and_groups_detail_lists() instead of each duplicating
+        # the /api/v1/users + /api/v1/groups fetch — confirms resolution
+        # still works for known and unknown parties on both types.
+        model = {
+            **_DATAMODEL_LIVE,
+            "shares": [{"partyId": "u1", "type": "user", "permission": "w"}, {"partyId": "u_missing", "type": "user", "permission": "r"}, {"partyId": "g1", "type": "group", "permission": "a"}],
+        }
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, model),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
+            }
+        )
+        result = dm.get_datamodel_shares("LiveModel")
+        assert result == [
+            {"datamodel_name": "LiveModel", "datamodel_id": "dm456", "party_name": "alice@example.com", "party_type": "user", "permission": "EDIT"},
+            {"datamodel_name": "LiveModel", "datamodel_id": "dm456", "party_name": "[Unknown user: u_missing]", "party_type": "user", "permission": "USE"},
+            {"datamodel_name": "LiveModel", "datamodel_id": "dm456", "party_name": "Engineers", "party_type": "group", "permission": "READ"},
+        ]
+
     def test_returns_empty_list_when_model_not_found(self):
         # get_datamodel_shares returns [] when model not found
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
@@ -488,6 +511,31 @@ class TestAddDatamodelShares:
     def test_returns_error_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.add_datamodel_shares("NoSuchModel", [{"type": "user", "shareId": "u1", "rule": "EDIT"}])
+        assert "error" in result
+
+    def test_adds_shares_to_live_model(self):
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_LIVE),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+            patch_responses={"/api/v1/elasticubes/live/dm456/permissions": FakeResponse(200, {"success": True})},
+        )
+        result = dm.add_datamodel_shares("LiveModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result == {"success": True}
+
+    def test_returns_error_for_extract_model_without_crashing(self):
+        # EXTRACT share writes are intentionally disabled — see
+        # micael_similar_methods_fixes.md, DataModel Shares module.
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, []),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+        )
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
         assert "error" in result
 
 
