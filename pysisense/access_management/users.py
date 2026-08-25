@@ -4,54 +4,22 @@ from typing import Any
 
 
 class UsersMixin:
-    def _build_role_and_group_mappings(
-        self,
-    ) -> dict[str, dict[str, str]] | None:
-        """
-        Internal helper to fetch and build role and group ID-to-name mappings.
-
-        Returns:
-            dict or None: {
-                "roles_by_id": {role_id: role_name, ...},
-                "groups_by_id": {group_id: group_name, ...},
-            }
-            or None if any API call fails.
-        """
-        # Fetch roles
-        roles_response = self.api_client.get("/api/roles")
-        if not roles_response or not roles_response.ok:
-            self.logger.error("Failed to fetch roles from API.")
-            return None
-
-        try:
-            roles_data = roles_response.json()
-            roles_by_id = {role.get("_id"): role.get("name") for role in roles_data if isinstance(role, dict) and role.get("_id")}
-        except Exception:
-            self.logger.exception("Failed to parse roles response JSON.")
-            return None
-
-        # Fetch groups
-        groups_response = self.api_client.get("/api/v1/groups")
-        if not groups_response or not groups_response.ok:
-            self.logger.error("Failed to fetch groups from API.")
-            return None
-
-        try:
-            groups_data = groups_response.json()
-            groups_by_id = {group.get("_id"): group.get("name") for group in groups_data if isinstance(group, dict) and group.get("_id")}
-        except Exception:
-            self.logger.exception("Failed to parse groups response JSON.")
-            return None
-
-        self.logger.debug(f"Built role and group mappings in helper. Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
-        return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
-
     def _fetch_expanded_users(self) -> Any:
         """Fetch the users list with ``groups`` and ``role`` expanded; returns the raw response."""
         return self.api_client.get("/api/v1/users", params={"expand": "groups,role"})
 
-    def _map_user_role_and_groups(self, user: dict[str, Any]) -> tuple[str | None, str | None, list[str], list[str]]:
+    def _map_user_role_and_groups(self, user: dict[str, Any], apply_role_alias: bool = True) -> tuple[str | None, str | None, list[str], list[str]]:
         """Resolve a single expanded user's role/group IDs and names.
+
+        Parameters
+        ----------
+        user : dict[str, Any]
+            An expanded user object (``role`` and ``groups`` as objects, not
+            raw IDs).
+        apply_role_alias : bool, optional
+            When ``True`` (default), the raw Sisense role name (e.g.
+            ``"consumer"``) is mapped to its public alias (``"viewer"``).
+            When ``False``, the raw role name is returned unchanged.
 
         Returns ``(role_id, role_name, group_ids, group_names)``.
         """
@@ -66,7 +34,7 @@ class UsersMixin:
 
         role_id = role_obj.get("_id")
         role_name_raw = role_obj.get("name")
-        role_name = role_mapping.get(role_name_raw, role_name_raw)
+        role_name = role_mapping.get(role_name_raw, role_name_raw) if apply_role_alias else role_name_raw
 
         group_ids = []
         group_names = []
@@ -149,9 +117,12 @@ class UsersMixin:
     def get_users_with_role_names_and_group_names(self) -> list[dict[str, Any]]:
         """Retrieve all users enriched with role names and group names.
 
-        Fetches users from the users API (with raw IDs), then resolves role
-        names from ``/api/roles`` and group names from ``/api/v1/groups`` to
-        enrich each user entry.
+        Fetches users with ``groups`` and ``role`` expanded in a single call
+        and resolves each user's role/group IDs and names from the expanded
+        objects. Role names are returned exactly as stored by Sisense (e.g.
+        ``"consumer"``), not the public alias — use
+        ``get_user_with_role_and_group_names`` for a single user if the
+        aliased name (``"viewer"``) is needed instead.
 
         Returns
         -------
@@ -161,29 +132,19 @@ class UsersMixin:
             ``ROLE_NAME``, ``GROUP_IDS``, and ``GROUP_NAMES``. If any API call
             fails, a single-item list with an ``error`` key is returned.
         """
-        self.logger.debug("Fetching users with raw role/group IDs to enrich with names.")
+        self.logger.debug("Fetching users with expanded role/group objects to enrich with names.")
 
-        # Step 1: Fetch users (raw IDs)
-        users_response = self.api_client.get("/api/v1/users")
-        if not users_response or not users_response.ok:
+        response = self._fetch_expanded_users()
+        if not response or not response.ok:
             self.logger.error("Failed to retrieve users from API.")
             return [{"error": "Failed to retrieve users from API"}]
 
         try:
-            users_raw = users_response.json()
+            users_raw = response.json()
         except Exception as exc:
             self.logger.exception("Failed to parse users response JSON.")
             return [{"error": f"Failed to parse users response JSON: {exc}"}]
 
-        # Step 2/3: Build role and group mappings once
-        mappings = self._build_role_and_group_mappings()
-        if mappings is None:
-            return [{"error": "Failed to build role and group mappings"}]
-
-        roles_by_id = mappings["roles_by_id"]
-        groups_by_id = mappings["groups_by_id"]
-
-        # Step 4: Enrich each user with role/group names
         enriched_users: list[dict[str, Any]] = []
 
         for user in users_raw:
@@ -191,23 +152,11 @@ class UsersMixin:
                 self.logger.warning(f"Skipping unexpected user entry (not a dict): {user}")
                 continue
 
-            user_id = user.get("_id")
-            role_id = user.get("roleId") or user.get("role", {}).get("_id")
-            group_ids = user.get("groups") or []
-
-            # Normalize groups to a list of IDs (in case full objects are returned)
-            normalized_group_ids: list[str] = []
-            for g in group_ids:
-                gid = g.get("_id") if isinstance(g, dict) else g
-                if gid:
-                    normalized_group_ids.append(gid)
-
-            role_name = roles_by_id.get(role_id, None)
-            group_names = [groups_by_id.get(gid, gid) for gid in normalized_group_ids]
+            role_id, role_name, group_ids, group_names = self._map_user_role_and_groups(user, apply_role_alias=False)
 
             enriched_users.append(
                 {
-                    "USER_ID": user_id,
+                    "USER_ID": user.get("_id"),
                     "USER_NAME": user.get("userName"),
                     "FIRST_NAME": user.get("firstName"),
                     "LAST_NAME": user.get("lastName", ""),
@@ -215,7 +164,7 @@ class UsersMixin:
                     "IS_ACTIVE": user.get("active"),
                     "ROLE_ID": role_id,
                     "ROLE_NAME": role_name,
-                    "GROUP_IDS": normalized_group_ids,
+                    "GROUP_IDS": group_ids,
                     "GROUP_NAMES": group_names,
                 }
             )
@@ -337,17 +286,12 @@ class UsersMixin:
             self.logger.exception("Error decoding JSON response for user list.")
             return {"error": f"Failed to decode API response: {str(exc)}"}
 
-        role_mapping = {
-            "consumer": "viewer",
-            "super": "sysAdmin",
-            "contributor": "dashboardDesigner",
-        }
-
         for user in users:
             try:
                 self.logger.debug("Checking user: %s", user.get("email"))
                 if user.get("email") == user_email:
                     self.logger.info("Found user: %s", user_email)
+                    role_id, role_name, _, _ = self._map_user_role_and_groups(user)
                     return {
                         "USER_ID": user["_id"],
                         "USER_NAME": user.get("userName", ""),
@@ -355,11 +299,8 @@ class UsersMixin:
                         "LAST_NAME": user.get("lastName", ""),
                         "EMAIL": user.get("email", ""),
                         "IS_ACTIVE": user.get("active", False),
-                        "ROLE_ID": user.get("role", {}).get("_id", ""),
-                        "ROLE_NAME": role_mapping.get(
-                            user.get("role", {}).get("name", ""),
-                            user.get("role", {}).get("name", ""),
-                        ),
+                        "ROLE_ID": role_id or "",
+                        "ROLE_NAME": role_name or "",
                         "GROUPS": [g.get("name", "") for g in user.get("groups", [])],
                     }
             except Exception as exc:
@@ -511,13 +452,15 @@ class UsersMixin:
         # Initialize list to store user information
         data_list = []
 
-        # Mapping role names
-        ROLE_MAPPING = {"consumer": "viewer", "super": "sysAdmin", "contributor": "dashboardDesigner"}
-
         # Process the API response to build data_list
         for user in response_data:
             try:
                 self.logger.debug(f"Processing user: {user['email']}")
+                role_id, role_name, _, _ = self._map_user_role_and_groups(user)
+                if role_id is None or role_name is None:
+                    # Preserve the original KeyError-on-missing-role behavior: a user
+                    # with no role, or a role missing "_id"/"name", is skipped below.
+                    raise KeyError("role")
                 base_data = {
                     "USER_ID": user["_id"],
                     "USER_NAME": user["userName"],
@@ -525,8 +468,8 @@ class UsersMixin:
                     "LAST_NAME": user.get("lastName", ""),
                     "EMAIL": user["email"],
                     "IS_ACTIVE": user["active"],
-                    "ROLE_ID": user["role"]["_id"],
-                    "ROLE_NAME": ROLE_MAPPING.get(user["role"]["name"], user["role"]["name"]),
+                    "ROLE_ID": role_id,
+                    "ROLE_NAME": role_name,
                     "GROUPS": [],
                 }
 
@@ -585,7 +528,7 @@ class UsersMixin:
 
         # Convert the role name in the user_data to uppercase for
         # case-insensitive matching
-        user_role = user_data.get("role", "").upper()
+        user_role = str(user_data.get("role", "")).upper()
         mapped_role = role_alias_mapping.get(user_role, user_role)
 
         # Step 1: Fetch roles from the API

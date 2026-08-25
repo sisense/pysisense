@@ -87,33 +87,6 @@ class TestAccessManagementInit:
 
 
 # ---------------------------------------------------------------------------
-# _build_role_and_group_mappings
-# ---------------------------------------------------------------------------
-
-
-class TestBuildRoleAndGroupMappings:
-    def test_returns_roles_and_groups_dicts(self):
-        am = _make_am(
-            get_responses={
-                "/api/roles": FakeResponse(200, _ROLES),
-                "/api/v1/groups": FakeResponse(200, _GROUPS),
-            }
-        )
-        result = am._build_role_and_group_mappings()
-        assert result is not None
-        assert result["roles_by_id"]["role_consumer"] == "consumer"
-        assert result["groups_by_id"]["grp_engineers"] == "Engineers"
-
-    def test_returns_none_when_roles_api_fails(self):
-        am = _make_am(
-            get_responses={
-                "/api/roles": FakeResponse(500, {"error": "server error"}),
-            }
-        )
-        assert am._build_role_and_group_mappings() is None
-
-
-# ---------------------------------------------------------------------------
 # get_user_with_role_and_group_names
 # ---------------------------------------------------------------------------
 
@@ -144,24 +117,39 @@ class TestGetUserWithRoleAndGroupNames:
 
 class TestGetUsersWithRoleNamesAndGroupNames:
     def test_returns_enriched_user_list(self):
-        am = _make_am(
-            get_responses={
-                "/api/v1/users": FakeResponse(200, [_USER_RAW]),
-                "/api/roles": FakeResponse(200, _ROLES),
-                "/api/v1/groups": FakeResponse(200, _GROUPS),
-            }
-        )
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_users_with_role_names_and_group_names()
         assert isinstance(result, list)
         assert len(result) == 1
         assert result[0]["USER_ID"] == "user123"
+        # Unlike get_user_with_role_and_group_names, this method keeps the
+        # RAW role name ("consumer"), not the public alias ("viewer").
         assert result[0]["ROLE_NAME"] == "consumer"
+        assert "Engineers" in result[0]["GROUP_NAMES"]
 
     def test_returns_error_list_when_users_api_fails(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(500, {})})
         result = am.get_users_with_role_names_and_group_names()
         assert isinstance(result, list)
         assert "error" in result[0]
+
+    def test_stale_role_reference_resolves_to_none_not_preserved(self):
+        # Documents an accepted, UNVERIFIED assumption (see
+        # micael_similar_methods_fixes.md, Users module) about how
+        # GET /api/v1/users?expand=groups,role behaves for a stale roleId —
+        # a role that's been deleted but is still referenced by a user.
+        # Before this method switched from a raw-ID manual join to expand,
+        # a stale roleId was preserved in ROLE_ID (with ROLE_NAME as None).
+        # This pins the now-accepted behavior: if a live tenant's expand
+        # response actually returns "role": null for a stale reference (as
+        # assumed, not confirmed against a live stale reference), both
+        # ROLE_ID and ROLE_NAME come back None, and the raw ID is lost.
+        user = dict(_USER_EXPANDED)
+        user["role"] = None
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_users_with_role_names_and_group_names()
+        assert result[0]["ROLE_ID"] is None
+        assert result[0]["ROLE_NAME"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +174,23 @@ class TestGetUser:
         am = _make_am(get_responses={})  # no response → None
         result = am.get_user("jdoe@example.com")
         assert "error" in result
+
+    def test_returns_empty_role_id_and_name_when_user_has_no_role(self):
+        # Regression: get_user resolves ROLE_ID/ROLE_NAME via _map_user_role_and_groups,
+        # which returns None for a missing role — must still surface as "" here.
+        user = dict(_USER_EXPANDED)
+        user.pop("role")
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_user("jdoe@example.com")
+        assert result["ROLE_ID"] == ""
+        assert result["ROLE_NAME"] == ""
+
+    def test_includes_empty_string_placeholder_for_group_missing_name(self):
+        user = dict(_USER_EXPANDED)
+        user["groups"] = [{"_id": "g9"}]  # no "name" key
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_user("jdoe@example.com")
+        assert result["GROUPS"] == [""]
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +252,25 @@ class TestGetUsersAll:
         am = _make_am(get_responses={})
         result = am.get_users_all()
         assert "error" in result[0]
+
+    def test_skips_user_with_role_missing_name_same_as_before_the_shared_helper_swap(self):
+        # Regression: get_users_all used to build ROLE_NAME via a bare-bracket
+        # `user["role"]["name"]` lookup, which raised (and silently skipped the
+        # user) when "name" was absent. Swapping to the shared, tolerant
+        # `_map_user_role_and_groups` helper must not start including these
+        # malformed records instead of skipping them.
+        user = dict(_USER_EXPANDED)
+        user["role"] = {"_id": "role_consumer"}  # no "name"
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_users_all()
+        assert result == [{"error": "No users found"}]
+
+    def test_skips_user_with_no_role_at_all(self):
+        user = dict(_USER_EXPANDED)
+        user.pop("role")
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_users_all()
+        assert result == [{"error": "No users found"}]
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +450,13 @@ class TestCreateUser:
     def test_returns_error_when_roles_api_fails(self):
         am = _make_am(get_responses={})
         result = am.create_user({"email": "x@x.com", "role": "consumer", "groups": []})
+        assert "error" in result
+
+    def test_returns_error_instead_of_raising_when_role_is_explicitly_none(self):
+        # Regression: user_data.get("role", "").upper() raised AttributeError when
+        # "role" was present but explicitly None. Must return a structured error.
+        am = _make_am(get_responses={"/api/roles": FakeResponse(200, _ROLES)})
+        result = am.create_user({"email": "x@x.com", "role": None, "groups": []})
         assert "error" in result
 
 
