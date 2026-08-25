@@ -450,28 +450,16 @@ class DashboardChecksMixin:
                 self.logger.exception(f"Failed to parse dashboard JSON for '{dashboard_id}': {exc}")
                 continue
 
-            widgets = dashboard_data.get("widgets")
-            if not widgets or not isinstance(widgets, list):
-                self.logger.warning(f"Failed to retrieve data or no widgets found for dashboard ID: {dashboard_id}")
-                continue
-
-            widget_count = len(widgets)
-            resolved_id = dashboard_data.get("oid", dashboard_id)
-            resolved_title = dashboard_data.get("title", dashboard_title)
-
-            # Per-dashboard log
-            self.logger.info(f"Processed dashboard '{resolved_title}' with {widget_count} widgets.")
-
-            results.append(
-                {
-                    "dashboard_id": resolved_id,
-                    "dashboard_title": resolved_title,
-                    "widget_count": widget_count,
-                }
+            row = self._compute_widget_count_for_dashboard(
+                dashboard_data=dashboard_data,
+                dashboard_id=dashboard_id,
+                dashboard_title=dashboard_title,
             )
 
-            total_dashboards += 1
-            total_widgets += widget_count
+            if row is not None:
+                results.append(row)
+                total_dashboards += 1
+                total_widgets += row["widget_count"]
 
         if total_dashboards == 0:
             self.logger.warning("No dashboards were successfully processed for widget count check.")
@@ -483,6 +471,32 @@ class DashboardChecksMixin:
         self.logger.info("Completed dashboard widget count check.")
 
         return results
+
+    def _compute_widget_count_for_dashboard(
+        self,
+        dashboard_data: dict[str, Any],
+        dashboard_id: str,
+        dashboard_title: str,
+    ) -> dict[str, Any] | None:
+        """
+        Compute the widget count for a single dashboard payload.
+        """
+        widgets = dashboard_data.get("widgets")
+        if not widgets or not isinstance(widgets, list):
+            self.logger.warning(f"Failed to retrieve data or no widgets found for dashboard ID: {dashboard_id}")
+            return None
+
+        widget_count = len(widgets)
+        resolved_id = dashboard_data.get("oid", dashboard_id)
+        resolved_title = dashboard_data.get("title", dashboard_title)
+
+        self.logger.info(f"Processed dashboard '{resolved_title}' with {widget_count} widgets.")
+
+        return {
+            "dashboard_id": resolved_id,
+            "dashboard_title": resolved_title,
+            "widget_count": widget_count,
+        }
 
     def check_pivot_widget_fields(
         self,
