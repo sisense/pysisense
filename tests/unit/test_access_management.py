@@ -530,6 +530,34 @@ class TestUsersPerGroupAll:
         result = am.users_per_group_all()
         assert result == []
 
+    def test_skips_user_group_not_in_current_group_list_instead_of_raising(self):
+        # A user references a group name ("Engineers") that isn't present in the
+        # current /api/v1/groups response — e.g. the group was deleted between calls.
+        user = dict(_USER_EXPANDED)
+        user["groups"] = [{"_id": "grp_engineers", "name": "Engineers"}]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/v1/users": FakeResponse(200, [user]),
+            }
+        )
+        result = am.users_per_group_all()
+        assert result == [{"group": "Admins", "username": []}]
+
+    def test_guarantees_admins_group_when_groups_list_is_empty_but_successful(self):
+        # An empty (but HTTP-successful) /api/v1/groups response is not a failure —
+        # it must still produce the guaranteed "Admins" entry, unlike the API-failure case.
+        admin_user = dict(_USER_EXPANDED)
+        admin_user["role"] = {"_id": "role_super", "name": "super"}  # super -> sysAdmin
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/v1/users": FakeResponse(200, [admin_user]),
+            }
+        )
+        result = am.users_per_group_all()
+        assert result == [{"group": "Admins", "username": ["jdoe"]}]
+
 
 # ---------------------------------------------------------------------------
 # change_folder_and_dashboard_ownership

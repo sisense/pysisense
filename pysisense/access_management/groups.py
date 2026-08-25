@@ -231,12 +231,11 @@ class GroupsMixin:
         self.logger.debug("Starting to retrieve all groups and their users.")
 
         # Step 1: Fetch all groups
-        group_response = self.api_client.get("/api/v1/groups")
-        if not group_response or not group_response.ok:
+        group_data = self.get_groups()
+        if isinstance(group_data, dict) and "error" in group_data:
             self.logger.error("Failed to retrieve groups from API.")
             return []
 
-        group_data = group_response.json()
         self.logger.debug(f"Retrieved {len(group_data)} groups.")
 
         # Step 2: Fetch all users
@@ -257,9 +256,13 @@ class GroupsMixin:
         # Step 4: Populate group membership from users
         for user in all_users:
             for group in user.get("GROUPS", []):
-                if group not in EXCLUDED_GROUPS:
-                    groups_dict[group].append(user["USER_NAME"])
-                    self.logger.debug(f"Added user '{user['USER_NAME']}' to group '{group}'")
+                if group in EXCLUDED_GROUPS:
+                    continue
+                if group not in groups_dict:
+                    self.logger.debug(f"Skipping user '{user.get('USER_NAME')}' group '{group}' not in current group list")
+                    continue
+                groups_dict[group].append(user["USER_NAME"])
+                self.logger.debug(f"Added user '{user['USER_NAME']}' to group '{group}'")
 
         # Step 5: Add users with admin-like roles to 'Admins'
         for user in all_users:
