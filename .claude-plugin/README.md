@@ -3,8 +3,10 @@
 Teaches Claude Code to write correct `pysisense` SDK scripts (dashboards,
 users, groups, admin operations) using this repo's real API surface and
 conventions. See [`plugin.json`](plugin.json) for the manifest and
-[`../skills/pysisense/SKILL.md`](../skills/pysisense/SKILL.md) for the skill
-itself.
+[`../skills/pysisense/SKILL.md`](../skills/pysisense/SKILL.md) for the
+umbrella skill, which routes to
+[`../skills/scaffolding/SKILL.md`](../skills/scaffolding/SKILL.md) and
+[`../skills/scripting/SKILL.md`](../skills/scripting/SKILL.md).
 
 ## Layout
 
@@ -14,6 +16,10 @@ itself.
   README.md            # this file
 skills/
   pysisense/
+    SKILL.md            # umbrella/entry point — routes to scaffolding and/or scripting
+  scaffolding/
+    SKILL.md            # new-project setup: folder shell, uv init, config template, README, .gitignore
+  scripting/
     SKILL.md            # trigger conditions, conventions, worked examples
     references/
       auth.md              # connection/auth boilerplate
@@ -37,6 +43,11 @@ One module has no dedicated reference yet: `sisenseclient.py` itself (the base
 HTTP client) is covered inline in `auth.md` rather than its own file, since
 its surface is small and mostly about the config/init boilerplate every other
 reference already assumes.
+
+Three skills, invoked as `/pysisense:pysisense` (umbrella/router),
+`/pysisense:scaffolding` (new-project setup), and `/pysisense:scripting`
+(script logic + API references + worked examples) — the slash-command suffix
+comes from each skill's directory name under `skills/`.
 
 `skills/` lives as a **sibling** of `.claude-plugin/`, not nested inside it —
 that's the layout Claude Code's plugin loader expects by default; only the
@@ -62,12 +73,19 @@ write a script to transfer all dashboards from alice@example.com to bob@example.
 
 Confirm that:
 
-- The `pysisense` skill triggers automatically (no need to name it explicitly).
-- Claude reads `SKILL.md` and pulls in the right `references/*.md` file for
-  the task (dashboards vs. users/groups vs. auth).
+- A skill triggers automatically (no need to name it explicitly) — `scripting`
+  for a direct "write me a script" ask, or `pysisense` first if the request is
+  ambiguous about whether a new project shell is needed.
+- Claude reads `scripting/SKILL.md` and pulls in the right `references/*.md`
+  file for the task (dashboards vs. users/groups vs. auth).
 - Generated code matches this repo's real method signatures — cross-check
   against `pysisense/<module>/*.py` or `examples/<module>_example.md` if
   anything looks off.
+- For a "set up a new script project for X" style ask, `scaffolding` triggers
+  and creates the project shell (folder, `uv init`, config template, README,
+  `.gitignore`) before any script logic is written.
+- Explicit invocation also works: `/pysisense:scripting`, `/pysisense:scaffolding`,
+  `/pysisense:pysisense`.
 
 ## Installing for regular use
 
@@ -82,8 +100,9 @@ There is no separate build step; the plugin is just this `.claude-plugin/` +
 When `pysisense`'s public API changes (new methods, changed signatures,
 renamed fields), keep this plugin in sync:
 
-1. Update the relevant `skills/pysisense/references/*.md` file.
-2. Update `SKILL.md`'s worked examples if they call an affected method.
+1. Update the relevant `skills/scripting/references/*.md` file.
+2. Update `skills/scripting/SKILL.md`'s worked examples if they call an
+   affected method.
 3. Re-test with `claude --plugin-dir .` before committing.
 
 This mirrors the repo's own `examples/*.md` / `docs/*.md` maintenance rule in
