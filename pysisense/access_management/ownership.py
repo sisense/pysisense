@@ -148,23 +148,7 @@ class OwnershipMixin:
                 self.logger.info(f"Dashboard: {dash_name} (ID: {dash_id})")
         else:
             self.logger.warning("Folder not found, moving to search dashboards and grant access step...")
-            limit = 50
-            skip = 0
-            dashboards = []
-            while True:
-                self.logger.debug(f"Fetching dashboards (limit={limit}, skip={skip})")
-                dashboard_response = self.api_client.post(
-                    "/api/v1/dashboards/searches",
-                    data={"queryParams": {"ownershipType": "allRoot", "search": "", "ownerInfo": True, "asObject": True}, "queryOptions": {"sort": {"title": 1}, "limit": limit, "skip": skip}},
-                )
-                dashboard_response = dashboard_response.json()
-
-                if not dashboard_response or len(dashboard_response.get("items", [])) == 0:
-                    self.logger.debug("No more dashboards found.")
-                    break
-                else:
-                    dashboards.extend(dashboard_response["items"])
-                    skip += limit
+            dashboards = self._fetch_all_dashboards_paginated()
 
             all_folder_ids = {dic["parentFolder"] for dic in dashboards if "parentFolder" in dic and dic["parentFolder"]}
             self.logger.debug(f"Collected parent folder IDs from dashboards: {all_folder_ids}")

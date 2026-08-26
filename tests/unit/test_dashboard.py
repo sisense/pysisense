@@ -267,6 +267,27 @@ class TestAddDashboardScript:
         result = dash.add_dashboard_script("dash123", "{bad json{{")
         assert result.startswith("Error:")
 
+    def test_returns_ownership_hint_on_404_when_no_executing_user(self):
+        # Confirmed correct against a live instance — see
+        # micael_similar_methods_fixes.md, Dashboard Scripts module.
+        # add_dashboard_script's PUT /api/dashboards/{id} returns 404 for an
+        # inaccessible dashboard, while add_widget_script's PUT
+        # /api/dashboards/{id}/widgets/{widget_id} returns 403 for the same
+        # case — a real, observed difference between the two endpoints, not
+        # a bug in either method's status-code check.
+        script = '{"script": "console.log(1);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
+        result = dash.add_dashboard_script("dash123", script)
+        assert "executing_user" in result
+
+    def test_does_not_return_ownership_hint_on_403_when_no_executing_user(self):
+        # Contrast case: unlike add_widget_script, a 403 here currently falls
+        # through to the generic error message, not the ownership hint.
+        script = '{"script": "console.log(1);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
+        result = dash.add_dashboard_script("dash123", script)
+        assert "executing_user" not in result
+
 
 # ---------------------------------------------------------------------------
 # add_widget_script
@@ -289,6 +310,22 @@ class TestAddWidgetScript:
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.add_widget_script("dash123", "widget456", script)
         assert result.startswith("Error:")
+
+    def test_returns_ownership_hint_on_403_when_no_executing_user(self):
+        # Pins CURRENT behavior — see test_returns_ownership_hint_on_404_when_no_executing_user
+        # in TestAddDashboardScript for the corresponding contrast case.
+        script = '{"script": "console.log(widget);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
+        result = dash.add_widget_script("dash123", "widget456", script)
+        assert "executing_user" in result
+
+    def test_does_not_return_ownership_hint_on_404_when_no_executing_user(self):
+        # Contrast case: unlike add_dashboard_script, a 404 here currently falls
+        # through to the generic error message, not the ownership hint.
+        script = '{"script": "console.log(widget);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
+        result = dash.add_widget_script("dash123", "widget456", script)
+        assert "executing_user" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +414,26 @@ class TestGetDashboardShare:
         dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_share("NoSuchDash")
         assert result == []
+
+    def test_resolves_user_and_group_shares_via_shared_access_mgmt_helper(self):
+        # Regression: get_dashboard_share now resolves shares via
+        # AccessManagement.get_user_email_and_group_name_maps() (self.access_mgmt)
+        # instead of its own direct /api/v1/users + /api/v1/groups fetch —
+        # confirms the shared helper produces the same resolved/unresolved
+        # distinction as before, across the class boundary.
+        dashboard_with_shares = {**_DASHBOARD, "shares": [{"type": "user", "shareId": "user123"}, {"type": "group", "shareId": "grp1"}, {"type": "user", "shareId": "u_missing"}]}
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [dashboard_with_shares]),
+                "/api/v1/users": FakeResponse(200, [_USER]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "grp1", "name": "Engineers"}]),
+            }
+        )
+        result = dash.get_dashboard_share("Sales Report")
+        assert result == [
+            {"type": "user", "name": _USER["email"]},
+            {"type": "group", "name": "Engineers"},
+        ]
 
 
 # ---------------------------------------------------------------------------

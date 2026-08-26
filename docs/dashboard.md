@@ -344,50 +344,6 @@ Retrieves dashboards visible to the authenticated user via `GET /api/v1/dashboar
 
 * * * * *
 
-### `publish_dashboard(dashboard_id)`
-
-Publishes a dashboard so it becomes visible to shared users. Sends `POST /api/v1/dashboards/{id}/publish?force=false&adminAccess=true`.
-
-**Parameters:**
-
--   `dashboard_id` (str): The dashboard `oid` to publish.
-
-**Returns:**
-
--   `dict`: `{"success": True}` on success, or `{"error": "..."}` on failure.
-
-* * * * *
-
-### `rename_dashboard(dashboard_id, title)`
-
-Renames a dashboard by sending `PATCH /api/dashboards/{id}` with only `title` in the body. Other fields are not modified.
-
-**Parameters:**
-
--   `dashboard_id` (str): The dashboard `oid` to rename.
--   `title` (str): The new display title.
-
-**Returns:**
-
--   `dict`: The updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
-
-* * * * *
-
-### `move_dashboard_to_folder(dashboard_id, folder_id)`
-
-Moves a dashboard into a folder by sending `PATCH /api/dashboards/{id}` with only `parentFolder` in the body. Other fields are not modified.
-
-**Parameters:**
-
--   `dashboard_id` (str): The dashboard `oid` to move.
--   `folder_id` (str): The target folder `oid`.
-
-**Returns:**
-
--   `dict`: The updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
-
-* * * * *
-
 ### `change_dashboard_owner(dashboard_id, new_owner_id, admin_access=True, original_owner_rule="edit")`
 
 Transfers ownership of a dashboard to a different user via `POST /api/v1/dashboards/{dashboard_id}/change_owner`. The outgoing owner is demoted to a share entry.

@@ -58,6 +58,11 @@ class TestDecrypt:
         result = enc.decrypt({"value": "encrypted_blob"})
         assert result["value"] == "decrypted_text"
 
+    def test_returns_error_when_not_dict(self):
+        enc = _make_encryption()
+        result = enc.decrypt([])
+        assert "error" in result
+
     def test_returns_error_on_failure(self):
         enc = _make_encryption(
             post_responses={

@@ -390,6 +390,8 @@ try:
         print("Folder ownership transferred successfully.")
         print(f"Total folders changed: {response.get('total_folders_changed', 0)}")
         print(f"Total dashboards changed: {response.get('total_dashboards_changed', 0)}")
+    elif response is None:
+        print("No matching folders or dashboards found — nothing to change.")
     else:
         print(f"Failed to change ownership: {response.get('error', 'Unknown error')}")
 except Exception as e:
@@ -447,6 +449,21 @@ Get sharing information for all dashboards.
 dashboard_shares = access_mgmt.get_all_dashboard_shares()
 df = api_client.to_dataframe(dashboard_shares)
 print(df)
+```
+
+---
+
+## Example 11b: Resolve User/Group IDs to Names
+
+Build lookup maps for resolving share entries (which reference users and groups only by ID) into readable emails and group names.
+
+```python
+maps = access_mgmt.get_user_email_and_group_name_maps()
+if "error" not in maps:
+    print(maps["users_by_id"].get("613b0200bb44e7001b4fc907"))  # -> an email, or None if not found
+    print(maps["groups_by_id"].get("613b0200bb44e7001b4fc905"))  # -> a group name, or None if not found
+else:
+    print(f"Failed to build maps: {maps['error']}")
 ```
 
 ---

@@ -4,6 +4,57 @@ from typing import Any
 
 
 class MetadataCoreMixin:
+    def _fetch_metadata_list(
+        self,
+        kind: str,
+        datasource: str | None,
+        ds_full_name: str | None,
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        """Fetch a metadata list (measures or dimensions) for a datasource.
+
+        Shared by ``get_datasource_measures`` and ``get_datasource_dimensions``,
+        which differ only in the endpoint suffix.
+
+        Parameters
+        ----------
+        kind : str
+            ``"measures"`` or ``"dimensions"`` — selects
+            ``GET /api/metadata/{kind}`` and is used in log/error messages.
+        datasource : str, optional
+            Datasource identifier (for example datamodel title).
+        ds_full_name : str, optional
+            Full datasource name (for example ``localhost/MyModel``).
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            Payload from the API (typically a list), or ``{"error": "..."}``
+            on failure.
+        """
+        params: dict[str, str] = {}
+        if datasource is not None:
+            params["datasource"] = datasource
+        if ds_full_name is not None:
+            params["dsFullName"] = ds_full_name
+
+        endpoint = f"/api/metadata/{kind}"
+        self.logger.debug(f"GET {endpoint} — params={params or None}")
+        response = self.api_client.get(endpoint, params=params or None)
+
+        if response is None:
+            self.logger.error(f"GET {endpoint} failed: No response received.")
+            return {"error": f"No response received while fetching {kind}."}
+
+        if response.status_code != 200:
+            error_message = response.json() if response else "No response text available."
+            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
+            return {"error": f"Failed to fetch {kind}. {error_message}"}
+
+        result = response.json()
+        count = len(result) if isinstance(result, list) else 1
+        self.logger.info(f"Successfully fetched {kind} (count={count}).")
+        return result
+
     def get_datasource_measures(
         self,
         datasource: str | None = None,
@@ -27,29 +78,7 @@ class MetadataCoreMixin:
             Measures payload from the API (typically a list), or
             ``{"error": "..."}`` on failure.
         """
-        params: dict[str, str] = {}
-        if datasource is not None:
-            params["datasource"] = datasource
-        if ds_full_name is not None:
-            params["dsFullName"] = ds_full_name
-
-        endpoint = "/api/metadata/measures"
-        self.logger.debug(f"GET {endpoint} — params={params or None}")
-        response = self.api_client.get(endpoint, params=params or None)
-
-        if response is None:
-            self.logger.error(f"GET {endpoint} failed: No response received.")
-            return {"error": "No response received while fetching measures."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to fetch measures. {error_message}"}
-
-        result = response.json()
-        count = len(result) if isinstance(result, list) else 1
-        self.logger.info(f"Successfully fetched measures (count={count}).")
-        return result
+        return self._fetch_metadata_list("measures", datasource, ds_full_name)
 
     def get_datasource_dimensions(
         self,
@@ -74,29 +103,7 @@ class MetadataCoreMixin:
             Dimensions payload from the API (typically a list), or
             ``{"error": "..."}`` on failure.
         """
-        params: dict[str, str] = {}
-        if datasource is not None:
-            params["datasource"] = datasource
-        if ds_full_name is not None:
-            params["dsFullName"] = ds_full_name
-
-        endpoint = "/api/metadata/dimensions"
-        self.logger.debug(f"GET {endpoint} — params={params or None}")
-        response = self.api_client.get(endpoint, params=params or None)
-
-        if response is None:
-            self.logger.error(f"GET {endpoint} failed: No response received.")
-            return {"error": "No response received while fetching dimensions."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to fetch dimensions. {error_message}"}
-
-        result = response.json()
-        count = len(result) if isinstance(result, list) else 1
-        self.logger.info(f"Successfully fetched dimensions (count={count}).")
-        return result
+        return self._fetch_metadata_list("dimensions", datasource, ds_full_name)
 
     def get_datasources(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all datasources visible to the authenticated user.

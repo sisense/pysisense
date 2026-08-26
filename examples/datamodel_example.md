@@ -506,7 +506,8 @@ print(df)
 
 ## Example 18: Add Shares
 
-Add sharing permissions to a DataModel.
+Add sharing permissions to a DataModel. Only LIVE DataModels are currently
+supported — calling this on an EXTRACT (Elasticube) model returns an error.
 
 ```python
 datamodel_name = "pysense_databricks"

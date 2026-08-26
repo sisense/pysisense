@@ -279,6 +279,53 @@ class CustomCodeCoreMixin:
         self.logger.info(f"Successfully fetched folder contents {folder_id}.")
         return result
 
+    def _patch_resource(self, endpoint: str, label: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """PATCH a resource endpoint and normalize the response.
+
+        Shared by ``rename_notebook_file`` and ``rename_notebook_folder``,
+        which differ only in how the endpoint is built and the label used
+        in log/error messages.
+
+        Parameters
+        ----------
+        endpoint : str
+            Full API endpoint to PATCH.
+        label : str
+            Human-readable description used in log/error messages, e.g.
+            ``"resource {path}"`` or ``"notebook folder {old_id}"``.
+        payload : dict[str, Any]
+            PATCH body with fields to update.
+
+        Returns
+        -------
+        dict[str, Any]
+            API response on success, or ``{"error": "..."}`` on failure.
+        """
+        if not payload:
+            return {"error": "payload must contain at least one field to update."}
+
+        self.logger.debug(f"PATCH {endpoint}")
+        response = self.api_client.patch(endpoint, data=payload)
+
+        if response is None:
+            return {"error": f"No response received while rename {label}."}
+
+        if response.status_code != 200:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text if response else "No response text available."
+            self.logger.error(f"Failed to rename {label}. Error: {detail}")
+            return {"error": f"Failed to rename {label}. {detail}"}
+
+        try:
+            result = response.json()
+        except Exception:
+            result = {"success": True}
+
+        self.logger.info(f"Successfully completed rename {label}.")
+        return result
+
     def rename_notebook_file(self, resource_path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Rename or update a notebook resource file.
 
@@ -297,32 +344,9 @@ class CustomCodeCoreMixin:
         dict[str, Any]
             API response on success, or ``{"error": "..."}`` on failure.
         """
-        if not payload:
-            return {"error": "payload must contain at least one field to update."}
-
         path = resource_path.lstrip("/")
         endpoint = f"/api/resources/{path}"
-        self.logger.debug(f"PATCH {endpoint}")
-        response = self.api_client.patch(endpoint, data=payload)
-
-        if response is None:
-            return {"error": f"No response received while rename resource {path}."}
-
-        if response.status_code != 200:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to rename resource {path}. Error: {detail}")
-            return {"error": f"Failed to rename resource {path}. {detail}"}
-
-        try:
-            result = response.json()
-        except Exception:
-            result = {"success": True}
-
-        self.logger.info(f"Successfully completed rename resource {path}.")
-        return result
+        return self._patch_resource(endpoint, f"resource {path}", payload)
 
     def rename_notebook_folder(self, old_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Rename a custom-code notebook folder.
@@ -341,28 +365,5 @@ class CustomCodeCoreMixin:
         dict[str, Any]
             API response on success, or ``{"error": "..."}`` on failure.
         """
-        if not payload:
-            return {"error": "payload must contain at least one field to update."}
-
         endpoint = f"/api/resources/notebooks/custom_code_notebooks/notebooks/{old_id}/"
-        self.logger.debug(f"PATCH {endpoint}")
-        response = self.api_client.patch(endpoint, data=payload)
-
-        if response is None:
-            return {"error": f"No response received while rename notebook folder {old_id}."}
-
-        if response.status_code != 200:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to rename notebook folder {old_id}. Error: {detail}")
-            return {"error": f"Failed to rename notebook folder {old_id}. {detail}"}
-
-        try:
-            result = response.json()
-        except Exception:
-            result = {"success": True}
-
-        self.logger.info(f"Successfully completed rename notebook folder {old_id}.")
-        return result
+        return self._patch_resource(endpoint, f"notebook folder {old_id}", payload)

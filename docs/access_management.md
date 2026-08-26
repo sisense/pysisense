@@ -116,9 +116,9 @@ Fetches all users along with tenant, group, and role information.
 ### `get_users_with_role_names_and_group_names(self)`
 
 Retrieves **all users** from Sisense and enriches them with role and group IDs
-and names. Internally it calls the users API once and then looks up role and
-group names via the roles and groups APIs, so roles and groups are resolved
-in-memory without per-user API calls.
+and names. Internally it fetches the users API once with `groups` and `role`
+expanded and resolves each user's role/group IDs and names from those
+expanded objects — a single API call, no separate roles/groups lookups.
 
 **Returns:**
 
@@ -130,7 +130,9 @@ in-memory without per-user API calls.
     - `EMAIL`
     - `IS_ACTIVE`
     - `ROLE_ID`
-    - `ROLE_NAME`
+    - `ROLE_NAME` — the **raw** Sisense role name (e.g. `"consumer"`), not the
+      public alias. Use `get_user_with_role_and_group_names` for a single
+      user if the aliased name (`"viewer"`) is needed instead.
     - `GROUP_IDS` (list of group IDs)
     - `GROUP_NAMES` (list of group names)  
     or a single-item list with `{'error': 'message'}` if an API call fails.
@@ -305,7 +307,10 @@ Changes ownership of folders and optionally dashboards.
 
 **Returns:**
 
--   None (logs and updates executed internally).
+-   `dict`: `{"total_folders_changed": int, "total_dashboards_changed": int}`
+    on success, `{"error": "..."}` if the executing user or new owner
+    cannot be resolved, or `None` when there are no folders or dashboards
+    to change.
 
 * * * * *
 
@@ -378,6 +383,16 @@ Retrieves all dashboard share settings, including user and group shares.
 **Returns:**
 
 -   `list`: Dashboard title, share type, and share name.
+
+* * * * *
+
+### `get_user_email_and_group_name_maps(self)`
+
+Fetches all users and groups and builds ID-to-name lookup maps, for resolving share entries (which reference users and groups only by ID) into readable emails and group names. Used internally by `get_all_dashboard_shares` and by `Dashboard.get_dashboard_share`.
+
+**Returns:**
+
+-   `dict`: `{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}` on success, or `{"error": "..."}` if either lookup fails.
 
 * * * * *
 
