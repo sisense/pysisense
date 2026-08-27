@@ -1,11 +1,11 @@
 ---
-name: scaffolding
-description: Use when the user wants to start a brand-new pysisense automation script as its own small project — creating the project folder, `uv init`, a `config.example.yaml` template, a README skeleton, and `.gitignore` — before any script logic is written. Triggers on requests like "set up a new project for a script that does X", "scaffold a pysisense script", or as the first step whenever the `scripting` skill determines a new script needs its own project shell (not a quick inline snippet or an addition to an existing project). Not for writing the actual script logic — use `/pysisense:scripting` for that, after scaffolding.
+name: scaffold
+description: Use when the user wants to start a brand-new pysisense automation script as its own small project — creating the project folder, `uv init`, a `config.example.yaml` template, a README skeleton, and `.gitignore` — before any script logic is written. Triggers on requests like "set up a new project for a script that does X", "scaffold a pysisense script", or as the first step whenever the `script` skill determines a new script needs its own project shell (not a quick inline snippet or an addition to an existing project). Not for writing the actual script logic — use `/pysisense:script` for that, after scaffolding.
 ---
 
 # pysisense script project scaffolding
 
-Create the project shell for a new **pysisense** automation script — folder structure, dependency setup, and config templates. This skill only sets up the empty shell; it does not write the script's actual logic. Once scaffolding is done, hand off to the `scripting` skill (`/pysisense:scripting`) to fill in `<script_name>.py`.
+Create the project shell for a new **pysisense** automation script — folder structure, dependency setup, and config templates. This skill only sets up the empty shell; it does not write the script's actual logic. Once scaffolding is done, hand off to the `script` skill (`/pysisense:script`) to fill in `<script_name>.py`.
 
 A pysisense automation script is a deliverable someone else may run, rerun, and hand off — not a scratch snippet. Unless the user explicitly asks for a quick inline snippet, or is clearly just pasting into a REPL or an existing project, scaffold it as its own small project:
 
@@ -47,6 +47,8 @@ is_ssl: true
 token: "<your_api_token>"
 ```
 
+For the full field list (`operating_system`, `port`, `verify_ssl`, `ssl_path`, `retries`), generating the real `config.yaml` the user will actually fill in, or troubleshooting a connection failure, use the `config` skill (`/pysisense:config`) — this skeleton is just the placeholder that gets committed.
+
 The real `config.yaml` (or `source.yaml`/`target.yaml` for a migration script) is created by the user from that template and must be `.gitignore`d — same rule as this repo's own README: never commit real tokens.
 
 ## `.gitignore`
@@ -59,8 +61,8 @@ For the script itself — not this plugin's docs — covering: what the script d
 
 ## When to skip scaffolding
 
-For a one-off answer the user clearly just wants pasted into a REPL or an existing file, skip scaffolding entirely and go straight to the `scripting` skill — use judgment based on how the request is phrased.
+For a one-off answer the user clearly just wants pasted into a REPL or an existing file, skip scaffolding entirely and go straight to the `script` skill — use judgment based on how the request is phrased.
 
 ## Next step
 
-Once the shell exists, switch to `/pysisense:scripting` to write the actual script logic (conventions, API references, worked examples).
+Once the shell exists, switch to `/pysisense:script` to write the actual script logic (conventions, API references, worked examples).

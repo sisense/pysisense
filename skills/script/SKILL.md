@@ -1,13 +1,13 @@
 ---
-name: scripting
-description: Use whenever the user asks for a script, automation, or one-off task that touches Sisense — dashboards, widgets, users, groups, roles, folders, data models, data security, permissions, ownership transfers, migrations, or admin/governance operations (e.g. "transfer all dashboards from user A to user B", "list dashboards owned by X", "bulk-create these users", "audit unused columns", "share this dashboard with a group"). Also use when the user mentions the `pysisense` package, `SisenseClient`, `config.yaml` for Sisense, or asks to write/fix/debug a Python script against a Sisense instance. Triggers even if the user doesn't say "pysisense" explicitly — any request to script a Sisense admin/BI task qualifies. For setting up a brand-new script's project shell (folder, `uv init`, config template) rather than writing the script logic itself, see the `scaffolding` skill instead.
+name: script
+description: Use whenever the user asks for a script, automation, or one-off task that touches Sisense — dashboards, widgets, users, groups, roles, folders, data models, data security, permissions, ownership transfers, migrations, or admin/governance operations (e.g. "transfer all dashboards from user A to user B", "list dashboards owned by X", "bulk-create these users", "audit unused columns", "share this dashboard with a group"). Also use when the user mentions the `pysisense` package, `SisenseClient`, `config.yaml` for Sisense, or asks to write/fix/debug a Python script against a Sisense instance. Triggers even if the user doesn't say "pysisense" explicitly — any request to script a Sisense admin/BI task qualifies. For setting up a brand-new script's project shell (folder, `uv init`, config template) rather than writing the script logic itself, see the `scaffold` skill instead; for generating/validating/troubleshooting the config YAML itself, see the `config` skill.
 ---
 
 # pysisense automation scripts
 
 Write Python scripts against the **pysisense SDK** — the official wrapper around the Sisense REST API used throughout this repository. Real classes, methods, and conventions only. Never invent endpoints or method names; if a needed capability isn't listed below or in `references/`, say so and grep `pysisense/<module>/` in this repo before guessing.
 
-This skill is for **writing scripts that use pysisense as a library** (the same spirit as `examples/*.md`), not for modifying the SDK's own source. If the user's request is instead about editing pysisense internals, defer to this repo's `CLAUDE.md` conventions.
+This skill is for **writing scripts that use pysisense as a library** (the same spirit as `examples/*.md`), not for modifying the SDK's own source. If the user's request is instead about editing pysisense internals, switch to the `dev` skill.
 
 ## Load order
 
@@ -78,7 +78,7 @@ Rules for doing this safely:
 
 A pysisense automation script is a deliverable someone else may run, rerun, and hand off — not a scratch snippet. Unless the user explicitly asks for a quick inline snippet, or is clearly just pasting into a REPL or an existing project, the script needs a project shell first: a folder, `uv init`, a `config.example.yaml` template, a README, and a `.gitignore`.
 
-Use the **`scaffolding`** skill (`/pysisense:scaffolding`) to create that shell before writing the script logic below into it. If a project shell already exists (the user is adding to or fixing an existing script), skip straight to writing code.
+Use the **`scaffold`** skill (`/pysisense:scaffold`) to create that shell before writing the script logic below into it. If a project shell already exists (the user is adding to or fixing an existing script), skip straight to writing code.
 
 **Comments in generated script code.** This is a different bar than editing pysisense's own SDK source (which this repo's `CLAUDE.md` deliberately keeps comment-free except for non-obvious WHYs) — a generated automation script is read by whoever runs it, often without this conversation's context. Comment the non-obvious parts: why an operation order matters, what a dry-run flag gates, why a particular endpoint is called directly instead of a wrapped method. Don't narrate the obvious (`# loop over dashboards`).
 
