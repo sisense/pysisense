@@ -54,7 +54,7 @@ uv run pre-commit install
 
 ## Project Overview
 
-`pysisense` is an official Python SDK for the **Sisense BI platform**. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
+`pysisense` is a community-maintained Python SDK for the **Sisense BI platform**, built by the Sisense Field Engineering team. It is **not an official Sisense product** — no SLA, no official support, best-effort maintenance. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
 
 ### Modules
 
@@ -180,7 +180,7 @@ Use present-tense imperative: `add user validation`, not `added user validation`
 
 ## API Initialization
 
-The SDK **must** use a Sisense admin user's API token.
+The SDK works with **any Sisense user's API token** — Sisense enforces permissions server-side, so every call is scoped to the token owner's role and access rights (e.g., listing dashboards as admin returns all dashboards; as a viewer, only dashboards shared with that user). Inherently administrative operations (ownership changes, cross-environment migrations, instance-wide listings/exports, `adminAccess=true` methods) require a dedicated Sisense admin user's token.
 
 ### Canonical init pattern
 

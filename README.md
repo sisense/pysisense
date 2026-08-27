@@ -7,6 +7,20 @@ It simplifies complex API operations and allows you to automate and manage **use
 
 ---
 
+## ⚠️ Disclaimer — Community / Field Engineering Project
+
+**`pysisense` is *not* an official Sisense product or SDK.** It is a community project built and maintained by members of the Sisense Field Engineering team on a **best-effort basis**.
+
+Please note:
+
+- **No SLA or official support** — this project is not covered by any Sisense Service Level Agreement or support contract. Do not open Sisense Support tickets for issues with this SDK; use the GitHub issue tracker instead.
+- **Not part of Sisense's product processes** — the SDK does not go through Sisense's official product QA, security review, or release lifecycle.
+- **No compatibility guarantees** — the REST APIs wrapped here may change between Sisense versions without notice, and SDK methods may break as a result.
+- **Use at your own risk** — always validate behavior in a non-production environment before running anything against production, especially write operations (migrations, ownership changes, deletions).
+- **Best-effort maintenance** — issues and pull requests are welcome and reviewed as time permits, with no guaranteed response times.
+
+---
+
 ## 📦 Installation
 
 You can install `pysisense` from [PyPI](https://pypi.org/project/pysisense/):
@@ -29,7 +43,7 @@ If you search for `pysisense` and find a different package, or if you mistyped t
 - **`pysisense-sdk`** — redirects to `pysisense`
 - **`sisense-sdk`** — redirects to `pysisense`
 
-These packages raise an error with a clear message if you try to import them, pointing you to the correct `pysisense` package. The official package is always **`pysisense`**.
+These packages raise an error with a clear message if you try to import them, pointing you to the correct `pysisense` package. The canonical package name is always **`pysisense`**.
 
 ---
 
@@ -76,19 +90,18 @@ ssl_path: "/path/to/ca-bundle.pem"
 
 `ssl_path` takes precedence over `verify_ssl` when both are set, unless `verify_ssl` is explicitly `false`, in that case verification stays fully disabled and `ssl_path` is ignored.
 
-### ⚠️ Important: Use a Dedicated Admin Token
+### 🔑 Tokens and Permissions
 
-Some methods in this SDK require full administrative privileges to interact with Sisense resources (such as ownership changes, user migrations, or folder/dashboard access).
+The SDK works with **any Sisense user's API token** — admin access is not a general requirement. Permissions are enforced by Sisense itself: every API call runs with the role and access rights of the user whose token you configure, so each method can only see and do what that user could see and do in the Sisense UI.
 
-To avoid permission-related issues or incomplete operations:
+This means the same method can return different results depending on the token. For example, fetching dashboards with an admin token may return every dashboard on the instance, while the same call with a viewer's token returns only the dashboards shared with that user.
 
-It is recommended to use a new dedicated Sisense admin user's token when authenticating via your `config.yaml`.
-
-Using restricted or scoped users may result in failures or inconsistent behavior, especially for:
+Some operations, however, are inherently administrative and will fail or behave inconsistently without full admin privileges — for these, use a dedicated Sisense admin user's token in your `config.yaml`:
 
 - Folder and dashboard ownership changes
-- Granting permissions across environments
-- System-wide migrations
+- Granting or modifying permissions across environments
+- System-wide migrations (users, groups, data models, dashboards)
+- Instance-wide listings and admin exports (e.g., methods using `adminAccess=true`)
 
 ---
 
