@@ -234,6 +234,19 @@ class TestSisenseClientDebugLogRedaction:
 
         assert "raw-secret-token-xyz" in caplog.text
 
+    def test_auth_error_body_is_logged_at_error_level(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=False)
+        caplog.set_level(logging.ERROR, logger="SisenseClient")
+
+        error_response = MagicMock(status_code=403)
+        error_response.json.return_value = {"error": "Access denied: admin role required"}
+        with patch.object(client.session, "get", return_value=error_response):
+            client.get("/api/v1/dashboards/admin")
+
+        assert "failed with status code 403" in caplog.text
+        assert "Access denied: admin role required" in caplog.text
+
 
 class TestSisenseClientLogFilePermissions:
     def test_log_directory_and_file_are_owner_restricted(self, tmp_path, monkeypatch):

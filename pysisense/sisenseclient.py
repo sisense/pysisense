@@ -431,7 +431,7 @@ class SisenseClient:
             # Handle known response codes
             if response.status_code in [200, 201, 204]:
                 self.logger.debug(f"{method} request to {url} succeeded with status code {response.status_code}")
-            elif response.status_code in [400, 404, 500]:
+            elif response.status_code >= 400:
                 # Log the error response text if available
                 try:
                     error_message = redact_secrets(response.json())
