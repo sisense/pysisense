@@ -8,6 +8,7 @@ merge = MergeTool(source_yaml="source.yaml", target_yaml="target.yaml", debug=Fa
 
 # Or pass SisenseClient instances directly
 from pysisense import SisenseClient
+
 src = SisenseClient(config_file="source.yaml")
 tgt = SisenseClient(config_file="target.yaml")
 merge = MergeTool(source_client=src, target_client=tgt)
@@ -76,9 +77,9 @@ Every `migrate_X`/`migrate_all_X` method returns the same summary dict shape (fi
 {
     "ok": bool,
     "status": "success" | "failed" | "noop",
-    "succeeded": [...],   # one entry per migrated item
-    "skipped": [...],     # each has a "reason"
-    "failed": [...],      # each has a "reason"
+    "succeeded": [...],  # one entry per migrated item
+    "skipped": [...],  # each has a "reason"
+    "failed": [...],  # each has a "reason"
     "source_count": int,
     "succeeded_count": int,
     "skipped_count": int,
@@ -121,7 +122,7 @@ results = merge.migrate_folders(folder_names=["Analytics"], action="skip", concu
 ## Worked pattern: groups then users (ID resolution across environments)
 
 ```python
-merge.migrate_all_groups(action="skip")     # groups first — user payloads reference target group IDs
+merge.migrate_all_groups(action="skip")  # groups first — user payloads reference target group IDs
 merge.migrate_all_users(action="skip", ignore_custom_roles=False)
 ```
 
@@ -145,8 +146,8 @@ Connection credentials are **never** copied as-is. A dataset's provider is repoi
 ## Worked pattern: datasecurity, formulas, filters (post-datamodel passes)
 
 ```python
-merge.migrate_all_datamodels(action="skip")     # must run first
-merge.migrate_all_datasecurity()                # rules remapped by email (users) / name (groups)
+merge.migrate_all_datamodels(action="skip")  # must run first
+merge.migrate_all_datasecurity()  # rules remapped by email (users) / name (groups)
 merge.migrate_all_saved_formulas(action="skip")
 merge.migrate_all_saved_filters(action="skip")
 ```
@@ -158,6 +159,7 @@ None of these three accept `concurrency` — they loop per data model rather tha
 ```python
 def on_progress(event: dict) -> None:
     print(f"[{event.get('type', '').upper()}] {event.get('step')} — {event.get('message')}")
+
 
 results = merge.migrate_dashboards(
     dashboard_names=["Sales Overview"],

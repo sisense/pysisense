@@ -49,6 +49,7 @@ m = Migration(source_yaml="source.yaml", target_yaml="target.yaml", debug=False)
 
 # 2. Pass SisenseClient instances directly (e.g. already built in the script)
 from pysisense import SisenseClient
+
 src = SisenseClient(config_file="source.yaml")
 tgt = SisenseClient(config_file="target.yaml")
 m = Migration(source_client=src, target_client=tgt)

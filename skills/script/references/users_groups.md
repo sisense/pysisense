@@ -20,12 +20,12 @@
 
 ```python
 user_data = {
-    "email": "john.doe@example.com",   # required
+    "email": "john.doe@example.com",  # required
     "firstName": "John",
     "lastName": "Doe",
-    "role": "dashboardDesigner",       # omit entirely for default "viewer"; never pass ""
-    "groups": ["mig_test"],            # omit or [] if no groups
-    "password": "...",                 # omit to send a set-password email instead
+    "role": "dashboardDesigner",  # omit entirely for default "viewer"; never pass ""
+    "groups": ["mig_test"],  # omit or [] if no groups
+    "password": "...",  # omit to send a set-password email instead
     "preferences": {"language": "en-US"},
 }
 access_mgmt.create_user(user_data)
@@ -76,8 +76,7 @@ response = access_mgmt.change_folder_and_dashboard_ownership(
     change_dashboard_ownership=True,
 )
 if response and "error" not in response:
-    print(f"Folders changed: {response.get('total_folders_changed', 0)}, "
-          f"dashboards changed: {response.get('total_dashboards_changed', 0)}")
+    print(f"Folders changed: {response.get('total_folders_changed', 0)}, dashboards changed: {response.get('total_dashboards_changed', 0)}")
 ```
 
 `executing_user` must be an admin — this call needs elevated API access.

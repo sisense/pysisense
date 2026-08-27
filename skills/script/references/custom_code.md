@@ -23,9 +23,9 @@ payload = {
     "notebookType": "CustomCodeTransformation",
     "displayName": "My Custom Notebook",
 }
-created = custom_code.create_notebook(payload)          # POST /api/v1/notebooks
+created = custom_code.create_notebook(payload)  # POST /api/v1/notebooks
 custom_code.update_notebook(created["oid"], {"displayName": "Renamed"})  # PATCH, partial
-custom_code.delete_notebook(created["oid"])              # DELETE
+custom_code.delete_notebook(created["oid"])  # DELETE
 ```
 
 - `create_notebook` / `update_notebook` both send the `Internal: true` header by default (`use_internal_header=True`) — this is required for programmatic notebook create/update (win2linux migration support). Pass `use_internal_header=False` only if a target environment rejects that header.
@@ -36,7 +36,7 @@ custom_code.delete_notebook(created["oid"])              # DELETE
 ## Folder/file listing and renaming
 
 ```python
-contents = custom_code.list_notebook_folder_contents("folder-id")   # GET .../notebooks/{folder_id}/
+contents = custom_code.list_notebook_folder_contents("folder-id")  # GET .../notebooks/{folder_id}/
 
 custom_code.rename_notebook_file(
     "notebooks/custom_code_notebooks/my_folder/file.ipynb",

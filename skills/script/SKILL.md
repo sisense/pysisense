@@ -174,11 +174,13 @@ users_by_id = {u["_id"]: u.get("email", "unknown") for u in users} if isinstance
 all_dashboards = dashboard.get_all_dashboards()
 rows = []
 for d in all_dashboards if isinstance(all_dashboards, list) else []:
-    rows.append({
-        "title": d.get("title"),
-        "oid": d.get("oid"),
-        "owner_email": users_by_id.get(d.get("owner"), d.get("owner")),
-    })
+    rows.append(
+        {
+            "title": d.get("title"),
+            "oid": d.get("oid"),
+            "owner_email": users_by_id.get(d.get("owner"), d.get("owner")),
+        }
+    )
 
 df = api_client.to_dataframe(rows)
 print(df)

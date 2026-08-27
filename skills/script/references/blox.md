@@ -33,7 +33,7 @@ On Linux, both return the parsed JSON body on success, or `{"success": True}` if
 
 ```python
 action = {"type": "MyCustomAction", "body": "console.log(payload);"}
-blox.save_blox_action(action)          # overwrites if "type" already exists
+blox.save_blox_action(action)  # overwrites if "type" already exists
 
 blox.delete_blox_action("MyCustomAction")
 ```
@@ -52,7 +52,7 @@ Both operate only on widgets of type `"BloX"` — any other widget type returns 
 
 ```python
 style = blox.get_blox_widget_style(dashboard_id, widget_id)
-style["currentCard"]["style"]          # CSS string
+style["currentCard"]["style"]  # CSS string
 style["currentConfig"]["fontFamily"]
 ```
 
@@ -65,7 +65,8 @@ style["currentCard"]["style"] = "body { font-size: 14px; color: #333; }"
 style["currentConfig"]["fontFamily"] = "Roboto"
 
 result = blox.update_blox_widget_style(
-    dashboard_id, widget_id,
+    dashboard_id,
+    widget_id,
     current_card=style["currentCard"],
     current_config=style["currentConfig"],
 )
@@ -80,11 +81,13 @@ Passing neither `current_card` nor `current_config` makes **no write** — the m
 
 ```python
 from pysisense import AccessManagement
+
 access_mgmt = AccessManagement(api_client=api_client)
 my_user_id = access_mgmt.get_my_user()["_id"]
 
 blox.update_blox_widget_style(
-    dashboard_id, widget_id,
+    dashboard_id,
+    widget_id,
     current_card=style["currentCard"],
     executing_user_id=my_user_id,
 )

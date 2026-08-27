@@ -74,7 +74,7 @@ Supported types (case-insensitive): `"Athena"`, `"RedShift"`, `"BigQuery"`, `"Da
 params = {
     "name": "pysense_databricks",
     "connection_string": "jdbc:databricks://<host>:443;httpPath=<path>;AuthMech=3;",
-    "token": "XYZ1234567890",          # required — becomes "password" in the payload
+    "token": "XYZ1234567890",  # required — becomes "password" in the payload
 }
 payload = datamodel.generate_connections_payload("DataBricks", params)
 created = datamodel.create_connections(payload)
@@ -87,12 +87,11 @@ Required keys per type: Athena — `name`, `region`, `s3_output_location`, `aws_
 ## Build — provisioning and deploy
 
 ```python
-datamodel.create_datamodel("MyDataModel_ec", "extract")   # or "live"
-datamodel.create_dataset(datamodel_name="MyDataModel_ec", connection_name="pysense_bigquery",
-                          database_name="fda_food", schema_name="fda_food")
-datamodel.create_table(datamodel_name="MyDataModel_ec", table_name="housing",
-                        import_query="SELECT * FROM `fda_food`.`housing` LIMIT 10",
-                        build_behavior_config={"mode": "increment", "column_name": "latitude"})
+datamodel.create_datamodel("MyDataModel_ec", "extract")  # or "live"
+datamodel.create_dataset(datamodel_name="MyDataModel_ec", connection_name="pysense_bigquery", database_name="fda_food", schema_name="fda_food")
+datamodel.create_table(
+    datamodel_name="MyDataModel_ec", table_name="housing", import_query="SELECT * FROM `fda_food`.`housing` LIMIT 10", build_behavior_config={"mode": "increment", "column_name": "latitude"}
+)
 ```
 
 - `create_dataset` infers `dataset_name` from `schema_name` when omitted.
@@ -125,10 +124,8 @@ datamodel.deploy_datamodel("MyDataModel_live")
 **Edge case (per CLAUDE.md, confirmed in `security.py`)**: when no RLS rules exist, `get_datasecurity` and `get_datasecurity_detail` both return a **single-entry list** with empty string values (and the resolved `datamodel_name`) — never an empty list. Don't treat `len(result) == 0` as "no rules"; check for the empty-values sentinel row instead, or just check `result[0]["table_name"] == ""`.
 
 ```python
-rules = [{"table": "orders", "column": "region", "datatype": "text",
-          "members": ["EMEA"], "exclusionary": False,
-          "shares": [{"type": "user", "partyId": "user_oid", "partyName": "user@example.com"}]}]
-datamodel.update_datasecurity("SalesCube", rules)              # extract
+rules = [{"table": "orders", "column": "region", "datatype": "text", "members": ["EMEA"], "exclusionary": False, "shares": [{"type": "user", "partyId": "user_oid", "partyName": "user@example.com"}]}]
+datamodel.update_datasecurity("SalesCube", rules)  # extract
 datamodel.set_live_datasecurity_add_many("LiveSalesCube", rules)  # live
 ```
 
@@ -158,7 +155,7 @@ datamodel.add_datamodel_shares("pysense_databricks", shares)
 ## Data — direct table access
 
 ```python
-rows = datamodel.get_data("pysense_databricks", "trips")                      # SELECT * FROM [trips]
+rows = datamodel.get_data("pysense_databricks", "trips")  # SELECT * FROM [trips]
 rows = datamodel.get_data("pysense_databricks", "trips", query="SELECT count(*) FROM trips")
 counts = datamodel.get_row_count("pysense_databricks_ec")
 ```

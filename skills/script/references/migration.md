@@ -8,6 +8,7 @@ migration = Migration(source_yaml="source.yaml", target_yaml="target.yaml", debu
 
 # Mode 2: pre-built SisenseClient instances
 from pysisense import SisenseClient
+
 src = SisenseClient(config_file="source.yaml")
 tgt = SisenseClient(config_file="target.yaml")
 migration = Migration(source_client=src, target_client=tgt)
@@ -24,6 +25,7 @@ Every `migrate_all_*` method, plus `migrate_dashboards` and `migrate_datamodels`
 ```python
 def my_progress_callback(event: dict) -> None:
     print(f"[{event['type']}] {event['step']}: {event['message']}")
+
 
 migration.migrate_all_users(emit=my_progress_callback)
 ```
@@ -85,7 +87,10 @@ Same return-shape caveat as groups: `migrate_users` can return a bare `list[dict
 ```python
 migration.migrate_dashboards(
     dashboard_names=["Export to PDF text widget"],
-    action="skip", republish=True, migrate_share=True, change_ownership=True,
+    action="skip",
+    republish=True,
+    migrate_share=True,
+    change_ownership=True,
 )
 ```
 

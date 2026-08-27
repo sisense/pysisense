@@ -32,8 +32,8 @@ folder.delete_folder("65d62c9wregfhg0e33bc64e8")
 `get_all_folders()` is a plain shortcut for `get_folders("tree")` — nothing else changed, same return shape.
 
 ```python
-flat = folder.get_folders()                 # structure="flat" by default
-tree = folder.get_all_folders()              # == folder.get_folders("tree")
+flat = folder.get_folders()  # structure="flat" by default
+tree = folder.get_all_folders()  # == folder.get_folders("tree")
 ```
 
 ## `get_folder_ancestors` — read the name carefully
@@ -41,7 +41,7 @@ tree = folder.get_all_folders()              # == folder.get_folders("tree")
 `get_folder_ancestors(structure)` is a **thin alias for `get_folders(structure)`** — it passes `structure` straight through to the same `GET /api/v1/folders?structure=...` endpoint, unchanged. It does not compute or filter to an ancestor chain on its own; it exists for compatibility with win2linux workflows that pass an ancestors-specific `structure` string. Unlike `get_folders`, `structure` here is a required positional argument (no default).
 
 ```python
-folder.get_folder_ancestors("ancestors")   # whatever "ancestors" means server-side for this structure param
+folder.get_folder_ancestors("ancestors")  # whatever "ancestors" means server-side for this structure param
 ```
 
 ## `get_navver` — navigation tree

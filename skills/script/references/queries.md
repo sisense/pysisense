@@ -39,9 +39,9 @@ result = queries.elasticube_run_jaql_query("SalesModel", jaql_payload)
 ```python
 csv_result = queries.elasticubes_run_jaql_csv("SalesModel", jaql_payload)
 if isinstance(csv_result, str):
-    print(csv_result)          # raw CSV text
+    print(csv_result)  # raw CSV text
 else:
-    print(csv_result)          # parsed JSON (dict or list) — server didn't return CSV
+    print(csv_result)  # parsed JSON (dict or list) — server didn't return CSV
 ```
 
 `elasticubes_run_jaql_csv` returns `dict[str, Any] | str`: parsed JSON if the response is JSON, raw CSV text otherwise, or `{"error": "..."}` on failure. Check `isinstance(result, str)` before treating it as CSV text — a JSON-shaped error or result dict can still come back instead.

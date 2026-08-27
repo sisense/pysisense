@@ -99,7 +99,7 @@ dashboard.update_widget(dashboard_id, widget_id, widget)  # server-managed field
 # Search across the instance (or a subset of dashboards) by widget type
 dashboard.find_widgets_by_type(
     "BloX",
-    dashboards=None,          # None = every dashboard; or a list of IDs/titles
+    dashboards=None,  # None = every dashboard; or a list of IDs/titles
     admin_access=True,
     max_results=None,
 )
@@ -114,7 +114,7 @@ script_obj = dashboard.get_dashboard_script(dashboard_id)
 if isinstance(script_obj, dict) and "error" in script_obj:
     print(script_obj["error"])
 else:
-    print(script_obj.to_text())      # cleaned JS, boilerplate stripped
-    print(script_obj.to_md())        # markdown title + fenced block
+    print(script_obj.to_text())  # cleaned JS, boilerplate stripped
+    print(script_obj.to_md())  # markdown title + fenced block
     script_obj.to_file("results/dashboard_script.js")
 ```

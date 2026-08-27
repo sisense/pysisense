@@ -62,7 +62,7 @@ new_report = {
     },
     "dashboards": [{"dashboardOid": "f0aB356CeF6e8Cbc2E2b9add"}],
     "recipients": [{"email": "team@example.com", "type": "user"}],
-    "reportType": {"PDF": True, "CSV": False, "URL": False},   # all 3 keys required if present
+    "reportType": {"PDF": True, "CSV": False, "URL": False},  # all 3 keys required if present
     "runOnFinish": {"fileShare": {"overwriteExisting": False}},  # required if present
 }
 response = report_manager.create_report(new_report)
@@ -81,8 +81,8 @@ response = report_manager.update_report(
 ## delete_report / run_report
 
 ```python
-report_manager.delete_report("5A929ac648c9EcebAf0DE08e")   # -> {"success": True} or {"error": "..."}
-report_manager.run_report("5A929ac648c9EcebAf0DE08e")      # -> {"success": True} (or response body) or {"error": "..."}
+report_manager.delete_report("5A929ac648c9EcebAf0DE08e")  # -> {"success": True} or {"error": "..."}
+report_manager.run_report("5A929ac648c9EcebAf0DE08e")  # -> {"success": True} (or response body) or {"error": "..."}
 ```
 
 `run_report` triggers an immediate on-demand run. If the max number of concurrently running reports has been reached, the server **queues** the report instead of running it right away — this is not surfaced as an error, the call still returns success.
