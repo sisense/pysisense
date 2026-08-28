@@ -70,6 +70,10 @@ def test_get_dashboard_shares_v1_read_back_is_usable() -> None:
 
     result = dashboard.get_dashboard_shares_v1(dashboards[0]["oid"])
 
+    if isinstance(result, list):
+        # Some Sisense versions return the share entries as a list.
+        assert result, "Share read-back returned an empty list."
+        return
     assert isinstance(result, dict), f"Unexpected return type: {type(result)}"
     if "error" in result:
         assert "No response text available" not in result["error"], "Pre-contract error phrasing has resurfaced."

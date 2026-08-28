@@ -466,6 +466,20 @@ class TestGetDashboardSharesV1:
         result = dash.get_dashboard_shares_v1("dash123")
         assert "error" in result
 
+    def test_retries_without_admin_access_when_api_rejects_the_param(self):
+        # Some Sisense versions reject adminAccess with a strict-schema 422;
+        # the method must retry the bare endpoint. Exact-URL keys let the fake
+        # serve different responses per variant.
+        shares_list = [{"userName": "a@b.com", "rule": "edit"}]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/dash123/shares?adminAccess=true": FakeResponse(422, {"message": "must NOT have additional properties"}),
+                "/api/v1/dashboards/dash123/shares": FakeResponse(200, shares_list),
+            }
+        )
+        result = dash.get_dashboard_shares_v1("dash123")
+        assert result == shares_list
+
 
 # ---------------------------------------------------------------------------
 # can_be_owned
