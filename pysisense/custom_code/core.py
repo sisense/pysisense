@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 # Sisense notebook create/update require the Internal header (win2linux migration).
 _INTERNAL_HEADER = {"Internal": "true"}
 
@@ -37,16 +39,10 @@ class CustomCodeCoreMixin:
         self.logger.debug(f"GET {endpoint}")
         response = self.api_client.get(endpoint, params=query or None)
 
-        if response is None:
-            return {"error": "No response received while fetching notebooks."}
-
-        if not response.ok:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to fetch notebooks. Error: {detail}")
-            return {"error": f"Failed to fetch notebooks. {detail}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to fetch notebooks", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -76,16 +72,10 @@ class CustomCodeCoreMixin:
         self.logger.debug(f"GET {endpoint}")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            return {"error": f"No response received while fetching notebook export {notebook_id}."}
-
-        if not response.ok:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to fetch notebook export {notebook_id}. Error: {detail}")
-            return {"error": f"Failed to fetch notebook export {notebook_id}. {detail}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to fetch notebook export {notebook_id}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -128,16 +118,10 @@ class CustomCodeCoreMixin:
         self.logger.debug(f"POST {endpoint}")
         response = self.api_client.post(endpoint, data=notebook_data, extra_headers=extra_headers)
 
-        if response is None:
-            return {"error": "No response received while create notebook."}
-
-        if response.status_code not in (200, 201):
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to create notebook. Error: {detail}")
-            return {"error": f"Failed to create notebook. {detail}"}
+        if response is None or response.status_code not in (200, 201):
+            failure = _extract_error_message(response, "Failed to create notebook", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -182,16 +166,10 @@ class CustomCodeCoreMixin:
         self.logger.debug(f"PATCH {endpoint}")
         response = self.api_client.patch(endpoint, data=notebook_data, extra_headers=extra_headers)
 
-        if response is None:
-            return {"error": f"No response received while update notebook {notebook_id}."}
-
-        if response.status_code != 200:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to update notebook {notebook_id}. Error: {detail}")
-            return {"error": f"Failed to update notebook {notebook_id}. {detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to update notebook {notebook_id}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -222,7 +200,9 @@ class CustomCodeCoreMixin:
         response = self.api_client.delete(endpoint)
 
         if response is None:
-            return {"error": f"No response received while deleting notebook '{notebook_id}'."}
+            failure = _extract_error_message(response, f"Failed to delete notebook '{notebook_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         if response.status_code == 204:
             self.logger.info(f"Successfully deleted notebook {notebook_id}.")
@@ -234,12 +214,9 @@ class CustomCodeCoreMixin:
             except Exception:
                 return {"success": True}
 
-        try:
-            detail = response.json()
-        except Exception:
-            detail = response.text if response else "No response text available."
-        self.logger.error(f"Failed to delete notebook '{notebook_id}'. Error: {detail}")
-        return {"error": f"Failed to delete notebook '{notebook_id}'. {detail}"}
+        failure = _extract_error_message(response, f"Failed to delete notebook '{notebook_id}'", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def list_notebook_folder_contents(self, folder_id: str) -> dict[str, Any] | list[Any]:
         """List contents of a custom-code notebook folder.
@@ -260,16 +237,10 @@ class CustomCodeCoreMixin:
         self.logger.debug(f"GET {endpoint}")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            return {"error": f"No response received while fetching folder contents {folder_id}."}
-
-        if not response.ok:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to fetch folder contents {folder_id}. Error: {detail}")
-            return {"error": f"Failed to fetch folder contents {folder_id}. {detail}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to fetch folder contents {folder_id}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -307,16 +278,10 @@ class CustomCodeCoreMixin:
         self.logger.debug(f"PATCH {endpoint}")
         response = self.api_client.patch(endpoint, data=payload)
 
-        if response is None:
-            return {"error": f"No response received while rename {label}."}
-
-        if response.status_code != 200:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text if response else "No response text available."
-            self.logger.error(f"Failed to rename {label}. Error: {detail}")
-            return {"error": f"Failed to rename {label}. {detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to rename {label}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()

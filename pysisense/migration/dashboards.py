@@ -241,7 +241,8 @@ class DashboardsMigrationMixin:
                     if response and response.status_code in [200, 201]:
                         self.logger.debug(f"POST request successful without adminAccess for dashboard ID {target_id}.")
                     else:
-                        self.logger.error(f"Retry without adminAccess also failed for POST request to dashboard ID {target_id}. Status Code: {response.status_code if response else 'No response'}")
+                        retry_status = response.status_code if response is not None else "No response"
+                        self.logger.error(f"Retry without adminAccess also failed for POST request to dashboard ID {target_id}. Status Code: {retry_status}")
                 elif response.status_code not in [200, 201]:
                     self.logger.error(f"Unexpected status code for POST request to {post_url}: {response.status_code}.")
             else:
@@ -252,7 +253,7 @@ class DashboardsMigrationMixin:
                 self.logger.info(f"Shares migrated successfully to target dashboard ID {target_id}.")
                 share_migration_summary["new_share_success_count"] += len(filtered_new_shares)
             else:
-                self.logger.error(f"Failed to migrate shares for target dashboard ID {target_id}. Status Code: {response.status_code if response else 'No response'}")
+                self.logger.error(f"Failed to migrate shares for target dashboard ID {target_id}. Status Code: {response.status_code if response is not None else 'No response'}")
                 share_migration_summary["share_fail_count"] += len(filtered_new_shares)
                 share_migration_summary["failed_dashboards"].append({"source_id": source_id, "target_id": target_id})
             dashboard_results.append(

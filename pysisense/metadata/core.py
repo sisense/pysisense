@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class MetadataCoreMixin:
     def _fetch_metadata_list(
@@ -41,14 +43,10 @@ class MetadataCoreMixin:
         self.logger.debug(f"GET {endpoint} — params={params or None}")
         response = self.api_client.get(endpoint, params=params or None)
 
-        if response is None:
-            self.logger.error(f"GET {endpoint} failed: No response received.")
-            return {"error": f"No response received while fetching {kind}."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to fetch {kind}. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to fetch {kind}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         result = response.json()
         count = len(result) if isinstance(result, list) else 1
@@ -119,14 +117,10 @@ class MetadataCoreMixin:
         self.logger.debug(f"GET {endpoint}")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"GET {endpoint} failed: No response received.")
-            return {"error": "No response received while fetching datasources."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"GET {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to fetch datasources. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to fetch datasources", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         result = response.json()
         count = len(result) if isinstance(result, list) else 1
@@ -158,17 +152,10 @@ class MetadataCoreMixin:
         self.logger.debug(f"POST {endpoint}")
         response = self.api_client.post(endpoint, data=measure)
 
-        if response is None:
-            self.logger.error(f"POST {endpoint} failed: No response received.")
-            return {"error": "No response received while posting add measure."}
-
-        if response.status_code not in (200, 201):
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text if response else "No response text available."
-            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to post add measure. {error_message}"}
+        if response is None or response.status_code not in (200, 201):
+            failure = _extract_error_message(response, "Failed to post add measure", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -201,17 +188,10 @@ class MetadataCoreMixin:
         self.logger.debug(f"POST {endpoint}")
         response = self.api_client.post(endpoint, data=query_payload)
 
-        if response is None:
-            self.logger.error(f"POST {endpoint} failed: No response received.")
-            return {"error": "No response received while posting metadata query."}
-
-        if response.status_code not in (200, 201):
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text if response else "No response text available."
-            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to post metadata query. {error_message}"}
+        if response is None or response.status_code not in (200, 201):
+            failure = _extract_error_message(response, "Failed to post metadata query", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()

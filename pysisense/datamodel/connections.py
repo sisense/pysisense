@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..utils import redact_secrets
+from ..utils import _extract_error_message, redact_secrets
 
 
 class ConnectionsMixin:
@@ -60,14 +60,10 @@ class ConnectionsMixin:
         self.logger.debug("Fetching all connections.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve connections failed: No response received.")
-            return {"error": "No response received while retrieving connections."}
-
-        if not response.ok:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve connections. Error: {error_message}")
-            return {"error": f"Failed to retrieve connections. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve connections", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         connections = response.json()
         count = len(connections) if isinstance(connections, list) else 0
@@ -104,17 +100,10 @@ class ConnectionsMixin:
         self.logger.debug(f"Updating connection {connection_id} — fields: {list(connection_data.keys())}")
         response = self.api_client.patch(endpoint, data=connection_data)
 
-        if response is None:
-            self.logger.error(f"PATCH request to update connection {connection_id} failed: No response received.")
-            return {"error": f"No response received while updating connection ID '{connection_id}'"}
-
-        if not response.ok:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text if response else "No response text available."
-            self.logger.error(f"Failed to update connection {connection_id}. Error: {error_message}")
-            return {"error": f"Failed to update connection '{connection_id}'. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to update connection '{connection_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         updated = response.json()
         self.logger.info(f"Successfully updated connection {connection_id}.")
@@ -377,6 +366,6 @@ class ConnectionsMixin:
             self.logger.debug(f"Full connection response: {redact_secrets(connection_detail)}")
             return connection_detail
 
-        error_msg = response.text if response else "No response received from API."
-        self.logger.error(f"Failed to create connection. Error: {error_msg}")
+        failure = _extract_error_message(response, "Failed to create connection", self.api_client)
+        self.logger.error(failure["error"])
         return None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DataMixin:
     def get_data(self, datamodel_name: str, table_name: str, query: str | None = None) -> list[dict[str, Any]]:
@@ -57,8 +59,8 @@ class DataMixin:
             return rows
 
         else:
-            error_text = response.text if response else "No response from API."
-            self.logger.error(f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'. Error: {error_text}")
+            failure = _extract_error_message(response, f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'", self.api_client)
+            self.logger.error(failure["error"])
             return []
 
     def get_row_count(self, datamodel_name: str) -> list[dict[str, Any]]:
