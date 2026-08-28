@@ -223,11 +223,11 @@ Deletes a group by ID.
 
 ### `create_user(self, user_data)`
 
-Creates a new user by converting group and role names into IDs.
+Creates a new user by converting group and role names into IDs. Required fields are validated up front — a missing `email` or `role` is rejected with a clear error before any API call.
 
 **Parameters:**
 
--   `user_data` (dict): Includes email, name, role name, groups, preferences.
+-   `user_data` (`CreateUserPayload`): User fields. `email` and `role` are **required**; `userName`, `firstName`, `lastName`, `groups` (names, resolved to IDs), and `preferences` are optional.
 
 **Returns:**
 
@@ -243,7 +243,7 @@ Updates a user’s attributes by email address (email-based lookup via get_user)
 
 -   `user_name` (str): Email address of the user to update (used to find the user).
 
--   `user_data` (dict): Fields to update as a dictionary (for example: firstName, lastName, email, userName, role, groups).
+-   `user_data` (`UpdateUserPayload`): Fields to update as a dictionary — all optional, only include fields you want to change (for example: firstName, lastName, email, userName, role, groups).
 
 **Returns:**
 

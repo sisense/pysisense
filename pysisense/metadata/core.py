@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..payloads import MeasurePayload
 from ..utils import _extract_error_message
 
 
@@ -127,16 +128,19 @@ class MetadataCoreMixin:
         self.logger.info(f"Successfully fetched datasources (count={count}).")
         return result
 
-    def add_datasource_measure(self, measure: dict[str, Any]) -> dict[str, Any]:
+    def add_datasource_measure(self, measure: MeasurePayload) -> dict[str, Any]:
         """Create a saved formula measure in Sisense metadata.
 
         Sends ``POST /api/metadata/`` with the measure definition payload.
 
         Parameters
         ----------
-        measure : dict[str, Any]
-            Measure object in Sisense metadata format (for example datasource,
-            table, column, expression, and related fields).
+        measure : MeasurePayload
+            Measure object in Sisense metadata format. ``title`` and
+            ``datasource`` (``{"title": ..., "fullname": ...}``) are required;
+            additional Sisense metadata fields (expression, context,
+            table/column references) may be included and are passed through
+            unchanged.
 
         Returns
         -------

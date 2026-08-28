@@ -66,9 +66,11 @@ print(json.dumps(response, indent=4))
 ## Example 3b: List All Connections
 
 ```python
-response = datamodel.get_connections()
+response = datamodel.get_connections_all()
 print(json.dumps(response, indent=4))
 ```
+
+`get_connections()` still works as a deprecated alias with identical behavior.
 
 ---
 

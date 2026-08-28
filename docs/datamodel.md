@@ -68,9 +68,11 @@ Retrieves a Connection by its name.
 
 ---
 
-### `get_connections()`
+### `get_connections_all()`
 
 Lists all connections via `GET /api/v2/connections`.
+
+`get_connections()` is kept as a deprecated alias with identical behavior — prefer `get_connections_all`, which makes the all-vs-single distinction from `get_connection` explicit.
 
 #### Returns:
 
@@ -140,17 +142,17 @@ It is recommended to use this method with caution.
 
 ### `create_datamodel(self, datamodel_name, datamodel_type)`
 
-Creates a new DataModel in Sisense.
+Creates a new DataModel in Sisense. Before creating, checks that no DataModel with the same title already exists — a duplicate title otherwise surfaces as an opaque HTTP 500 from the API, and now returns a clear "already exists" error instead.
 
 #### Parameters:
 
 * `datamodel_name` (str): Name of the DataModel.
 
-* `datamodel_type` (str): Type of the DataModel. Should be either "extract" (for Elasticube) or "live" (for Live).
+* `datamodel_type` (`Literal["extract", "live"]`): Type of the DataModel — "extract" (Elasticube) or "live".
 
 #### Returns:
 
-* `dict`: Dictionary with the DataModel ID if created successfully, or an error message.
+* `dict`: Dictionary with the DataModel ID if created successfully, or an error message (including a clear "already exists" error when the title is taken).
 
 ---
 
@@ -297,7 +299,7 @@ Deploys (builds or publishes) the specified DataModel based on its type.
 
 * `datamodel_name` (str): Name of the DataModel to deploy.
 
-* `build_type` (str): Type of deployment. Required for EXTRACT only. Options:
+* `build_type` (`Literal["full", "by_table", "schema_changes"]`): Type of deployment. Required for EXTRACT only. Options:
 
   * `schema_changes`
 

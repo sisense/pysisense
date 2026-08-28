@@ -11,6 +11,23 @@ from .folder import Folder
 from .mergetool import MergeTool
 from .metadata import Metadata
 from .migration import Migration
+
+# Payload contracts (TypedDicts for dict parameters)
+from .payloads import (
+    AthenaConnectionParams,
+    BigQueryConnectionParams,
+    ConnectionPayload,
+    ConnectionUpdatePayload,
+    CreateUserPayload,
+    DataBricksConnectionParams,
+    DatasourceRef,
+    MeasurePayload,
+    NotebookCreatePayload,
+    NotebookUpdatePayload,
+    PluginSnapshot,
+    RedShiftConnectionParams,
+    UpdateUserPayload,
+)
 from .plugins import Plugins
 from .queries import Queries
 from .report_manager import ReportManager
@@ -40,4 +57,17 @@ __all__ = [
     "convert_to_dataframe",
     "export_to_csv",
     "convert_utc_to_local",
+    "AthenaConnectionParams",
+    "BigQueryConnectionParams",
+    "ConnectionPayload",
+    "ConnectionUpdatePayload",
+    "CreateUserPayload",
+    "DataBricksConnectionParams",
+    "DatasourceRef",
+    "MeasurePayload",
+    "NotebookCreatePayload",
+    "NotebookUpdatePayload",
+    "PluginSnapshot",
+    "RedShiftConnectionParams",
+    "UpdateUserPayload",
 ]

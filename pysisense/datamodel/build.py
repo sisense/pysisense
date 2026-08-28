@@ -1,30 +1,32 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from ..utils import _extract_error_message
 
 
 class BuildMixin:
-    def create_datamodel(self, datamodel_name: str, datamodel_type: str) -> dict[str, Any]:
+    def create_datamodel(self, datamodel_name: str, datamodel_type: Literal["extract", "live"]) -> dict[str, Any]:
         """Create a new data model in Sisense.
 
-        Normalizes and validates the model type, then sends a request to create
-        the data model and returns its assigned ID.
+        Normalizes and validates the model type, checks that no data model with
+        the same title already exists (the API otherwise fails with an opaque
+        HTTP 500), then sends a request to create the data model and returns
+        its assigned ID.
 
         Parameters
         ----------
         datamodel_name : str
             Name of the data model.
-        datamodel_type : str
-            Type of the data model. Should be either ``"extract"`` (for Elasticube)
-            or ``"live"`` (for Live).
+        datamodel_type : Literal["extract", "live"]
+            Type of the data model: ``"extract"`` (Elasticube) or ``"live"``.
 
         Returns
         -------
         dict[str, Any]
             Dictionary with the data model ID under ``"datamodel_id"`` on success,
-            or ``{"error": "..."}`` on failure.
+            or ``{"error": "..."}`` on failure — including a clear
+            "already exists" error when the title is taken.
         """
         self.logger.debug(f"Attempting to create DataModel '{datamodel_name}' with type '{datamodel_type}'")
 
@@ -33,6 +35,15 @@ class BuildMixin:
         if datamodel_type not in ("live", "extract"):
             self.logger.error(f"Invalid DataModel type: '{datamodel_type}'. Must be 'live' or 'extract'.")
             return {"error": "Invalid datamodel_type. Must be 'live' or 'extract'."}
+
+        # Pre-check by title — a duplicate name otherwise surfaces as a raw
+        # HTTP 500 "Internal Server Error" from the API.
+        existing = self.get_datamodel(datamodel_name)
+        if not (isinstance(existing, dict) and "error" in existing):
+            oid = existing.get("oid") if isinstance(existing, dict) else None
+            error_msg = f"DataModel '{datamodel_name}' already exists" + (f" (oid: {oid})." if oid else ".")
+            self.logger.error(error_msg)
+            return {"error": error_msg}
 
         payload = {"title": datamodel_name, "type": datamodel_type}
 
@@ -363,7 +374,7 @@ class BuildMixin:
     def setup_datamodel(
         self,
         datamodel_name: str,
-        datamodel_type: str,
+        datamodel_type: Literal["extract", "live"],
         connection_name: str,
         database_name: str,
         schema_name: str,
@@ -379,9 +390,8 @@ class BuildMixin:
         ----------
         datamodel_name : str
             Name of the data model.
-        datamodel_type : str
-            Type of the data model. Should be either ``"extract"`` (for Elasticube)
-            or ``"live"`` (for Live).
+        datamodel_type : Literal["extract", "live"]
+            Type of the data model: ``"extract"`` (Elasticube) or ``"live"``.
         connection_name : str
             Name of the connection to use.
         database_name : str
@@ -463,7 +473,13 @@ class BuildMixin:
         self.logger.debug(f"[END] Setup DataModel '{datamodel_name}'")
         return {"datamodel_id": datamodel_id, "dataset_id": dataset_id, "tables": created_tables}
 
-    def deploy_datamodel(self, datamodel_name: str, build_type: str = "full", row_limit: int = 0, schema_origin: str = "latest") -> dict[str, Any]:
+    def deploy_datamodel(
+        self,
+        datamodel_name: str,
+        build_type: Literal["full", "by_table", "schema_changes"] = "full",
+        row_limit: int = 0,
+        schema_origin: Literal["latest", "running"] = "latest",
+    ) -> dict[str, Any]:
         """Deploy (build or publish) the specified data model based on its type.
 
         Supports both Elasticube (EXTRACT) and Live models. For EXTRACT models a
@@ -475,7 +491,7 @@ class BuildMixin:
         ----------
         datamodel_name : str
             Name of the data model to deploy.
-        build_type : str, optional
+        build_type : Literal["full", "by_table", "schema_changes"], optional
             Type of deployment for EXTRACT models. One of ``"schema_changes"``
             (build only schema changes), ``"by_table"`` (build per each table's
             config, e.g. incremental/accumulative), or ``"full"`` (rebuild the
@@ -484,7 +500,7 @@ class BuildMixin:
         row_limit : int, optional
             Maximum number of rows to process for EXTRACT builds. Defaults to ``0``
             (no limit). Ignored for LIVE models.
-        schema_origin : str, optional
+        schema_origin : Literal["latest", "running"], optional
             Schema source for EXTRACT builds. One of ``"latest"`` (schema as seen
             in the Data page, the default) or ``"running"`` (last successfully built
             version). Ignored for LIVE models.
