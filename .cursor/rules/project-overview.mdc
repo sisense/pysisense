@@ -5,7 +5,7 @@ alwaysApply: true
 
 # pysisense — Project Overview
 
-`pysisense` is an official Python SDK for the **Sisense BI platform**. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
+`pysisense` is a community-maintained Python SDK for the **Sisense BI platform**, built by the Sisense Field Engineering team. It is **not an official Sisense product** — no SLA, no official support, best-effort maintenance. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
 
 ## Development commands
 
