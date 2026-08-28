@@ -346,6 +346,24 @@ print("Done")
 self.logger.debug(f"Sending payload: {full_payload}")
 ```
 
+### Sisense API response quirks — parse defensively
+
+The Sisense REST API is **not uniform**: response structure varies by endpoint, model
+type, and Sisense version. Live-confirmed examples: error bodies may be JSON or HTML
+(`update_datasecurity` 404s with an HTML page); payloads omit keys entirely instead of
+sending them empty (a scriptless dashboard has **no** `script` key); live vs extract
+endpoints differ in path, identifier (title vs oid), and required fields. Rules:
+
+- **Never bracket-access API payload keys** (`data["script"]`) — always `.get(...)`
+  with an explicit fallback, or return an honest "field not present" result. A missing
+  key is usually a normal state, not an error.
+- **Never assume error bodies are JSON** — route HTTP failures through
+  `_extract_error_message()` (`pysisense/utils.py`), which handles JSON/text/empty
+  bodies and adds the status code.
+- **When an endpoint exists in live + extract flavors, verify both against a real
+  instance** — they often differ in path, identifier (title vs oid), and required
+  payload fields. Do not extrapolate one flavor from the other.
+
 ### Smart reference resolvers
 
 Methods that accept a dashboard or data model reference handle either a 24-char ID or a title string:
