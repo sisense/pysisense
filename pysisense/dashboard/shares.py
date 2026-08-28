@@ -120,16 +120,17 @@ class SharesMixin:
         for group in groups:
             group.pop("name", None)
 
-        # Fetch existing shares
+        # Fetch existing shares. Retry without admin access ONLY on auth
+        # failures — a fallback cannot help a server error or timeout, and
+        # blindly retrying doubles the cost of every slow failure.
         shares_response = self.api_client.get(endpoint)
-        if shares_response is None or shares_response.status_code != 200:
-            self.logger.warning(f"Failed to retrieve existing shares for dashboard {dashboard_id} with admin access. Trying without admin access.")
-            # Try without admin access
+        if shares_response is not None and shares_response.status_code in (401, 403, 422):
+            self.logger.warning(f"adminAccess rejected retrieving shares for dashboard {dashboard_id} (HTTP {shares_response.status_code}). Trying without admin access.")
             shares_response = self.api_client.get(f"/api/shares/dashboard/{dashboard_id}")
-            if shares_response is None or shares_response.status_code != 200:
-                error_message = shares_response.json() if shares_response else "No response received."
-                self.logger.error(f"Failed to retrieve existing shares for dashboard {dashboard_id}. Error: {error_message}")
-                return f"Error: Failed to retrieve existing shares for dashboard {dashboard_id}."
+        if shares_response is None or shares_response.status_code != 200:
+            failure = _extract_error_message(shares_response, f"Failed to retrieve existing shares for dashboard {dashboard_id}", self.api_client)
+            self.logger.error(failure["error"])
+            return f"Error: {failure['error']}"
 
         existing_shares = shares_response.json().get("sharesTo", [])
         # Ignore shares without a "rule" key to prevent KeyError since the dashboard owner does not have a rule

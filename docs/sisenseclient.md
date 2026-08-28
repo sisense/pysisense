@@ -7,7 +7,7 @@ It supports HTTP methods, YAML-based configuration, logging, and helper function
 
 ## Class: `SisenseClient`
 
-### `__init__(self, config_file="config.yaml", debug=False, *, domain=None, token=None, is_ssl=None, port=None, operating_system="linux", verify_ssl=None, ssl_path=None, retries=None)`
+### `__init__(self, config_file="config.yaml", debug=False, *, domain=None, token=None, is_ssl=None, port=None, operating_system="linux", verify_ssl=None, ssl_path=None, retries=None, timeout=None, connect_timeout=None)`
 
 Initializes the Sisense client, sets up logging, and prepares headers. Supports YAML-based config or direct inline connection.
 
@@ -23,6 +23,8 @@ Initializes the Sisense client, sets up logging, and prepares headers. Supports 
 - `verify_ssl` (bool, optional): Whether to verify the server's TLS certificate. Defaults to `True`. Can also be set via `verify_ssl:` in the YAML config file. Disabling it logs a warning and raises a `UserWarning`, only do so for trusted internal networks with self-signed certificates.
 - `ssl_path` (str, optional): Path to a CA bundle file or directory used to verify the server's TLS certificate (e.g. a self-signed or internal CA's `.pem` file). Can also be set via `ssl_path:` in the YAML config file. Takes precedence over `verify_ssl` when both are set, unless `verify_ssl` is explicitly `False`.
 - `retries` (bool, optional): Whether to automatically retry requests that fail with a transient server error (HTTP 429, 500, 502, 503, or 504), using exponential backoff. Defaults to `True`. Can also be set via `retries:` in the YAML config file; this argument overrides the config value whenever it is explicitly passed. Only idempotent methods (GET, PUT, DELETE) are retried, POST and PATCH are never retried automatically. Connection and read timeouts are never retried.
+- `timeout` (float, optional): Client-side **read timeout** in seconds for every request. Defaults to `30`. Can also be set via `timeout:` in the YAML config file. Without it, a slow server holds each request until its own gateway timeout (observed at 300s per attempt on live instances). Lower it for read/export-heavy workloads that must fail fast; keep it generous for long-running operations (builds, bulk imports, large exports) and for **writes** — a client-side timeout on a POST/PATCH leaves the server outcome ambiguous (the change may still have been applied).
+- `connect_timeout` (float, optional): Client-side **TCP connect timeout** in seconds. Defaults to `5`. Can also be set via `connect_timeout:` in the YAML config file.
 
 **Note:** `from_connection(domain, token, ...)` is a classmethod alternative constructor for direct connection mode.
 
