@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class UsersMixin:
     def _fetch_expanded_users(self) -> Any:
@@ -74,10 +76,10 @@ class UsersMixin:
         # Reuse expanded users endpoint to get role & group objects
         response = self._fetch_expanded_users()
 
-        if not response or not response.ok:
-            error_msg = f"Failed to retrieve users from API for username: {user_name}."
-            self.logger.error(f"{error_msg} Status Code: {response.status_code if response else 'No response'}")
-            return {"error": error_msg}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve users from API for username: {user_name}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             users = response.json()
@@ -135,9 +137,10 @@ class UsersMixin:
         self.logger.debug("Fetching users with expanded role/group objects to enrich with names.")
 
         response = self._fetch_expanded_users()
-        if not response or not response.ok:
-            self.logger.error("Failed to retrieve users from API.")
-            return [{"error": "Failed to retrieve users from API"}]
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve users from API", self.api_client)
+            self.logger.error(failure["error"])
+            return [failure]
 
         try:
             users_raw = response.json()
@@ -191,10 +194,10 @@ class UsersMixin:
 
         response = self._fetch_expanded_users()
 
-        if not response or not response.ok:
-            status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve users. Status Code: {status_code}")
-            return {"error": "Failed to retrieve users."}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve users", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             users = response.json()
@@ -273,11 +276,10 @@ class UsersMixin:
 
         response = self._fetch_expanded_users()
 
-        if not response or not response.ok:
-            status = response.status_code if response else "No response"
-            error_msg = f"Failed to retrieve users from API for email: {user_email}."
-            self.logger.error("%s Status Code: %s", error_msg, status)
-            return {"error": error_msg}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve users from API for email: {user_email}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             users = response.json()
@@ -330,14 +332,10 @@ class UsersMixin:
         self.logger.debug("Fetching logged-in user identity.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve logged-in user failed: No response received.")
-            return {"error": "No response received while retrieving logged-in user."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve logged-in user. Error: {error_message}")
-            return {"error": f"Failed to retrieve logged-in user. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to retrieve logged-in user", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         user = response.json()
         self.logger.info("Successfully retrieved logged-in user identity.")
@@ -359,14 +357,10 @@ class UsersMixin:
         self.logger.debug("Fetching roles from API.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve roles failed: No response received.")
-            return {"error": "No response received while retrieving roles."}
-
-        if not response.ok:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve roles. Error: {error_message}")
-            return {"error": f"Failed to retrieve roles. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve roles", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         roles = response.json()
         count = len(roles) if isinstance(roles, list) else 0
@@ -439,9 +433,10 @@ class UsersMixin:
         response = self._fetch_expanded_users()
 
         # Check if the API request failed
-        if not response or not response.ok:
-            self.logger.error("Failed to retrieve users from API")
-            return [{"error": "Failed to retrieve users from API"}]
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve users from API", self.api_client)
+            self.logger.error(failure["error"])
+            return [failure]
 
         try:
             response_data = response.json()
@@ -723,9 +718,9 @@ class UsersMixin:
             self.logger.info("User updated successfully: %s", response_data)
             return response_data
 
-        error_message = response.json().get("error", "Unknown error") if response else "No response received"
-        self.logger.error("Failed to update user. Error: %s", error_message)
-        return {"error": error_message}
+        failure = _extract_error_message(response, "Failed to update user", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def delete_user(self, user_name: str) -> dict[str, Any]:
         """Delete a user by their email (username).

@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DashboardCoreMixin:
     def get_all_dashboards(self) -> list[dict[str, Any]] | dict[str, Any]:
@@ -22,14 +24,10 @@ class DashboardCoreMixin:
 
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve dashboards failed: No response received.")
-            return {"error": "No response received from the server."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve dashboards. Error: {error_message}")
-            return {"error": f"Failed to retrieve dashboards. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to retrieve dashboards", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboards = response.json()
         self.logger.info(f"Successfully retrieved {len(dashboards)} dashboards.")
@@ -57,14 +55,10 @@ class DashboardCoreMixin:
 
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"GET request to retrieve dashboard {dashboard_id} failed: No response received.")
-            return {"error": f"No response received while retrieving dashboard ID '{dashboard_id}'"}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve dashboard {dashboard_id}. Error: {error_message}")
-            return {"error": f"Failed to retrieve dashboard '{dashboard_id}'. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to retrieve dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboard_data = response.json()
         if not dashboard_data:
@@ -96,15 +90,10 @@ class DashboardCoreMixin:
 
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            error_msg = f"GET request to retrieve dashboard {dashboard_name} failed: No response received."
-            self.logger.error(error_msg)
-            return {"error": error_msg}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve dashboard {dashboard_name}. Error: {error_message}")
-            return {"error": f"Failed to retrieve dashboard '{dashboard_name}'. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to retrieve dashboard '{dashboard_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboard_data = response.json()
         if not dashboard_data:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class GroupsMixin:
     def get_group(self, name: str) -> dict[str, Any]:
@@ -26,10 +28,10 @@ class GroupsMixin:
         # Make the API call to fetch groups by name
         response = self.api_client.get(f"/api/v1/groups?name={name}")
 
-        if not response or not response.ok:
-            status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve groups for name '{name}'. Status Code: {status_code}")
-            return {"error": f"Failed to retrieve groups for name '{name}'"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve groups for name '{name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             response_data = response.json()
@@ -67,10 +69,10 @@ class GroupsMixin:
 
         response = self.api_client.get("/api/v1/groups")
 
-        if not response or not response.ok:
-            status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve groups. Status Code: {status_code}")
-            return {"error": "Failed to retrieve groups."}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve groups", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             groups = response.json()
@@ -156,12 +158,9 @@ class GroupsMixin:
             self.logger.info(f"Group (ID: {group_id}) deleted.")
             return response_data
 
-        try:
-            error_message = response.json().get("error", "Unknown error") if response else "No response received."
-        except Exception:
-            error_message = "No response body or invalid JSON"
-        self.logger.error(f"Failed to delete group (ID: {group_id}). Error: {error_message}")
-        return {"error": error_message}
+        failure = _extract_error_message(response, f"Failed to delete group (ID: {group_id})", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def users_per_group(self, group_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all users within a specific group by name.
@@ -196,11 +195,10 @@ class GroupsMixin:
         url = f"/api/v1/users?groupId={group_id}"
         response = self.api_client.get(url)
 
-        if not response or not response.ok:
-            status = response.status_code if response else "No response"
-            error_msg = f"Failed to retrieve users for group '{group_name}'. Status Code: {status}"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve users for group '{group_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             users = response.json()

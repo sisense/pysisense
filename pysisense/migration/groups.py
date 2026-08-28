@@ -57,8 +57,8 @@ class GroupsMigrationMixin:
         response = self.target_client.post("/api/v1/groups/bulk", data=bulk_group_data)
 
         # Log the full response at debug level
-        self.logger.debug(f"Target environment response status code: {response.status_code if response else 'No response'}")
-        self.logger.debug(f"Target environment response body: {response.text if response else 'No response body'}")
+        self.logger.debug(f"Target environment response status code: {response.status_code if response is not None else 'No response'}")
+        self.logger.debug(f"Target environment response body: {response.text if response is not None else 'No response body'}")
 
         # If response is missing or empty
         if response is None:

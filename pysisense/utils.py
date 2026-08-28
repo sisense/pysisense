@@ -36,6 +36,68 @@ def redact_secrets(data):
     return data
 
 
+# Maximum characters of a raw error body carried into a failure message.
+_MAX_ERROR_REASON_CHARS = 300
+
+
+def _extract_error_message(response, context, api_client=None):
+    """
+    Builds a standardized failure dict from a Sisense API response.
+
+    Distinguishes three failure kinds:
+    - HTTP error with a body: relays the Sisense reason and the HTTP status.
+      The reason is taken best-effort from the JSON body ("detail", then
+      "message", then "title", then "error"), falling back to the raw body
+      text truncated to a safe length.
+    - HTTP error with an empty body: says so, with the HTTP status.
+    - No response at all (connection failure): names the target domain and
+      carries no invented status code.
+
+    The body is passed through redact_secrets() before use so credential-shaped
+    values never reach the returned message.
+
+    Parameters:
+        response: requests.Response or None (as returned by SisenseClient requests)
+        context (str): What the caller was doing, e.g. "Failed to retrieve dashboards"
+        api_client: optional SisenseClient, used to name the target domain when
+            there is no response
+
+    Returns:
+        dict: {"error": str} always; plus {"status_code": int} when an HTTP
+        status is available.
+    """
+    if response is None:
+        domain = getattr(api_client, "domain", None) or "the Sisense server"
+        return {"error": f"{context}: no response from {domain} — connection failed"}
+
+    status = response.status_code
+    reason = None
+    try:
+        body = redact_secrets(response.json())
+    except ValueError:
+        raw_text = (response.text or "").strip()
+        if raw_text:
+            reason = raw_text
+    else:
+        if isinstance(body, dict):
+            for key in ("detail", "message", "title", "error"):
+                value = body.get(key)
+                if isinstance(value, str) and value.strip():
+                    reason = value.strip()
+                    break
+            if reason is None and body:
+                reason = str(body)
+        elif body not in (None, "", [], {}):
+            reason = str(body)
+
+    if reason is None:
+        reason = "the server returned an empty error body"
+    elif len(reason) > _MAX_ERROR_REASON_CHARS:
+        reason = reason[:_MAX_ERROR_REASON_CHARS] + "…"
+
+    return {"error": f"{context}: {reason} (HTTP {status})", "status_code": status}
+
+
 def convert_to_dataframe(data, logger=None):
     """
     Converts a list of dictionaries, a single dictionary, or a simple list to a pandas DataFrame.

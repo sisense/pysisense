@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class SharesMixin:
     def _fetch_users_and_groups_detail_lists(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -181,9 +183,9 @@ class SharesMixin:
             self.logger.info(f"Shares added successfully to DataModel '{datamodel_name}'")
             return response.json()
         else:
-            error_text = response.text if response else "No response from API."
-            self.logger.error(f"Failed to add shares to DataModel '{datamodel_name}'. Error: {error_text}")
-            return {"error": f"Failed to add shares to DataModel '{datamodel_name}'."}
+            failure = _extract_error_message(response, f"Failed to add shares to DataModel '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
     def get_datamodel_permissions_extract(self, datamodel_title: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve raw share entries for an EXTRACT (Elasticube) data model.
@@ -211,10 +213,9 @@ class SharesMixin:
         response = self.api_client.get(endpoint)
 
         if response is None or response.status_code != 200:
-            status = response.status_code if response is not None else "no response"
-            msg = f"Failed to fetch permissions for EXTRACT datamodel '{datamodel_title}' — status {status}"
-            self.logger.error(msg)
-            return {"error": msg}
+            failure = _extract_error_message(response, f"Failed to fetch permissions for EXTRACT datamodel '{datamodel_title}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             payload = response.json()
@@ -252,10 +253,9 @@ class SharesMixin:
         response = self.api_client.get(endpoint)
 
         if response is None or response.status_code != 200:
-            status = response.status_code if response is not None else "no response"
-            msg = f"Failed to fetch permissions for LIVE datamodel '{datamodel_id}' — status {status}"
-            self.logger.error(msg)
-            return {"error": msg}
+            failure = _extract_error_message(response, f"Failed to fetch permissions for LIVE datamodel '{datamodel_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             payload = response.json()
@@ -303,10 +303,9 @@ class SharesMixin:
         response = self.api_client.put(endpoint, data=shares)
 
         if response is None or response.status_code not in (200, 201):
-            status = response.status_code if response is not None else "no response"
-            msg = f"Failed to update permissions for EXTRACT datamodel '{datamodel_title}' — status {status}"
-            self.logger.error(msg)
-            return {"error": msg}
+            failure = _extract_error_message(response, f"Failed to update permissions for EXTRACT datamodel '{datamodel_title}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -351,10 +350,9 @@ class SharesMixin:
         response = self.api_client.patch(endpoint, data=shares)
 
         if response is None or response.status_code not in (200, 201):
-            status = response.status_code if response is not None else "no response"
-            msg = f"Failed to update permissions for LIVE datamodel '{datamodel_id}' — status {status}"
-            self.logger.error(msg)
-            return {"error": msg}
+            failure = _extract_error_message(response, f"Failed to update permissions for LIVE datamodel '{datamodel_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()

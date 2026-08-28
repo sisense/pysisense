@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class QueriesCoreMixin:
     def elasticube_run_jaql_query(
@@ -32,17 +34,10 @@ class QueriesCoreMixin:
         self.logger.debug(f"POST {endpoint} — context={context!r}")
         response = self.api_client.post(endpoint, data=jaql_payload)
 
-        if response is None:
-            self.logger.error(f"POST {endpoint} failed: No response received.")
-            return {"error": f"No response received while running {context}."}
-
-        if not response.ok:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text if response else "No response text available."
-            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to run {context}. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to run {context}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -79,17 +74,10 @@ class QueriesCoreMixin:
         self.logger.debug(f"POST {endpoint} — context={context!r}")
         response = self.api_client.post(endpoint, data=jaql_payload)
 
-        if response is None:
-            self.logger.error(f"POST {endpoint} failed: No response received.")
-            return {"error": f"No response received while running {context}."}
-
-        if not response.ok:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text if response else "No response text available."
-            self.logger.error(f"POST {endpoint} failed. Error: {error_message}")
-            return {"error": f"Failed to run {context}. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to run {context}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()

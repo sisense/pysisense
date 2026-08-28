@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class FolderCoreMixin:
     def create_folder(self, name: str, parent_id: str | None = None) -> dict[str, Any]:
@@ -34,14 +36,10 @@ class FolderCoreMixin:
         self.logger.debug(f"Creating folder — name={name!r}, parent_id={parent_id!r}")
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error("POST request to create folder failed: No response received.")
-            return {"error": "No response received while creating folder."}
-
-        if response.status_code != 201:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to create folder. Error: {error_message}")
-            return {"error": f"Failed to create folder. {error_message}"}
+        if response is None or response.status_code != 201:
+            failure = _extract_error_message(response, "Failed to create folder", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         created_folder = response.json()
 
@@ -91,14 +89,10 @@ class FolderCoreMixin:
         self.logger.debug(f"Updating folder {folder_id} — fields: {list(payload.keys())}")
         response = self.api_client.patch(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error(f"PATCH request to update folder {folder_id} failed: No response received.")
-            return {"error": f"No response received while updating folder ID '{folder_id}'"}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to update folder {folder_id}. Error: {error_message}")
-            return {"error": f"Failed to update folder '{folder_id}'. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to update folder '{folder_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         updated_folder = response.json()
 
@@ -126,14 +120,10 @@ class FolderCoreMixin:
         self.logger.debug(f"Getting folder with ID: {folder_id}")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"GET request to retrieve folder {folder_id} failed: No response received.")
-            return {"error": f"No response received while retrieving folder ID '{folder_id}'"}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve folder {folder_id}. Error: {error_message}")
-            return {"error": f"Failed to retrieve folder '{folder_id}'. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to retrieve folder '{folder_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         folder = response.json()
 
@@ -187,14 +177,10 @@ class FolderCoreMixin:
         self.logger.debug(f"Getting folders with structure={structure!r}")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"GET request to retrieve folders (structure={structure!r}) failed: No response received.")
-            return {"error": "No response received while retrieving folders."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve folders (structure={structure!r}). Error: {error_message}")
-            return {"error": f"Failed to retrieve folders. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to retrieve folders", self.api_client)
+            self.logger.error(f"{failure['error']} (structure={structure!r})")
+            return failure
 
         folders = response.json()
         count = len(folders) if isinstance(folders, list) else 1
@@ -217,14 +203,10 @@ class FolderCoreMixin:
         self.logger.debug("Getting navver navigation payload.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve navver failed: No response received.")
-            return {"error": "No response received while retrieving navver."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve navver. Error: {error_message}")
-            return {"error": f"Failed to retrieve navver. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to retrieve navver", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         navver = response.json()
         self.logger.info("Successfully retrieved navver navigation payload.")
@@ -266,14 +248,10 @@ class FolderCoreMixin:
         self.logger.debug(f"Deleting folder with ID: {folder_id}")
         response = self.api_client.delete(endpoint)
 
-        if response is None:
-            self.logger.error(f"DELETE request to delete folder {folder_id} failed: No response received.")
-            return {"error": f"No response received while deleting folder ID '{folder_id}'"}
-
-        if response.status_code != 204:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to delete folder {folder_id}. Error: {error_message}")
-            return {"error": f"Failed to delete folder '{folder_id}'. {error_message}"}
+        if response is None or response.status_code != 204:
+            failure = _extract_error_message(response, f"Failed to delete folder '{folder_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Successfully deleted folder with ID {folder_id}.")
         return {"message": f"Folder with ID '{folder_id}' deleted successfully."}

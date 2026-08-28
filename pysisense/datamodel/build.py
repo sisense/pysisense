@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class BuildMixin:
     def create_datamodel(self, datamodel_name: str, datamodel_type: str) -> dict[str, Any]:
@@ -38,13 +40,10 @@ class BuildMixin:
         self.logger.debug(f"Sending request to create DataModel with payload: {payload}")
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error(f"No response received while creating DataModel '{datamodel_name}'")
-            return {"error": "No response from API while creating DataModel"}
-
-        if not response.ok:
-            self.logger.error(f"Failed to create DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to create DataModel. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to create DataModel '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         datamodel_id = response.json().get("oid")
         self.logger.info(f"Successfully created DataModel '{datamodel_name}' with ID: {datamodel_id}")
@@ -122,14 +121,9 @@ class BuildMixin:
             self.logger.info(f"Dataset '{dataset_name}' created in DataModel '{datamodel_name}' with ID: {dataset_id}")
             return dataset
 
-        try:
-            error_detail = response.json().get("detail", "No detail provided.")
-        except Exception:
-            error_detail = response.text or "Unable to parse error details from response."
-
-        self.logger.error(f"Failed to create dataset '{dataset_name}' in DataModel '{datamodel_name}'. Error: {error_detail}")
-
-        return {"error": f"Failed to create dataset: {error_detail}"}
+        failure = _extract_error_message(response, f"Failed to create dataset '{dataset_name}' in DataModel '{datamodel_name}'", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def create_table(
         self,
@@ -356,14 +350,15 @@ class BuildMixin:
                     self.logger.info(f"Table '{table_name}' build behavior updated successfully.")
                     return patch_response.json()
                 else:
-                    self.logger.error(f"Failed to update table '{table_name}' build behavior. Status Code: {patch_response.status_code}, Error: {patch_response.text}")
-                    return {"error": "Failed to update table build behavior"}
+                    failure = _extract_error_message(patch_response, f"Failed to update table '{table_name}' build behavior", self.api_client)
+                    self.logger.error(failure["error"])
+                    return failure
 
             return table
 
-        error_msg = response.text if response else "No response from API."
-        self.logger.error(f"Failed to create table '{table_name}' in DataModel '{datamodel_name}'. Error: {error_msg}")
-        return {"error": "Failed to create table"}
+        failure = _extract_error_message(response, f"Failed to create table '{table_name}' in DataModel '{datamodel_name}'", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def setup_datamodel(
         self,
@@ -406,7 +401,10 @@ class BuildMixin:
         -------
         dict[str, Any]
             Dictionary with ``"datamodel_id"``, ``"dataset_id"``, and ``"tables"``
-            (list of created table names) on success, or ``{"error": "..."}`` on failure.
+            (list of created table names) on success, or ``{"error": "..."}`` on
+            failure. A failure dict also carries any partial state already
+            provisioned before the abort (``"datamodel_id"``, ``"dataset_id"``,
+            ``"created_tables"``) so the caller can clean up or resume.
         """
         self.logger.debug(f"[START] Setup DataModel '{datamodel_name}'")
 
@@ -415,7 +413,7 @@ class BuildMixin:
         datamodel_response = self.create_datamodel(datamodel_name=datamodel_name, datamodel_type=datamodel_type)
         if "error" in datamodel_response:
             self.logger.error(f"Failed to create DataModel '{datamodel_name}'. Aborting setup.")
-            return {"error": f"Failed to create DataModel '{datamodel_name}'."}
+            return datamodel_response
         datamodel_id = datamodel_response.get("datamodel_id")
         self.logger.debug(f"DataModel '{datamodel_name}' created with ID: {datamodel_id}")
 
@@ -424,7 +422,7 @@ class BuildMixin:
         dataset_response = self.create_dataset(datamodel_name=datamodel_name, connection_name=connection_name, database_name=database_name, schema_name=schema_name, dataset_name=dataset_name)
         if "error" in dataset_response:
             self.logger.error(f"Failed to create dataset in DataModel '{datamodel_name}'. Aborting setup.")
-            return {"error": f"Failed to create dataset in DataModel '{datamodel_name}'."}
+            return {**dataset_response, "datamodel_id": datamodel_id}
         dataset_id = dataset_response.get("oid")
         self.logger.debug(f"Dataset created with ID: {dataset_id}")
 
@@ -456,7 +454,7 @@ class BuildMixin:
 
             if "error" in table_response:
                 self.logger.error(f"Failed to create table '{table_name}' in DataModel '{datamodel_name}'. Aborting.")
-                return {"error": f"Failed to create table '{table_name}' in DataModel '{datamodel_name}'."}
+                return {**table_response, "datamodel_id": datamodel_id, "dataset_id": dataset_id, "created_tables": created_tables}
 
             self.logger.debug(f"Table '{table_name}' created successfully.")
             created_tables.append(table_name)
@@ -529,6 +527,6 @@ class BuildMixin:
             self.logger.info(f"DataModel '{datamodel_name}' deployed successfully.")
             return response.json()
         else:
-            error_text = response.text if response else "No response from API."
-            self.logger.error(f"Failed to deploy DataModel '{datamodel_name}'. Error: {error_text}")
-            return {"error": f"Failed to deploy DataModel '{datamodel_name}'"}
+            failure = _extract_error_message(response, f"Failed to deploy DataModel '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure

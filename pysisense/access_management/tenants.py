@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class TenantsMixin:
     def get_tenants(self) -> list[dict[str, Any]] | dict[str, Any]:
@@ -21,10 +23,10 @@ class TenantsMixin:
 
         response = self.api_client.get("/api/v1/tenants")
 
-        if not response or not response.ok:
-            status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve tenants. Status Code: {status_code}")
-            return {"error": "Failed to retrieve tenants."}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve tenants", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             tenants = response.json()
