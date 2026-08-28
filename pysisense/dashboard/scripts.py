@@ -301,13 +301,21 @@ class ScriptsMixin:
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the dashboard is retrieved successfully,
-            or an ``{"error": "..."}`` dictionary from ``export_dashboard``.
+            A :class:`SisenseScript` instance when the dashboard is retrieved and
+            has a script. ``{"error": "..."}`` when the export fails (including
+            ``status_code`` for HTTP failures such as missing access) or when the
+            dashboard has no script — a normal state, reported explicitly.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
         if "error" in dashboard_data:
             return dashboard_data
+
+        script = dashboard_data.get("script")
+        if not script:
+            msg = f"Dashboard '{dashboard_data.get('title', dashboard_id)}' has no dashboard script."
+            self.logger.info(msg)
+            return {"error": msg}
 
         DASHBOARD_SCRIPT_TEMPLATE = """\
         /*
@@ -321,7 +329,7 @@ class ScriptsMixin:
         return SisenseScript(
             url=f"/app/main/dashboards/{dashboard_data.get('oid', 'unknown')}",
             title=dashboard_data.get("title", "unknown"),
-            script=dashboard_data["script"],
+            script=script,
             template=DASHBOARD_SCRIPT_TEMPLATE,
             type=None,
             footer=footer,
@@ -343,8 +351,11 @@ class ScriptsMixin:
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the widget is found and has script data,
-            or an ``{"error": "..."}`` dictionary on failure.
+            A :class:`SisenseScript` instance when the widget is found and has a
+            script. ``{"error": "..."}`` when the export fails (including
+            ``status_code`` for HTTP failures such as missing access), the widget
+            is not found, or the widget has no script — a normal state, reported
+            explicitly.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
@@ -353,11 +364,17 @@ class ScriptsMixin:
 
         WIDGET_TEMPLATE_REGEX = r"/\*.*?see the online documentation at.*?\*/"
 
-        widgets = dashboard_data["widgets"]
-        widget_data = next((w for w in widgets if w["oid"] == widget_id), None)
+        widgets = dashboard_data.get("widgets") or []
+        widget_data = next((w for w in widgets if w.get("oid") == widget_id), None)
 
         if not widget_data:
             return {"error": f"Widget with ID '{widget_id}' not found in dashboard '{dashboard_id}'"}
+
+        script = widget_data.get("script")
+        if not script:
+            msg = f"Widget '{widget_data.get('title', widget_id)}' has no widget script."
+            self.logger.info(msg)
+            return {"error": msg}
 
         footer = "// Widget Title: {title} \n// Script is for widget type of {widget_type}\n// To view widget URL Path is {url}"
 
@@ -365,7 +382,7 @@ class ScriptsMixin:
             url=f"/app/main/dashboards/{dashboard_data.get('oid', 'unknown')}/widgets/{widget_data.get('oid', 'unknown')}",
             title=widget_data.get("title", "unknown"),
             type=widget_data.get("type", "unknown"),
-            script=widget_data["script"],
+            script=script,
             template=WIDGET_TEMPLATE_REGEX,
             footer=footer,
         )

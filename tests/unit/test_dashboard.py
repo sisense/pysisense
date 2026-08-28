@@ -609,6 +609,40 @@ class TestGetWidgetScript:
         assert isinstance(result, dict)
         assert "error" in result
 
+    def test_scriptless_widget_returns_explicit_message_not_keyerror(self):
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "widgets": [{"oid": "widget456", "title": "Revenue by Region", "type": "chart/column"}],
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert result == {"error": "Widget 'Revenue by Region' has no widget script."}
+
+    def test_export_without_widgets_key_reports_widget_not_found(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"oid": "dash123", "title": "Sales Report"}
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert "not found" in result["error"]
+
+
+class TestGetDashboardScriptNoScript:
+    def test_scriptless_dashboard_returns_explicit_message_not_keyerror(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"oid": "dash123", "title": "Sales Report"}
+
+        result = dash.get_dashboard_script("dash123")
+
+        assert result == {"error": "Dashboard 'Sales Report' has no dashboard script."}
+
 
 class TestBeautifyJsCode:
     def test_returns_string(self):
