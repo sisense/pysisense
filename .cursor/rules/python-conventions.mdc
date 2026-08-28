@@ -111,3 +111,27 @@ endpoint = "/linux/endpoint"  # silently breaks on Windows without comment
 ```
 
 Methods that are Linux-only must guard the Windows case explicitly and return `{"error": "...not supported on Windows..."}` rather than silently hitting a wrong endpoint.
+
+## Dict vs. flat parameters (new methods)
+
+A new method takes **plain named parameters by default**. Use a dict payload only when the dict is load-bearing: it mirrors an API request body 1:1, has partial-update/PATCH semantics ("send only what changes"), or its fields vary by a discriminator (e.g. per-provider connection params).
+
+Every dict payload MUST have a TypedDict contract in `pysisense/payloads.py`, using the two-class inheritance pattern (`total=True` base for required keys, `total=False` subclass for optional ones) so `__required_keys__`/`__optional_keys__` introspect on Python 3.10+. Genuinely free-form payloads (JAQL, Blox JSON, metadata queries, encryption bodies) stay `dict[str, Any]` and must say so in the docstring.
+
+Enum-valued string params always use `Literal[...]`.
+
+## Deprecated aliases — machine-readable
+
+Every method rename keeps the old name as a deprecated alias for one minor version, always decorated with `@typing_extensions.deprecated("use <new_name>")` (PEP 702) so `__deprecated__` is introspectable — never docstring-prose-only. Keep a one-line deprecation note in the docstring for humans.
+
+```python
+# ✅ GOOD
+@deprecated("use get_connections_all")
+def get_connections(self): ...
+
+# ❌ BAD — deprecation exists only as docstring prose
+def get_connections(self):
+    """Deprecated: use get_connections_all."""
+```
+
+These conventions are relied on by downstream schema generators and enforced by `tests/unit/test_public_contracts.py`.

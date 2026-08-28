@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from typing_extensions import deprecated
+
 from ..payloads import (
     AthenaConnectionParams,
     BigQueryConnectionParams,
@@ -78,6 +80,7 @@ class ConnectionsMixin:
         self.logger.info(f"Successfully retrieved {count} connections.")
         return connections
 
+    @deprecated("use get_connections_all")
     def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all connections.
 

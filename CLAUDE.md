@@ -464,6 +464,58 @@ class UpdateUserPayload(BaseModel):
 
 ---
 
+## Introspection Contracts (downstream schema generators)
+
+Two downstream consumers (FES Assistant, sisense-admin-mcp) generate tool schemas by
+**introspecting this package's signatures** — these conventions are their contract.
+Enforced by `tests/unit/test_public_contracts.py`.
+
+### Dict vs. flat parameters — decision rule for new methods
+
+A new method takes **plain named parameters by default**. Use a dict payload only when
+the dict is load-bearing:
+
+- it mirrors an API request body 1:1, or
+- it has partial-update/PATCH semantics ("send only what changes"), or
+- its fields vary by a discriminator (e.g. per-provider connection params).
+
+Every dict payload **MUST** have a TypedDict contract in `pysisense/payloads.py`,
+using the **two-class inheritance pattern** (a `total=True` base for required keys, a
+`total=False` subclass for optional ones) so `__required_keys__`/`__optional_keys__`
+introspect on Python 3.10+. Genuinely free-form payloads (JAQL, Blox JSON, metadata
+queries, encryption bodies) stay `dict[str, Any]` and must say so in the docstring.
+
+Enum-valued string params always use `Literal[...]` (e.g. `Literal["extract", "live"]`).
+
+### Deprecated aliases — machine-readable
+
+Every method rename keeps the old name as a deprecated alias **for one minor version**,
+always decorated with `@typing_extensions.deprecated("use <new_name>")` (PEP 702) so
+`__deprecated__` is introspectable — never docstring-prose-only. Keep a one-line
+deprecation note in the docstring for humans.
+
+### Facade registry
+
+`pysisense.FACADES` is the explicit tuple of tool-bearing facade classes. Generators
+iterate it — never `__all__`, which also carries TypedDict payload types and utility
+functions. New top-level SDK classes must be added to `FACADES`.
+
+### Error-dict shape — stable public API
+
+Failure returns are `{"error": "<human-readable message>", "status_code": <int, when an
+HTTP status exists>}`. Consumers key failure detection on the **presence of** `"error"`
+and relay the string to end users. Renaming or restructuring these keys is a breaking
+change even with no signature change. `_extract_error_message` (`pysisense/utils.py`)
+is the only place that builds this dict — never hand-roll it.
+
+### Release ritual — downstream-generators changelog block
+
+Every release's notes must carry a block listing: methods renamed (old → new), params
+that gained TypedDict contracts, and params that gained `Literal` enums. Downstream
+upgrade tooling is driven by this block.
+
+---
+
 ## DataModel Conventions
 
 ### Model types

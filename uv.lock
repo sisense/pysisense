@@ -1104,6 +1104,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -1133,6 +1134,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "typing-extensions", specifier = ">=4.9" },
 ]
 provides-extras = ["dev"]
 

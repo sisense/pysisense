@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 import typing
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense import payloads
@@ -139,4 +140,5 @@ class TestGetConnectionsAllRename:
         client = FakeApiClient(get_responses={"/api/v2/connections": FakeResponse(200, connections)}, logger=FakeLogger())
         dm = DataModel(api_client=client)
         assert dm.get_connections_all() == connections
-        assert dm.get_connections() == connections
+        with pytest.warns(DeprecationWarning, match="use get_connections_all"):
+            assert dm.get_connections() == connections

@@ -168,6 +168,30 @@ Logs rotate automatically at midnight and keep **7 days of history**. The active
 
 ---
 
+## 🤖 Stable Contracts for Programmatic Consumers
+
+Tools that generate schemas by introspecting this package (agents, MCP servers, code generators) can rely on the following as **stable public API**:
+
+### Facade registry
+
+`pysisense.FACADES` is an explicit tuple of the tool-bearing facade classes (`AccessManagement`, `DataModel`, `Dashboard`, …). Iterate it to discover the SDK's operational surface — do **not** iterate `__all__`, which also contains TypedDict payload types and utility functions. `SisenseClient` is intentionally excluded (it is the shared HTTP/auth client, not an operation facade).
+
+### Error-dict shape
+
+Failure returns follow one shape across the SDK:
+
+```python
+{"error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
+```
+
+Detect failure by the **presence of the `"error"` key**; the message is safe to relay to end users (secrets are redacted). Connection-level failures carry `"error"` without `"status_code"`. Renaming or restructuring these keys is treated as a breaking change.
+
+### Payload contracts
+
+Dict parameters are typed with TypedDicts from `pysisense/payloads.py` (also exported at package root). Required vs. optional fields introspect via `__required_keys__` / `__optional_keys__`; annotations resolve at runtime (`inspect.signature(..., eval_str=True)`). Deprecated method aliases are decorated with `@typing_extensions.deprecated(...)` (PEP 702), so `__deprecated__` is introspectable. Enum-valued string parameters use `typing.Literal`.
+
+---
+
 📚 Documentation
 
 Comprehensive module-level documentation is available in the `docs/` folder:

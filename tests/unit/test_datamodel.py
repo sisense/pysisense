@@ -221,13 +221,13 @@ class TestCreateConnections:
 class TestGetConnections:
     def test_returns_list_on_success(self):
         dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(200, [_CONNECTION])})
-        result = dm.get_connections()
+        result = dm.get_connections_all()
         assert isinstance(result, list)
         assert result[0]["name"] == "MyConnection"
 
     def test_returns_error_on_failure(self):
         dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(500, {"message": "error"})})
-        result = dm.get_connections()
+        result = dm.get_connections_all()
         assert "error" in result
 
 
