@@ -313,7 +313,7 @@ class ScriptsMixin:
 
         script = dashboard_data.get("script")
         if not script:
-            msg = f"Dashboard '{dashboard_data.get('title', dashboard_id)}' has no dashboard script."
+            msg = f"Dashboard '{dashboard_data.get('title') or dashboard_id}' has no dashboard script."
             self.logger.info(msg)
             return {"error": msg}
 
@@ -370,9 +370,18 @@ class ScriptsMixin:
         if not widget_data:
             return {"error": f"Widget with ID '{widget_id}' not found in dashboard '{dashboard_id}'"}
 
+        # Some Sisense versions omit the script (and title) from the export
+        # payload's widget objects entirely — fetch the widget directly, which
+        # carries the full object including its script.
+        if "script" not in widget_data:
+            self.logger.debug(f"Export payload omits widget script fields on this Sisense version; fetching widget {widget_id} directly.")
+            direct_widget = self.get_widget_by_id(dashboard_id, widget_id)
+            if isinstance(direct_widget, dict) and "error" not in direct_widget:
+                widget_data = direct_widget
+
         script = widget_data.get("script")
         if not script:
-            msg = f"Widget '{widget_data.get('title', widget_id)}' has no widget script."
+            msg = f"Widget '{widget_data.get('title') or widget_id}' has no widget script."
             self.logger.info(msg)
             return {"error": msg}
 

@@ -94,6 +94,18 @@ class TestGetWidgetById:
         result = dash.get_widget_by_id("dash123", "widget456")
         assert "error" in result
 
+    def test_retries_without_admin_access_when_api_rejects_the_param(self):
+        # Some Sisense versions reject adminAccess with a strict-schema 422;
+        # the method must retry the bare endpoint (exact-URL keys per variant).
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/dash123/widgets/widget456?adminAccess=true": FakeResponse(422, {"message": "must NOT have additional properties"}),
+                "/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _CHART_WIDGET),
+            }
+        )
+        result = dash.get_widget_by_id("dash123", "widget456")
+        assert result["oid"] == "widget456"
+
     def test_admin_access_true_by_default(self):
         # Default is admin_access=True; FakeApiClient strips query params so the same key resolves
         dash = _make_dash(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _CHART_WIDGET)})

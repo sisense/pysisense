@@ -23,19 +23,27 @@ class DashboardWidgetsMixin:
             The ``oid`` of the widget to retrieve.
         admin_access : bool, optional
             When ``True`` (default), appends ``?adminAccess=true`` to the request,
-            allowing access to dashboards the API token user does not own.
+            allowing access to dashboards the API token user does not own. Some
+            Sisense versions reject the ``adminAccess`` query parameter with
+            HTTP 422 (strict query-schema validation); the request is then
+            retried automatically without it.
 
         Returns
         -------
         dict[str, Any]
             The widget object returned by the API, or ``{"error": "..."}`` on failure.
         """
-        endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets/{widget_id}"
-        if admin_access:
-            endpoint += "?adminAccess=true"
+        base_endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets/{widget_id}"
+        endpoint = f"{base_endpoint}?adminAccess=true" if admin_access else base_endpoint
 
         self.logger.debug(f"Fetching widget {widget_id} from dashboard {dashboard_id} (admin_access={admin_access})")
         response = self.api_client.get(endpoint)
+
+        # Some Sisense versions validate the query schema strictly and reject
+        # adminAccess as an unknown property (422) — retry without it.
+        if admin_access and response is not None and response.status_code == 422:
+            self.logger.debug(f"adminAccess rejected by this Sisense version (HTTP 422) for widget {widget_id}; retrying without it.")
+            response = self.api_client.get(base_endpoint)
 
         if response is None or response.status_code != 200:
             failure = _extract_error_message(response, f"Failed to fetch widget '{widget_id}'", self.api_client)

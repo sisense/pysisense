@@ -637,6 +637,30 @@ class TestGetWidgetScript:
 
         assert result == {"error": "Widget 'Revenue by Region' has no widget script."}
 
+    def test_export_omitting_script_field_falls_back_to_direct_widget_fetch(self, monkeypatch):
+        # Some Sisense versions omit 'script' (and 'title') from export widgets
+        # entirely — the getter must fetch the widget directly.
+        class DummyScript:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "widgets": [{"oid": "widget456", "type": "chart/pie"}],  # no script key
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+        dash.get_widget_by_id = lambda d, w: {"oid": "widget456", "title": "Pie", "type": "chart/pie", "script": "console.log('w');"}
+        monkeypatch.setattr(scripts_module, "SisenseScript", DummyScript)
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert isinstance(result, DummyScript)
+        assert result.kwargs["script"] == "console.log('w');"
+        assert result.kwargs["title"] == "Pie"
+
     def test_export_without_widgets_key_reports_widget_not_found(self):
         dash = _make_dash()
         dash.dashboard = dash
