@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class SecurityMixin:
     def _build_datasecurity_url(self, resolved_name: str, datamodel_type: str) -> str | None:
@@ -313,17 +315,10 @@ class SecurityMixin:
         self.logger.debug(f"Updating datasecurity for EXTRACT datamodel '{title}' — {len(datasecurity)} rule(s)")
         response = self.api_client.put(endpoint, data=datasecurity)
 
-        if response is None:
-            self.logger.error(f"PUT request to update datasecurity for '{title}' failed: No response received.")
-            return {"error": f"No response received while updating datasecurity for '{title}'."}
-
-        if not response.ok:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text
-            self.logger.error(f"Failed to update datasecurity for '{title}'. Error: {error_message}")
-            return {"error": f"Failed to update datasecurity for '{title}'. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to update datasecurity for '{title}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()
@@ -374,17 +369,10 @@ class SecurityMixin:
         self.logger.debug(f"Adding datasecurity rules to LIVE datamodel '{title}' — {len(rules)} rule(s)")
         response = self.api_client.post(endpoint, data=rules)
 
-        if response is None:
-            self.logger.error(f"POST request to add datasecurity rules for '{title}' failed: No response received.")
-            return {"error": f"No response received while adding datasecurity rules for '{title}'."}
-
-        if not response.ok:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text
-            self.logger.error(f"Failed to add datasecurity rules for '{title}'. Error: {error_message}")
-            return {"error": f"Failed to add datasecurity rules for '{title}'. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to add datasecurity rules for '{title}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             result = response.json()

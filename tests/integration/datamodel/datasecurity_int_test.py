@@ -49,12 +49,20 @@ def test_update_datasecurity_route_accepts_put_on_extract_model() -> None:
     status/body via the error contract.
     """
     dm = _make_datamodel()
-    model = _find_model_by_type(dm, "extract")
-    title = model["title"]
+    models = dm.get_all_datamodel()
+    if not isinstance(models, list):
+        pytest.skip(f"Could not list datamodels: {models}")
 
-    raw_rules = dm.get_datasecurity_raw(title, datamodel_type="extract")
-    if not isinstance(raw_rules, list) or not raw_rules:
-        pytest.skip(f"Extract model '{title}' has no existing datasecurity rules to round-trip.")
+    title, raw_rules = None, None
+    for model in models:
+        if str(model.get("type", "")).lower() != "extract":
+            continue
+        candidate_rules = dm.get_datasecurity_raw(model["title"], datamodel_type="extract")
+        if isinstance(candidate_rules, list) and candidate_rules:
+            title, raw_rules = model["title"], candidate_rules
+            break
+    if title is None:
+        pytest.skip("No extract model with existing datasecurity rules found to round-trip.")
 
     result = dm.update_datasecurity(title, raw_rules)
 
