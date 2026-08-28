@@ -186,6 +186,18 @@ Failure returns follow one shape across the SDK:
 
 Detect failure by the **presence of the `"error"` key**; the message is safe to relay to end users (secrets are redacted). Connection-level failures carry `"error"` without `"status_code"`. Renaming or restructuring these keys is treated as a breaking change.
 
+**Documented failure-shape exceptions** — the following methods do *not* return the error dict on failure; consumers must handle their shapes explicitly:
+
+| Failure shape | Methods |
+|---|---|
+| String return (`"Error: ..."` / message text) | `add_dashboard_shares`, `add_dashboard_script`, `add_widget_script` |
+| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares` |
+| `None` | `create_connections` |
+| List-wrapped error dict `[{"error": ..., "status_code": ...}]` | `get_users_all`, `get_users_with_role_names_and_group_names` |
+| Own consistent error handler | all `ReportManager` methods |
+
+> **Planned for 2.0:** converging these exception shapes onto the error-dict contract — `[]`-on-403 makes permission denials invisible to consumers, but changing it is breaking, so it waits for a major version.
+
 ### Payload contracts
 
 Dict parameters are typed with TypedDicts from `pysisense/payloads.py` (also exported at package root). Required vs. optional fields introspect via `__required_keys__` / `__optional_keys__`; annotations resolve at runtime (`inspect.signature(..., eval_str=True)`). Deprecated method aliases are decorated with `@typing_extensions.deprecated(...)` (PEP 702), so `__deprecated__` is introspectable. Enum-valued string parameters use `typing.Literal`.

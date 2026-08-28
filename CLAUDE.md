@@ -508,6 +508,12 @@ and relay the string to end users. Renaming or restructuring these keys is a bre
 change even with no signature change. `_extract_error_message` (`pysisense/utils.py`)
 is the only place that builds this dict — never hand-roll it.
 
+Documented failure-shape exceptions (string returns, `[]`, `None`, list-wrapped error
+dicts, report_manager's own handler) are listed in the README's "Stable Contracts for
+Programmatic Consumers" section. Do not add new exceptions. **2.0 wishlist:** converge
+the exception shapes onto the error-dict contract (`[]`-on-403 hides permission denials
+from consumers) — breaking, so it waits for a major version.
+
 ### Release ritual — downstream-generators changelog block
 
 Every release's notes must carry a block listing: methods renamed (old → new), params
