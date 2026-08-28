@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 # Fields that Sisense manages server-side and must be stripped before a PUT write.
 _SERVER_MANAGED_FIELDS = frozenset({"oid", "_id", "owner", "userId", "created", "lastUpdated", "instanceType", "dashboardid"})
 
@@ -35,17 +37,10 @@ class DashboardWidgetsMixin:
         self.logger.debug(f"Fetching widget {widget_id} from dashboard {dashboard_id} (admin_access={admin_access})")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"No response received when fetching widget {widget_id} from dashboard {dashboard_id}.")
-            return {"error": f"No response received for widget '{widget_id}'."}
-
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to fetch widget {widget_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to fetch widget '{widget_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to fetch widget '{widget_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Widget {widget_id} retrieved from dashboard {dashboard_id}.")
         return response.json()
@@ -87,17 +82,10 @@ class DashboardWidgetsMixin:
         endpoint = f"/api/dashboards/{dashboard_id}/widgets/{widget_id}"
         response = self.api_client.put(endpoint, data=clean_payload)
 
-        if response is None:
-            self.logger.error(f"No response received when updating widget {widget_id}.")
-            return {"error": f"No response received when updating widget '{widget_id}'."}
-
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to update widget {widget_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to update widget '{widget_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to update widget '{widget_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Widget {widget_id} on dashboard {dashboard_id} updated successfully.")
         return response.json() if response.content else {"success": True}

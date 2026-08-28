@@ -50,17 +50,10 @@ class SharesMixin:
 
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error(f"No response received when changing owner of dashboard {dashboard_id}.")
-            return {"error": f"No response received when changing owner of dashboard '{dashboard_id}'."}
-
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to change owner of dashboard {dashboard_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to change owner of dashboard '{dashboard_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to change owner of dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Dashboard {dashboard_id} owner changed to {new_owner_id}.")
         return response.json() if response.content else {"success": True}
