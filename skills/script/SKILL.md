@@ -7,7 +7,7 @@ description: Use whenever the user asks for a script, automation, or one-off tas
 
 Write Python scripts against the **pysisense SDK** — the official wrapper around the Sisense REST API used throughout this repository. Real classes, methods, and conventions only. Never invent endpoints or method names; if a needed capability isn't listed below or in `references/`, say so and grep `pysisense/<module>/` in this repo before guessing.
 
-This skill is for **writing scripts that use pysisense as a library** (the same spirit as `examples/*.md`), not for modifying the SDK's own source. If the user's request is instead about editing pysisense internals, switch to the `dev` skill.
+This skill is for **writing scripts that use pysisense as a library** (the same spirit as `examples/*.md`), not for modifying the SDK's own source. If the user's request is instead about editing pysisense internals, switch to the `orchestrator` skill (the pysisense dev cycle).
 
 ## Load order
 
