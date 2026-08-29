@@ -373,7 +373,7 @@ Retrieves datasecurity table and column entries for a given DataModel in flat ro
 
 #### Returns:
 
-* `list`: List of dictionaries containing datamodel name, table name, column name, and associated security type. If no rules exist, a single entry with the datamodel name and empty values is returned.
+* `list`: List of dictionaries containing datamodel name, table name, column name, and associated security type — one row per secured column, so the row count equals the number of rules. Returns an empty list when the model has no rules (or on fetch failure; details are logged).
 
 ---
 

@@ -802,10 +802,11 @@ class TestGetAllDashboardShares:
             },
         )
         result = am.get_all_dashboard_shares()
+        # Marketing has no shares and must contribute no rows — a placeholder
+        # would read as one share to any consumer that counts results.
         assert result == [
             {"dashboard": "Sales", "type": "user", "name": "alice@example.com"},
             {"dashboard": "Sales", "type": "group", "name": "Engineers"},
-            {"dashboard": "Marketing", "type": None, "name": None},
         ]
 
     def test_distinguishes_empty_string_email_from_unresolved_share(self):

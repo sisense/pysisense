@@ -191,7 +191,7 @@ Detect failure by the **presence of the `"error"` key**; the message is safe to 
 | Failure shape | Methods |
 |---|---|
 | String return (`"Error: ..."` / message text) | `add_dashboard_shares`, `add_dashboard_script`, `add_widget_script` |
-| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares` |
+| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares`, `get_datasecurity`, `get_datasecurity_detail` |
 | `None` | `create_connections` |
 | List-wrapped error dict `[{"error": ..., "status_code": ...}]` | `get_users_all`, `get_users_with_role_names_and_group_names` |
 | Own consistent error handler | all `ReportManager` methods |

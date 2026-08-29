@@ -425,18 +425,16 @@ class TestGetDatamodelShares:
 
 
 class TestGetDatasecurity:
-    def test_returns_default_row_when_no_security_rules(self):
-        datasecurity = []
+    def test_returns_empty_list_when_no_security_rules(self):
+        # A model with zero rules must return [] — a placeholder row reads as
+        # "one rule" to any consumer that counts results.
         dm = _make_dm(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
-                "/api/elasticubes/localhost/SalesModel/datasecurity": FakeResponse(200, datasecurity),
+                "/api/elasticubes/localhost/SalesModel/datasecurity": FakeResponse(200, []),
             }
         )
-        result = dm.get_datasecurity("SalesModel")
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["table_name"] == ""
+        assert dm.get_datasecurity("SalesModel") == []
 
     def test_returns_empty_list_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
@@ -462,16 +460,14 @@ class TestGetDatasecurity:
 
 
 class TestGetDatasecurityDetail:
-    def test_returns_default_row_when_no_rules(self):
+    def test_returns_empty_list_when_no_rules(self):
         dm = _make_dm(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
                 "/api/elasticubes/localhost/SalesModel/datasecurity": FakeResponse(200, []),
             }
         )
-        result = dm.get_datasecurity_detail("SalesModel")
-        assert isinstance(result, list)
-        assert len(result) == 1
+        assert dm.get_datasecurity_detail("SalesModel") == []
 
     def test_returns_empty_list_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})

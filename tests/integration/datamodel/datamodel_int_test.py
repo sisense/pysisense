@@ -64,12 +64,15 @@ def test_get_datamodel_shares_returns_data() -> None:
 
     result = datamodel.get_datamodel_shares(title)
 
-    assert isinstance(result, (dict, list))
+    assert isinstance(result, dict | list)
 
 
 @pytest.mark.integration
-def test_get_datasecurity_returns_data() -> None:
-    """get_datasecurity should return a non-empty list (at minimum the no-rules sentinel row)."""
+def test_get_datasecurity_row_counts_are_honest() -> None:
+    """get_datasecurity must return [] for rule-less models (no sentinel row)
+    and only real rows — with actual table/column values — for models that
+    have rules. Row count == rule count is the contract consumers rely on.
+    """
     client = _make_client()
     datamodel = DataModel(api_client=client)
 
@@ -77,12 +80,14 @@ def test_get_datasecurity_returns_data() -> None:
     if not isinstance(all_models, list) or not all_models:
         pytest.skip("No data models available.")
 
-    title = all_models[0].get("title", "")
-    if not title:
-        pytest.skip("First data model has no title.")
-
-    result = datamodel.get_datasecurity(title)
-
-    # get_datasecurity always returns at least one row (sentinel when no RLS rules exist)
-    assert isinstance(result, list)
-    assert len(result) >= 1
+    checked = 0
+    for model in all_models[:15]:
+        title = model.get("title", "")
+        if not title:
+            continue
+        result = datamodel.get_datasecurity(title)
+        assert isinstance(result, list), f"'{title}': expected list, got {type(result)}"
+        for row in result:
+            assert row.get("table_name") and row.get("column_name"), f"'{title}': placeholder/blank row returned: {row}"
+        checked += 1
+    assert checked > 0, "No models could be checked."

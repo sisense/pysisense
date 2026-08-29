@@ -90,8 +90,10 @@ class AdminMixin:
         -------
         list[dict[str, Any]]
             A list of dictionaries containing the dashboard title, share type
-            (``user`` or ``group``), and share name (email or group name). An
-            empty list is returned if users or groups cannot be fetched.
+            (``user`` or ``group``), and share name (email or group name) — one
+            row per share, so the row count equals the number of shares.
+            Dashboards with no shares contribute no rows. An empty list is
+            returned if users or groups cannot be fetched.
         """
         self.logger.info("Starting to retrieve dashboard shares...")
 
@@ -124,9 +126,8 @@ class AdminMixin:
                         share_info["name"] = groups_by_id[share["shareId"]]
 
                     shared_list.append(share_info)
-            else:
-                # Add placeholder if there are no shares for the dashboard
-                shared_list.append({"dashboard": dashboard["title"], "type": None, "name": None})
+            # Dashboards with no shares contribute no rows — a placeholder row
+            # would read as one share to any consumer that counts results.
 
         self.logger.info(f"Parsed {len(shared_list)} shared dashboards.")
 

@@ -574,9 +574,13 @@ datamodel.deploy_datamodel(name)
 
 `"Athena"`, `"RedShift"`, `"BigQuery"`, `"DataBricks"` (case-insensitive)
 
-### `get_datasecurity` edge case
+### Datasecurity readers — empty means empty
 
-If no RLS rules exist, returns a single entry with empty values — never an empty list.
+`get_datasecurity`, `get_datasecurity_detail`, and `get_datasecurity_raw` all return
+``[]`` when a model has no RLS rules — never a placeholder row. Row counts must always
+equal real rule counts: programmatic consumers count rows, so a fabricated blank entry
+reads as "one rule". The same rule applies SDK-wide — never substitute a placeholder
+row for an empty result.
 
 ### Share permissions
 
