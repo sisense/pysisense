@@ -53,7 +53,7 @@ jobs:
 
       - name: Build package
         if: steps.tag_check.outputs.exists == 'false'
-        run: uv build --frozen
+        run: uv build
 
       - name: Publish to PyPI
         if: steps.tag_check.outputs.exists == 'false'
