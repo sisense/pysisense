@@ -466,6 +466,20 @@ class TestGetDashboardSharesV1:
         result = dash.get_dashboard_shares_v1("dash123")
         assert "error" in result
 
+    def test_retries_without_admin_access_when_api_rejects_the_param(self):
+        # Some Sisense versions reject adminAccess with a strict-schema 422;
+        # the method must retry the bare endpoint. Exact-URL keys let the fake
+        # serve different responses per variant.
+        shares_list = [{"userName": "a@b.com", "rule": "edit"}]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/dash123/shares?adminAccess=true": FakeResponse(422, {"message": "must NOT have additional properties"}),
+                "/api/v1/dashboards/dash123/shares": FakeResponse(200, shares_list),
+            }
+        )
+        result = dash.get_dashboard_shares_v1("dash123")
+        assert result == shares_list
+
 
 # ---------------------------------------------------------------------------
 # can_be_owned
@@ -608,6 +622,64 @@ class TestGetWidgetScript:
 
         assert isinstance(result, dict)
         assert "error" in result
+
+    def test_scriptless_widget_returns_explicit_message_not_keyerror(self):
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "widgets": [{"oid": "widget456", "title": "Revenue by Region", "type": "chart/column"}],
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert result == {"error": "Widget 'Revenue by Region' has no widget script."}
+
+    def test_export_omitting_script_field_falls_back_to_direct_widget_fetch(self, monkeypatch):
+        # Some Sisense versions omit 'script' (and 'title') from export widgets
+        # entirely — the getter must fetch the widget directly.
+        class DummyScript:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "widgets": [{"oid": "widget456", "type": "chart/pie"}],  # no script key
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+        dash.get_widget_by_id = lambda d, w: {"oid": "widget456", "title": "Pie", "type": "chart/pie", "script": "console.log('w');"}
+        monkeypatch.setattr(scripts_module, "SisenseScript", DummyScript)
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert isinstance(result, DummyScript)
+        assert result.kwargs["script"] == "console.log('w');"
+        assert result.kwargs["title"] == "Pie"
+
+    def test_export_without_widgets_key_reports_widget_not_found(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"oid": "dash123", "title": "Sales Report"}
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert "not found" in result["error"]
+
+
+class TestGetDashboardScriptNoScript:
+    def test_scriptless_dashboard_returns_explicit_message_not_keyerror(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"oid": "dash123", "title": "Sales Report"}
+
+        result = dash.get_dashboard_script("dash123")
+
+        assert result == {"error": "Dashboard 'Sales Report' has no dashboard script."}
 
 
 class TestBeautifyJsCode:

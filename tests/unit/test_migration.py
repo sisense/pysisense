@@ -233,3 +233,75 @@ class TestMigrationPublicMethodsExist:
 
     def test_migrate_all_datamodels_exists(self):
         assert callable(getattr(self._migration(), "migrate_all_datamodels", None))
+
+
+# ---------------------------------------------------------------------------
+# _export_dashboard — auth-aware fallback
+# ---------------------------------------------------------------------------
+
+
+class _RecordingClient(FakeApiClient):
+    """FakeApiClient that records every GET URL, to prove no blind retry."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.get_calls = []
+
+    def get(self, url, params=None, **kwargs):
+        self.get_calls.append(url)
+        return super().get(url, params=params, **kwargs)
+
+
+class TestExportDashboardAuthAwareFallback:
+    def test_gateway_error_fails_fast_without_fallback(self):
+        # A 502 gateway timeout cannot be helped by dropping adminAccess —
+        # there must be exactly ONE request, and the reason must carry the status.
+        src = _RecordingClient(get_responses={"/api/dashboards/dash1/export": FakeResponse(502, None, text="Bad Gateway")})
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data is None
+        assert "HTTP 502" in reason
+        assert len(src.get_calls) == 1, f"blind fallback fired: {src.get_calls}"
+
+    def test_connection_failure_fails_fast_without_fallback(self):
+        src = _RecordingClient(get_responses={"/api/dashboards/dash1/export": None})
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data is None
+        assert "connection failure or timeout" in reason
+        assert len(src.get_calls) == 1, f"blind fallback fired: {src.get_calls}"
+
+    def test_auth_failure_falls_back_without_admin_access(self):
+        exported = {"oid": "dash1", "title": "Sales"}
+        src = _RecordingClient(
+            get_responses={
+                "/api/dashboards/dash1/export?adminAccess=true": FakeResponse(403, {"message": "forbidden"}),
+                "/api/dashboards/dash1/export": FakeResponse(200, exported),
+            }
+        )
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data == exported
+        assert reason is None
+        assert len(src.get_calls) == 2
+
+    def test_auth_failure_then_failed_fallback_reports_both_statuses(self):
+        src = _RecordingClient(
+            get_responses={
+                "/api/dashboards/dash1/export?adminAccess=true": FakeResponse(403, {"message": "forbidden"}),
+                "/api/dashboards/dash1/export": FakeResponse(404, {"detail": "dashboard not found"}),
+            }
+        )
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data is None
+        assert "HTTP 403" in reason and "HTTP 404" in reason
+        assert "dashboard not found" in reason

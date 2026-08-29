@@ -50,17 +50,10 @@ class SharesMixin:
 
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error(f"No response received when changing owner of dashboard {dashboard_id}.")
-            return {"error": f"No response received when changing owner of dashboard '{dashboard_id}'."}
-
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to change owner of dashboard {dashboard_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to change owner of dashboard '{dashboard_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to change owner of dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Dashboard {dashboard_id} owner changed to {new_owner_id}.")
         return response.json() if response.content else {"success": True}
@@ -127,16 +120,17 @@ class SharesMixin:
         for group in groups:
             group.pop("name", None)
 
-        # Fetch existing shares
+        # Fetch existing shares. Retry without admin access ONLY on auth
+        # failures — a fallback cannot help a server error or timeout, and
+        # blindly retrying doubles the cost of every slow failure.
         shares_response = self.api_client.get(endpoint)
-        if shares_response is None or shares_response.status_code != 200:
-            self.logger.warning(f"Failed to retrieve existing shares for dashboard {dashboard_id} with admin access. Trying without admin access.")
-            # Try without admin access
+        if shares_response is not None and shares_response.status_code in (401, 403, 422):
+            self.logger.warning(f"adminAccess rejected retrieving shares for dashboard {dashboard_id} (HTTP {shares_response.status_code}). Trying without admin access.")
             shares_response = self.api_client.get(f"/api/shares/dashboard/{dashboard_id}")
-            if shares_response is None or shares_response.status_code != 200:
-                error_message = shares_response.json() if shares_response else "No response received."
-                self.logger.error(f"Failed to retrieve existing shares for dashboard {dashboard_id}. Error: {error_message}")
-                return f"Error: Failed to retrieve existing shares for dashboard {dashboard_id}."
+        if shares_response is None or shares_response.status_code != 200:
+            failure = _extract_error_message(shares_response, f"Failed to retrieve existing shares for dashboard {dashboard_id}", self.api_client)
+            self.logger.error(failure["error"])
+            return f"Error: {failure['error']}"
 
         existing_shares = shares_response.json().get("sharesTo", [])
         # Ignore shares without a "rule" key to prevent KeyError since the dashboard owner does not have a rule
@@ -279,7 +273,7 @@ class SharesMixin:
         dashboard_id: str,
         *,
         admin_access: bool = True,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         """Retrieve share details for a dashboard using the v1 shares endpoint.
 
         Sends ``GET /api/v1/dashboards/{dashboard_id}/shares``. This returns the
@@ -291,19 +285,29 @@ class SharesMixin:
         dashboard_id : str
             The dashboard ``oid``.
         admin_access : bool, optional
-            When ``True`` (default), request with ``adminAccess=true``.
+            When ``True`` (default), request with ``adminAccess=true``. Some
+            Sisense versions reject the ``adminAccess`` query parameter with
+            HTTP 422 (strict query-schema validation); the request is then
+            retried automatically without it.
 
         Returns
         -------
-        dict[str, Any]
-            The shares response from the API, or ``{"error": "..."}`` on failure.
+        dict[str, Any] | list[dict[str, Any]]
+            The shares response from the API, or ``{"error": "..."}`` on
+            failure. The payload shape varies by Sisense version (a dict with
+            ``sharesTo``/``owner``, or a list of share entries).
         """
-        endpoint = f"/api/v1/dashboards/{dashboard_id}/shares"
-        if admin_access:
-            endpoint += "?adminAccess=true"
+        base_endpoint = f"/api/v1/dashboards/{dashboard_id}/shares"
+        endpoint = f"{base_endpoint}?adminAccess=true" if admin_access else base_endpoint
 
         self.logger.debug(f"Fetching v1 shares for dashboard {dashboard_id}")
         response = self.api_client.get(endpoint)
+
+        # Some Sisense versions validate the query schema strictly and reject
+        # adminAccess as an unknown property (422) — retry without it.
+        if admin_access and response is not None and response.status_code == 422:
+            self.logger.debug(f"adminAccess rejected by this Sisense version (HTTP 422) for dashboard {dashboard_id}; retrying without it.")
+            response = self.api_client.get(base_endpoint)
 
         if response is None or response.status_code != 200:
             failure = _extract_error_message(response, f"Failed to retrieve shares for dashboard '{dashboard_id}'", self.api_client)

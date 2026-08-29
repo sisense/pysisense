@@ -230,9 +230,9 @@ class DashboardCoreMixin:
         """
         response = self.api_client.get(f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true")
         if response is None or response.status_code != 200:
-            error_msg = f"Failed to export dashboard '{dashboard_id}'"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+            failure = _extract_error_message(response, f"Failed to export dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             data = response.json()
@@ -334,15 +334,10 @@ class DashboardCoreMixin:
         self.logger.debug("Fetching dashboards from standard endpoint")
         response = self.api_client.get(endpoint, params=params if params else None)
 
-        if response is None:
-            msg = "No response received while fetching dashboards."
-            self.logger.error(msg)
-            return {"error": msg}
-
-        if response.status_code != 200:
-            msg = f"Failed to fetch dashboards — status {response.status_code}"
-            self.logger.error(msg)
-            return {"error": msg}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to fetch dashboards", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboards = response.json()
         count = len(dashboards) if isinstance(dashboards, list) else 1

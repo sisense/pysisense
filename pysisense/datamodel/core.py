@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DataModelCoreMixin:
     def get_datamodel(self, datamodel_name: str) -> dict[str, Any]:
@@ -26,13 +28,10 @@ class DataModelCoreMixin:
         endpoint = f"/api/v2/datamodels/schema?title={datamodel_name}"
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"No response received from API while retrieving DataModel '{datamodel_name}'")
-            return {"error": "No response from API while retrieving DataModel"}
-
-        if not response.ok:
-            self.logger.error(f"Failed to retrieve DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve DataModel. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve DataModel '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         datamodels = response.json()
         if not datamodels:
@@ -77,13 +76,10 @@ class DataModelCoreMixin:
 
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error("No response received from API while retrieving datamodel metadata.")
-            return {"error": "No response from API while retrieving datamodel metadata."}
-
-        if not response.ok:
-            self.logger.error(f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve datamodel metadata", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         data = response.json()
 

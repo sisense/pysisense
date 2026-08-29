@@ -1,7 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
+from typing_extensions import deprecated
+
+from ..payloads import (
+    AthenaConnectionParams,
+    BigQueryConnectionParams,
+    ConnectionPayload,
+    ConnectionUpdatePayload,
+    DataBricksConnectionParams,
+    RedShiftConnectionParams,
+)
 from ..utils import _extract_error_message, redact_secrets
 
 
@@ -45,7 +55,7 @@ class ConnectionsMixin:
         self.logger.debug(f"Connection details: {connections}")
         return connections
 
-    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
+    def get_connections_all(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all connections.
 
         Sends ``GET /api/v2/connections`` and returns the full connection list.
@@ -70,7 +80,23 @@ class ConnectionsMixin:
         self.logger.info(f"Successfully retrieved {count} connections.")
         return connections
 
-    def update_connection(self, connection_id: str, connection_data: dict[str, Any]) -> dict[str, Any]:
+    @deprecated("use get_connections_all")
+    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all connections.
+
+        Deprecated alias for :meth:`get_connections_all`, kept for backward
+        compatibility. Prefer ``get_connections_all``, which makes the
+        all-vs-single distinction from ``get_connection`` explicit.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            List of connection objects on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        return self.get_connections_all()
+
+    def update_connection(self, connection_id: str, connection_data: ConnectionUpdatePayload) -> dict[str, Any]:
         """Update an existing connection.
 
         Sends ``PATCH /api/v2/connections/{connection_id}``. Only fields present
@@ -82,7 +108,7 @@ class ConnectionsMixin:
         ----------
         connection_id : str
             Connection ``oid`` to update.
-        connection_data : dict[str, Any]
+        connection_data : ConnectionUpdatePayload
             Fields to update (for example ``name``, ``parameters``,
             ``provider``). Supported keys depend on the Sisense connection type.
 
@@ -173,7 +199,11 @@ class ConnectionsMixin:
         self.logger.debug(f"Table schema details: {schema}")
         return schema
 
-    def generate_connections_payload(self, datasource_type: str, connection_params: dict[str, Any]) -> dict[str, Any]:
+    def generate_connections_payload(
+        self,
+        datasource_type: Literal["Athena", "RedShift", "BigQuery", "DataBricks"],
+        connection_params: AthenaConnectionParams | RedShiftConnectionParams | BigQueryConnectionParams | DataBricksConnectionParams,
+    ) -> dict[str, Any]:
         """Generate a connection payload for a given data source type.
 
         Builds the provider-specific request body consumed by
@@ -183,10 +213,9 @@ class ConnectionsMixin:
 
         Parameters
         ----------
-        datasource_type : str
-            Type of data source. One of ``"Athena"``, ``"RedShift"``,
-            ``"BigQuery"``, ``"DataBricks"`` (case-insensitive).
-        connection_params : dict[str, Any]
+        datasource_type : Literal["Athena", "RedShift", "BigQuery", "DataBricks"]
+            Type of data source (matched case-insensitively).
+        connection_params : AthenaConnectionParams | RedShiftConnectionParams | BigQueryConnectionParams | DataBricksConnectionParams
             Connection details. Supported keys depend on ``datasource_type``:
 
             - Athena: ``name`` (required), ``region`` (required),
@@ -336,7 +365,7 @@ class ConnectionsMixin:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def create_connections(self, connection_payload: dict[str, Any]) -> dict[str, Any] | None:
+    def create_connections(self, connection_payload: ConnectionPayload) -> dict[str, Any] | None:
         """Create a new connection using the provided payload.
 
         Sends ``POST /api/v2/connections`` with the given payload, which is
@@ -344,10 +373,11 @@ class ConnectionsMixin:
 
         Parameters
         ----------
-        connection_payload : dict[str, Any]
-            The configuration payload for the connection. Canonical fields
-            include ``provider``, ``name``, ``description``, ``parameters``,
-            ``enabled``, ``createdByUser``, and ``supportedModelTypes``.
+        connection_payload : ConnectionPayload
+            The configuration payload for the connection. ``provider``,
+            ``name``, and ``parameters`` are required; optional fields include
+            ``description``, ``enabled``, ``createdByUser``, and
+            ``supportedModelTypes``.
 
         Returns
         -------

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..payloads import CreateUserPayload, UpdateUserPayload
 from ..utils import _extract_error_message
 
 
@@ -487,36 +488,52 @@ class UsersMixin:
 
         return data_list
 
-    def create_user(self, user_data: dict[str, Any]) -> dict[str, Any]:
+    def create_user(self, user_data: CreateUserPayload) -> dict[str, Any]:
         """Create a new user in Sisense.
 
-        Processes the provided user data to resolve the role name and group
-        names to their corresponding IDs, then sends a POST request to create
-        the user. The ``role`` field is matched case-insensitively (with
-        ``"VIEWER"`` mapped to ``"CONSUMER"`` and ``"DESIGNER"`` to
-        ``"CONTRIBUTOR"``) and replaced with the resolved ``roleId``; group
-        names in ``groups`` are resolved to group IDs.
+        Validates that the required fields are present, then resolves the role
+        name and group names to their corresponding IDs and sends a POST
+        request to create the user. The ``role`` field is matched
+        case-insensitively (with ``"VIEWER"`` mapped to ``"CONSUMER"`` and
+        ``"DESIGNER"`` to ``"CONTRIBUTOR"``) and replaced with the resolved
+        ``roleId``; group names in ``groups`` are resolved to group IDs.
 
         Parameters
         ----------
-        user_data : dict[str, Any]
-            Dictionary containing the user details. Supported fields use
-            canonical Sisense payload field names:
+        user_data : CreateUserPayload
+            User details, using canonical Sisense payload field names:
 
-            - ``email`` : str — the user's email address.
-            - ``firstName`` : str — the user's first name.
-            - ``lastName`` : str — the user's last name.
+            - ``email`` : str — the user's email address. **Required.**
             - ``role`` : str — role name to assign (resolved to ``roleId``).
-            - ``groups`` : list[str] — group names to assign (resolved to IDs).
-            - ``preferences`` : dict — user preference settings.
+              **Required.**
+            - ``userName`` : str — the user's login name (optional).
+            - ``firstName`` : str — the user's first name (optional).
+            - ``lastName`` : str — the user's last name (optional).
+            - ``groups`` : list[str] — group names to assign, resolved to IDs
+              (optional).
+            - ``password`` : str — initial password; if omitted, the user
+              receives an email to set one (optional).
+            - ``preferences`` : dict — user preference settings (optional).
 
         Returns
         -------
         dict[str, Any]
             The created user object returned by the API if successful, or a
-            dictionary with an ``error`` key if the operation fails.
+            dictionary with an ``error`` key if the operation fails. Missing
+            required fields are rejected up front, before any API call.
         """
         self.logger.debug(f"Creating user with data: {user_data}")
+
+        # Validate required fields up front — fail with a clear message before
+        # any API call instead of failing mid-flow at role resolution.
+        if not isinstance(user_data, dict):
+            self.logger.error("create_user requires user_data to be a dict.")
+            return {"error": "user_data must be a dictionary."}
+        missing = [field for field in ("email", "role") if not user_data.get(field)]
+        if missing:
+            error_msg = f"create_user requires {' and '.join(f'{f!r}' for f in missing)} in user_data — got fields: {sorted(user_data.keys()) or 'none'}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
 
         # Custom role mapping
         role_alias_mapping = {"VIEWER": "CONSUMER", "DESIGNER": "CONTRIBUTOR"}
@@ -593,7 +610,7 @@ class UsersMixin:
             self.logger.error(f"Failed to create user. Error: {error_message}")
             return {"error": error_message}
 
-    def update_user(self, user_email: str, user_data: dict[str, Any]) -> dict[str, Any]:
+    def update_user(self, user_email: str, user_data: UpdateUserPayload) -> dict[str, Any]:
         """
         Update an existing Sisense user identified by their email address.
 
@@ -605,7 +622,7 @@ class UsersMixin:
         ----------
         user_email : str
             Email address of the user to update (used to locate the user). (format: email)
-        user_data : dict[str, Any]
+        user_data : UpdateUserPayload
             Dictionary of fields to update. Only include fields you want to change.
 
             Supported fields

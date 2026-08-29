@@ -68,9 +68,11 @@ Retrieves a Connection by its name.
 
 ---
 
-### `get_connections()`
+### `get_connections_all()`
 
 Lists all connections via `GET /api/v2/connections`.
+
+`get_connections()` is kept as a deprecated alias with identical behavior — prefer `get_connections_all`, which makes the all-vs-single distinction from `get_connection` explicit.
 
 #### Returns:
 
@@ -140,17 +142,17 @@ It is recommended to use this method with caution.
 
 ### `create_datamodel(self, datamodel_name, datamodel_type)`
 
-Creates a new DataModel in Sisense.
+Creates a new DataModel in Sisense. Before creating, checks that no DataModel with the same title already exists — a duplicate title otherwise surfaces as an opaque HTTP 500 from the API, and now returns a clear "already exists" error instead.
 
 #### Parameters:
 
 * `datamodel_name` (str): Name of the DataModel.
 
-* `datamodel_type` (str): Type of the DataModel. Should be either "extract" (for Elasticube) or "live" (for Live).
+* `datamodel_type` (`Literal["extract", "live"]`): Type of the DataModel — "extract" (Elasticube) or "live".
 
 #### Returns:
 
-* `dict`: Dictionary with the DataModel ID if created successfully, or an error message.
+* `dict`: Dictionary with the DataModel ID if created successfully, or an error message (including a clear "already exists" error when the title is taken).
 
 ---
 
@@ -297,7 +299,7 @@ Deploys (builds or publishes) the specified DataModel based on its type.
 
 * `datamodel_name` (str): Name of the DataModel to deploy.
 
-* `build_type` (str): Type of deployment. Required for EXTRACT only. Options:
+* `build_type` (`Literal["full", "by_table", "schema_changes"]`): Type of deployment. Required for EXTRACT only. Options:
 
   * `schema_changes`
 
@@ -391,12 +393,12 @@ Retrieves detailed datasecurity rules for a specific DataModel, including visibi
 
 ### `update_datasecurity(self, datamodel_name, datasecurity)`
 
-Replaces datasecurity rules on an EXTRACT datamodel via `PUT /api/elasticubes/localhost/{datamodel_name}/datasecurity`. Use for a standalone datasecurity migration phase.
+**Adds** datasecurity rules to an EXTRACT datamodel via `POST /api/elasticubes/localhost/{datamodel_name}/datasecurity` (the API adds rules in bulk; it does not replace — to replace a column's rules, remove them first with `delete_datasecurity`). Server-managed fields (`_id`, `created`, `lastModified`, `importedIdIdentifier`) are stripped automatically so read-back rules can be re-submitted. The Elasticube must be **built and running** — writes are rejected for draft cubes.
 
 #### Parameters:
 
 * `datamodel_name` (str): Title of the EXTRACT datamodel.
-* `datasecurity` (list): Full rule list in Sisense API format (`table`, `column`, `datatype`, `members`, `exclusionary`, `shares`, etc.).
+* `datasecurity` (list): Rule list in Sisense API format (`table`, `column`, `datatype`, `members` — list of strings, `exclusionary`, `shares`, `allMembers`).
 
 #### Returns:
 
@@ -406,7 +408,7 @@ Replaces datasecurity rules on an EXTRACT datamodel via `PUT /api/elasticubes/lo
 
 ### `set_live_datasecurity_add_many(self, datamodel_name, rules)`
 
-Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticubes/live/{datamodel_name}/datasecurity/addMany`.
+Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticubes/live/{datamodel_name}/datasecurity/addMany`. Each rule requires `table`, `column`, `datatype`, `members` (list of strings), `exclusionary`, `shares`, `allMembers`, `live`, and `fullname` (`"live:{title}"`) — `live` and `fullname` are auto-filled when omitted, and server-managed fields are stripped automatically. The live model must be **published**; draft live models fail with "Elasticube has not been found".
 
 #### Parameters:
 
@@ -416,6 +418,22 @@ Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticub
 #### Returns:
 
 * `dict`: API response on success, or `{"error": "..."}` on failure.
+
+---
+
+### `delete_datasecurity(self, datamodel_name, table, column)`
+
+Deletes all datasecurity rules for one table/column via `DELETE {datasecurity_endpoint}/{table}/{column}`, using the endpoint flavor for the model's type (EXTRACT or LIVE). Combined with the add methods above, this enables replace semantics.
+
+#### Parameters:
+
+* `datamodel_name` (str): Title of the datamodel.
+* `table` (str): Table name the rules apply to.
+* `column` (str): Column name the rules apply to.
+
+#### Returns:
+
+* `dict`: `{"success": True}` on success, or `{"error": "..."}` on failure.
 
 ---
 
@@ -671,14 +689,14 @@ Permanently deletes a data model using the GraphQL ECM endpoint (`POST /api/v2/e
 
 ### `update_datasecurity(datamodel_name, datasecurity)`
 
-Replaces all row-level security rules on an extract (ElastiCube) data model. Sends `PUT /api/elasticubes/localhost/{title}/datasecurity`. The existing rule set is replaced entirely. Pass an empty list to remove all rules.
+**Adds** row-level security rules to an extract (ElastiCube) data model. Sends `POST /api/elasticubes/localhost/{title}/datasecurity` (bulk add — existing rules are kept; use `delete_datasecurity` first to replace a column's rules). The Elasticube must be built and running.
 
 Only supported for extract-type data models. For live models use `set_live_datasecurity_add_many`.
 
 **Parameters:**
 
 -   `datamodel_name` (str): Title of the extract data model.
--   `datasecurity` (list[dict]): Complete datasecurity rule list. Each rule must be a Sisense datasecurity object including `table`, `column`, `datatype`, `members`, `exclusionary`, and `shares`.
+-   `datasecurity` (list[dict]): Datasecurity rule list. Each rule must be a Sisense datasecurity object including `table`, `column`, `datatype`, `members` (list of strings), `exclusionary`, `shares`, and `allMembers`. Server-managed fields are stripped automatically.
 
 **Returns:**
 

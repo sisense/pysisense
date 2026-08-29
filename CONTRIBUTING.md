@@ -316,6 +316,21 @@ purpose.
 - Provide practical examples in the [examples/](examples/) directory for common use cases.
 - Update [docs/](docs/) with detailed documentation for complex features.
 
+## Release Checklist
+
+Downstream projects (FES Assistant, sisense-admin-mcp) generate tool schemas by
+introspecting this package, and their upgrade tooling is driven by the release notes.
+Every release's notes **must** carry a "downstream generators" changelog block listing:
+
+- **Methods renamed** — old → new (the old name must remain for one minor version as a
+  deprecated alias decorated with `@typing_extensions.deprecated(...)`).
+- **Params that gained TypedDict contracts** — `method.param` → contract name in
+  `pysisense/payloads.py`.
+- **Params that gained `Literal` enums** — `method.param` → the literal values.
+
+If a release contains none of these, say so explicitly ("no introspection-surface
+changes") rather than omitting the block.
+
 ## Conclusion
 
 Thank you for considering contributing to pysisense! We appreciate your contributions and look forward to working with you!

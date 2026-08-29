@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..payloads import NotebookCreatePayload, NotebookUpdatePayload
 from ..utils import _extract_error_message
 
 # Sisense notebook create/update require the Internal header (win2linux migration).
@@ -87,7 +88,7 @@ class CustomCodeCoreMixin:
 
     def create_notebook(
         self,
-        notebook_data: dict[str, Any],
+        notebook_data: NotebookCreatePayload,
         *,
         use_internal_header: bool = True,
     ) -> dict[str, Any]:
@@ -98,9 +99,10 @@ class CustomCodeCoreMixin:
 
         Parameters
         ----------
-        notebook_data : dict[str, Any]
-            Notebook creation payload (for example ``notebookType``,
-            ``displayName``, manifest fields).
+        notebook_data : NotebookCreatePayload
+            Notebook creation payload. ``notebookType`` and ``displayName``
+            are required; additional Sisense notebook manifest fields may be
+            included and are passed through unchanged.
         use_internal_header : bool, optional
             When ``True`` (default), send ``Internal: true`` header.
 
@@ -134,21 +136,22 @@ class CustomCodeCoreMixin:
     def update_notebook(
         self,
         notebook_id: str,
-        notebook_data: dict[str, Any],
+        notebook_data: NotebookUpdatePayload,
         *,
         use_internal_header: bool = True,
     ) -> dict[str, Any]:
         """Update an existing notebook.
 
         Sends ``PATCH /api/v1/notebooks/{notebook_id}``. Only fields present in
-        ``notebook_data`` are sent. By default includes the ``Internal`` header.
+        ``notebook_data`` are sent; omitted fields are not modified. By default
+        includes the ``Internal`` header.
 
         Parameters
         ----------
         notebook_id : str
-            Notebook UUID or identifier.
-        notebook_data : dict[str, Any]
-            Fields to update.
+            Notebook UUID or identifier. (format: uuid)
+        notebook_data : NotebookUpdatePayload
+            Fields to update — only include fields you want to change.
         use_internal_header : bool, optional
             When ``True`` (default), send ``Internal: true`` header.
 

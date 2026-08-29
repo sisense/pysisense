@@ -140,9 +140,9 @@ Create a user by specifying their details, including role and groups.
 ```python
 user_data = {
     "email": "john.doe@example.com",  # Required: User's email address
+    "role": "dataDesigner",  # Required: Role name (e.g. "viewer"), resolved to roleId. A missing role is rejected before any API call.
     "firstName": "John",  # Optional: User's first name
     "lastName": "Doe",  # Optional: User's last name
-    "role": "dataDesigner",  # Optional: Remove this field if not needed; if omitted, the user will be assigned the default role of 'viewer'. Cannot be an empty string.
     "groups": ["mig_test", "mig_test_2"],  # Optional: List of group names, can be an empty list if the user is not part of any group
     "password": "Sisense141!@",  # Optional: Provide a password if needed; if omitted, the user will receive an email to set their password. Cannot be an empty string so remove this field if not needed.
     "preferences": {  # Optional: User preferences, such as language settings, can be an empty dict if not needed

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 # Fields that Sisense manages server-side and must be stripped before a PUT write.
 _SERVER_MANAGED_FIELDS = frozenset({"oid", "_id", "owner", "userId", "created", "lastUpdated", "instanceType", "dashboardid"})
 
@@ -21,31 +23,32 @@ class DashboardWidgetsMixin:
             The ``oid`` of the widget to retrieve.
         admin_access : bool, optional
             When ``True`` (default), appends ``?adminAccess=true`` to the request,
-            allowing access to dashboards the API token user does not own.
+            allowing access to dashboards the API token user does not own. Some
+            Sisense versions reject the ``adminAccess`` query parameter with
+            HTTP 422 (strict query-schema validation); the request is then
+            retried automatically without it.
 
         Returns
         -------
         dict[str, Any]
             The widget object returned by the API, or ``{"error": "..."}`` on failure.
         """
-        endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets/{widget_id}"
-        if admin_access:
-            endpoint += "?adminAccess=true"
+        base_endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets/{widget_id}"
+        endpoint = f"{base_endpoint}?adminAccess=true" if admin_access else base_endpoint
 
         self.logger.debug(f"Fetching widget {widget_id} from dashboard {dashboard_id} (admin_access={admin_access})")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"No response received when fetching widget {widget_id} from dashboard {dashboard_id}.")
-            return {"error": f"No response received for widget '{widget_id}'."}
+        # Some Sisense versions validate the query schema strictly and reject
+        # adminAccess as an unknown property (422) — retry without it.
+        if admin_access and response is not None and response.status_code == 422:
+            self.logger.debug(f"adminAccess rejected by this Sisense version (HTTP 422) for widget {widget_id}; retrying without it.")
+            response = self.api_client.get(base_endpoint)
 
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to fetch widget {widget_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to fetch widget '{widget_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to fetch widget '{widget_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Widget {widget_id} retrieved from dashboard {dashboard_id}.")
         return response.json()
@@ -87,17 +90,10 @@ class DashboardWidgetsMixin:
         endpoint = f"/api/dashboards/{dashboard_id}/widgets/{widget_id}"
         response = self.api_client.put(endpoint, data=clean_payload)
 
-        if response is None:
-            self.logger.error(f"No response received when updating widget {widget_id}.")
-            return {"error": f"No response received when updating widget '{widget_id}'."}
-
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to update widget {widget_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to update widget '{widget_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to update widget '{widget_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         self.logger.info(f"Widget {widget_id} on dashboard {dashboard_id} updated successfully.")
         return response.json() if response.content else {"success": True}

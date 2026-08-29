@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class AdminMixin:
     def get_user_email_and_group_name_maps(self) -> dict[str, Any]:
@@ -19,17 +21,19 @@ class AdminMixin:
             on success, or ``{"error": "..."}`` if either API call fails.
         """
         users_response = self.api_client.get("/api/v1/users")
-        if not users_response or users_response.status_code != 200:
-            self.logger.error("Failed to fetch users.")
-            return {"error": "Failed to fetch users."}
+        if users_response is None or users_response.status_code != 200:
+            failure = _extract_error_message(users_response, "Failed to fetch users", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         users_data = users_response.json()
         users_by_id = {user["_id"]: user.get("email", "Unknown Email") for user in users_data}
 
         groups_response = self.api_client.get("/api/v1/groups")
-        if not groups_response or groups_response.status_code != 200:
-            self.logger.error("Failed to fetch groups.")
-            return {"error": "Failed to fetch groups."}
+        if groups_response is None or groups_response.status_code != 200:
+            failure = _extract_error_message(groups_response, "Failed to fetch groups", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         groups_data = groups_response.json()
         groups_by_id = {group["_id"]: group.get("name", "Unknown Group") for group in groups_data}
@@ -181,9 +185,10 @@ class AdminMixin:
         schema_url = f"/api/v2/datamodels/schema?title={datamodel_name}"
         response = self.api_client.get(schema_url)
 
-        if not response or response.status_code != 200:
-            self.logger.error(f"Failed to fetch DataModel schema for '{datamodel_name}'")
-            return {"error": f"Failed to fetch DataModel schema for '{datamodel_name}'"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to fetch DataModel schema for '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         response_data = response.json()
         if not response_data:

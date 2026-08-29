@@ -76,6 +76,7 @@ uv run pre-commit install
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets` |
+| `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PluginSnapshot`) — introspectable by downstream schema generators |
 
 ### Package structure — mixin pattern
 
@@ -103,9 +104,9 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference`, `get_elasticubes`, `load_datamodel`, `delete_datamodel`, `export_datamodel_schema`, `import_datamodel_schema` |
-| | `connections.py` | `get_connection`, `get_connections`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `connections.py` | `get_connection`, `get_connections_all` (`get_connections` kept as deprecated alias), `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
-| | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity`, `set_live_datasecurity_add_many`, `get_datasecurity_raw` |
+| | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
@@ -345,6 +346,24 @@ print("Done")
 self.logger.debug(f"Sending payload: {full_payload}")
 ```
 
+### Sisense API response quirks — parse defensively
+
+The Sisense REST API is **not uniform**: response structure varies by endpoint, model
+type, and Sisense version. Live-confirmed examples: error bodies may be JSON or HTML
+(`update_datasecurity` 404s with an HTML page); payloads omit keys entirely instead of
+sending them empty (a scriptless dashboard has **no** `script` key); live vs extract
+endpoints differ in path, identifier (title vs oid), and required fields. Rules:
+
+- **Never bracket-access API payload keys** (`data["script"]`) — always `.get(...)`
+  with an explicit fallback, or return an honest "field not present" result. A missing
+  key is usually a normal state, not an error.
+- **Never assume error bodies are JSON** — route HTTP failures through
+  `_extract_error_message()` (`pysisense/utils.py`), which handles JSON/text/empty
+  bodies and adds the status code.
+- **When an endpoint exists in live + extract flavors, verify both against a real
+  instance** — they often differ in path, identifier (title vs oid), and required
+  payload fields. Do not extrapolate one flavor from the other.
+
 ### Smart reference resolvers
 
 Methods that accept a dashboard or data model reference handle either a 24-char ID or a title string:
@@ -460,6 +479,64 @@ class UpdateUserPayload(BaseModel):
 - **Safe aliases** — support common variants while emitting canonical API keys.
 - **Normalize types** — ensure `groups` is always a list when applicable using `@model_validator`.
 - **PATCH payloads** — always use `exclude_unset=True, exclude_none=True`.
+
+---
+
+## Introspection Contracts (downstream schema generators)
+
+Two downstream consumers (FES Assistant, sisense-admin-mcp) generate tool schemas by
+**introspecting this package's signatures** — these conventions are their contract.
+Enforced by `tests/unit/test_public_contracts.py`.
+
+### Dict vs. flat parameters — decision rule for new methods
+
+A new method takes **plain named parameters by default**. Use a dict payload only when
+the dict is load-bearing:
+
+- it mirrors an API request body 1:1, or
+- it has partial-update/PATCH semantics ("send only what changes"), or
+- its fields vary by a discriminator (e.g. per-provider connection params).
+
+Every dict payload **MUST** have a TypedDict contract in `pysisense/payloads.py`,
+using the **two-class inheritance pattern** (a `total=True` base for required keys, a
+`total=False` subclass for optional ones) so `__required_keys__`/`__optional_keys__`
+introspect on Python 3.10+. Genuinely free-form payloads (JAQL, Blox JSON, metadata
+queries, encryption bodies) stay `dict[str, Any]` and must say so in the docstring.
+
+Enum-valued string params always use `Literal[...]` (e.g. `Literal["extract", "live"]`).
+
+### Deprecated aliases — machine-readable
+
+Every method rename keeps the old name as a deprecated alias **for one minor version**,
+always decorated with `@typing_extensions.deprecated("use <new_name>")` (PEP 702) so
+`__deprecated__` is introspectable — never docstring-prose-only. Keep a one-line
+deprecation note in the docstring for humans.
+
+### Facade registry
+
+`pysisense.FACADES` is the explicit tuple of tool-bearing facade classes. Generators
+iterate it — never `__all__`, which also carries TypedDict payload types and utility
+functions. New top-level SDK classes must be added to `FACADES`.
+
+### Error-dict shape — stable public API
+
+Failure returns are `{"error": "<human-readable message>", "status_code": <int, when an
+HTTP status exists>}`. Consumers key failure detection on the **presence of** `"error"`
+and relay the string to end users. Renaming or restructuring these keys is a breaking
+change even with no signature change. `_extract_error_message` (`pysisense/utils.py`)
+is the only place that builds this dict — never hand-roll it.
+
+Documented failure-shape exceptions (string returns, `[]`, `None`, list-wrapped error
+dicts, report_manager's own handler) are listed in the README's "Stable Contracts for
+Programmatic Consumers" section. Do not add new exceptions. **2.0 wishlist:** converge
+the exception shapes onto the error-dict contract (`[]`-on-403 hides permission denials
+from consumers) — breaking, so it waits for a major version.
+
+### Release ritual — downstream-generators changelog block
+
+Every release's notes must carry a block listing: methods renamed (old → new), params
+that gained TypedDict contracts, and params that gained `Literal` enums. Downstream
+upgrade tooling is driven by this block.
 
 ---
 

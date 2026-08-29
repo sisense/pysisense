@@ -130,7 +130,7 @@ Builds a **`SisenseScript`** helper from an admin export of the dashboard (`expo
 
 **Returns:**
 
--   `SisenseScript` or `dict`: A `SisenseScript` instance on success, or `{"error": "..."}` if the export fails.
+-   `SisenseScript` or `dict`: A `SisenseScript` instance on success, or `{"error": "..."}` if the export fails (with `status_code` for HTTP failures) or the dashboard has no script — a normal state, reported as an explicit "has no dashboard script" message rather than an exception.
 
 * * * * *
 
@@ -145,7 +145,7 @@ Builds a **`SisenseScript`** helper for one widget in the exported dashboard pay
 
 **Returns:**
 
--   `SisenseScript` or `dict`: A `SisenseScript` instance when the widget exists and has script data, or `{"error": "..."}` on failure (including missing widget in the export).
+-   `SisenseScript` or `dict`: A `SisenseScript` instance when the widget exists and has a script, or `{"error": "..."}` on failure — export failure (with `status_code` for HTTP failures), widget not found in the export, or the widget has no script (a normal state, reported as an explicit "has no widget script" message rather than an exception).
 
 * * * * *
 
