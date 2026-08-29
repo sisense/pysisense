@@ -1,6 +1,18 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
+
+from typing_extensions import deprecated
+
+from ..payloads import (
+    AthenaConnectionParams,
+    BigQueryConnectionParams,
+    ConnectionPayload,
+    ConnectionUpdatePayload,
+    DataBricksConnectionParams,
+    RedShiftConnectionParams,
+)
+from ..utils import _extract_error_message, redact_secrets
 
 
 class ConnectionsMixin:
@@ -43,7 +55,7 @@ class ConnectionsMixin:
         self.logger.debug(f"Connection details: {connections}")
         return connections
 
-    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
+    def get_connections_all(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all connections.
 
         Sends ``GET /api/v2/connections`` and returns the full connection list.
@@ -58,21 +70,33 @@ class ConnectionsMixin:
         self.logger.debug("Fetching all connections.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve connections failed: No response received.")
-            return {"error": "No response received while retrieving connections."}
-
-        if not response.ok:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve connections. Error: {error_message}")
-            return {"error": f"Failed to retrieve connections. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve connections", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         connections = response.json()
         count = len(connections) if isinstance(connections, list) else 0
         self.logger.info(f"Successfully retrieved {count} connections.")
         return connections
 
-    def update_connection(self, connection_id: str, connection_data: dict[str, Any]) -> dict[str, Any]:
+    @deprecated("use get_connections_all")
+    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all connections.
+
+        Deprecated alias for :meth:`get_connections_all`, kept for backward
+        compatibility. Prefer ``get_connections_all``, which makes the
+        all-vs-single distinction from ``get_connection`` explicit.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            List of connection objects on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        return self.get_connections_all()
+
+    def update_connection(self, connection_id: str, connection_data: ConnectionUpdatePayload) -> dict[str, Any]:
         """Update an existing connection.
 
         Sends ``PATCH /api/v2/connections/{connection_id}``. Only fields present
@@ -84,7 +108,7 @@ class ConnectionsMixin:
         ----------
         connection_id : str
             Connection ``oid`` to update.
-        connection_data : dict[str, Any]
+        connection_data : ConnectionUpdatePayload
             Fields to update (for example ``name``, ``parameters``,
             ``provider``). Supported keys depend on the Sisense connection type.
 
@@ -102,17 +126,10 @@ class ConnectionsMixin:
         self.logger.debug(f"Updating connection {connection_id} — fields: {list(connection_data.keys())}")
         response = self.api_client.patch(endpoint, data=connection_data)
 
-        if response is None:
-            self.logger.error(f"PATCH request to update connection {connection_id} failed: No response received.")
-            return {"error": f"No response received while updating connection ID '{connection_id}'"}
-
-        if not response.ok:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text if response else "No response text available."
-            self.logger.error(f"Failed to update connection {connection_id}. Error: {error_message}")
-            return {"error": f"Failed to update connection '{connection_id}'. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to update connection '{connection_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         updated = response.json()
         self.logger.info(f"Successfully updated connection {connection_id}.")
@@ -182,7 +199,11 @@ class ConnectionsMixin:
         self.logger.debug(f"Table schema details: {schema}")
         return schema
 
-    def generate_connections_payload(self, datasource_type: str, connection_params: dict[str, Any]) -> dict[str, Any]:
+    def generate_connections_payload(
+        self,
+        datasource_type: Literal["Athena", "RedShift", "BigQuery", "DataBricks"],
+        connection_params: AthenaConnectionParams | RedShiftConnectionParams | BigQueryConnectionParams | DataBricksConnectionParams,
+    ) -> dict[str, Any]:
         """Generate a connection payload for a given data source type.
 
         Builds the provider-specific request body consumed by
@@ -192,10 +213,9 @@ class ConnectionsMixin:
 
         Parameters
         ----------
-        datasource_type : str
-            Type of data source. One of ``"Athena"``, ``"RedShift"``,
-            ``"BigQuery"``, ``"DataBricks"`` (case-insensitive).
-        connection_params : dict[str, Any]
+        datasource_type : Literal["Athena", "RedShift", "BigQuery", "DataBricks"]
+            Type of data source (matched case-insensitively).
+        connection_params : AthenaConnectionParams | RedShiftConnectionParams | BigQueryConnectionParams | DataBricksConnectionParams
             Connection details. Supported keys depend on ``datasource_type``:
 
             - Athena: ``name`` (required), ``region`` (required),
@@ -253,7 +273,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated Athena connection payload: {payload}")
+                self.logger.debug(f"Generated Athena connection payload: {redact_secrets(payload)}")
                 return payload
 
             except KeyError as e:
@@ -277,7 +297,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated Databricks connection payload: {payload}")
+                self.logger.debug(f"Generated Databricks connection payload: {redact_secrets(payload)}")
                 return payload
 
             except KeyError as e:
@@ -308,7 +328,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated BigQuery connection payload: {payload}")
+                self.logger.debug(f"Generated BigQuery connection payload: {redact_secrets(payload)}")
                 return payload
 
             except KeyError as e:
@@ -335,7 +355,7 @@ class ConnectionsMixin:
                     },
                     "supportedModelTypes": ["LIVE", "EXTRACT"],
                 }
-                self.logger.debug(f"Generated Redshift connection payload: {payload}")
+                self.logger.debug(f"Generated Redshift connection payload: {redact_secrets(payload)}")
                 return payload
             except KeyError as e:
                 self.logger.error(f"Missing required Redshift connection parameter: {e}")
@@ -345,7 +365,7 @@ class ConnectionsMixin:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def create_connections(self, connection_payload: dict[str, Any]) -> dict[str, Any] | None:
+    def create_connections(self, connection_payload: ConnectionPayload) -> dict[str, Any] | None:
         """Create a new connection using the provided payload.
 
         Sends ``POST /api/v2/connections`` with the given payload, which is
@@ -353,10 +373,11 @@ class ConnectionsMixin:
 
         Parameters
         ----------
-        connection_payload : dict[str, Any]
-            The configuration payload for the connection. Canonical fields
-            include ``provider``, ``name``, ``description``, ``parameters``,
-            ``enabled``, ``createdByUser``, and ``supportedModelTypes``.
+        connection_payload : ConnectionPayload
+            The configuration payload for the connection. ``provider``,
+            ``name``, and ``parameters`` are required; optional fields include
+            ``description``, ``enabled``, ``createdByUser``, and
+            ``supportedModelTypes``.
 
         Returns
         -------
@@ -365,16 +386,16 @@ class ConnectionsMixin:
             (HTTP 201), otherwise ``None``.
         """
         endpoint = "/api/v2/connections"
-        self.logger.debug(f"Creating connection with payload: {connection_payload}")
+        self.logger.debug(f"Creating connection with payload: {redact_secrets(connection_payload)}")
 
         response = self.api_client.post(endpoint, data=connection_payload)
 
         if response and response.status_code == 201:
             connection_detail = response.json()
             self.logger.info(f"Connection created successfully: {connection_detail.get('name', 'Unknown')}")
-            self.logger.debug(f"Full connection response: {connection_detail}")
+            self.logger.debug(f"Full connection response: {redact_secrets(connection_detail)}")
             return connection_detail
 
-        error_msg = response.text if response else "No response received from API."
-        self.logger.error(f"Failed to create connection. Error: {error_msg}")
+        failure = _extract_error_message(response, "Failed to create connection", self.api_client)
+        self.logger.error(failure["error"])
         return None

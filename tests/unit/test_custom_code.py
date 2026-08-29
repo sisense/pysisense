@@ -101,6 +101,25 @@ class TestRenameNotebookFile:
         )
         assert result["ok"] is True
 
+    def test_returns_error_when_payload_empty(self):
+        cc = _make_custom_code()
+        result = cc.rename_notebook_file("notebooks/custom_code_notebooks/file.ipynb", {})
+        assert "error" in result
+
+    def test_returns_error_on_none_response(self):
+        cc = _make_custom_code()
+        result = cc.rename_notebook_file("notebooks/custom_code_notebooks/file.ipynb", {"name": "renamed.ipynb"})
+        assert "error" in result
+
+    def test_returns_error_on_non_200_response(self):
+        cc = _make_custom_code(
+            patch_responses={
+                "/api/resources/notebooks/custom_code_notebooks/file.ipynb": FakeResponse(500, {"message": "boom"}),
+            },
+        )
+        result = cc.rename_notebook_file("notebooks/custom_code_notebooks/file.ipynb", {"name": "renamed.ipynb"})
+        assert "error" in result
+
 
 class TestRenameNotebookFolder:
     def test_returns_response_on_success(self):
@@ -111,3 +130,22 @@ class TestRenameNotebookFolder:
         )
         result = cc.rename_notebook_folder("old-id", {"name": "new-name"})
         assert result["ok"] is True
+
+    def test_returns_error_when_payload_empty(self):
+        cc = _make_custom_code()
+        result = cc.rename_notebook_folder("old-id", {})
+        assert "error" in result
+
+    def test_returns_error_on_none_response(self):
+        cc = _make_custom_code()
+        result = cc.rename_notebook_folder("old-id", {"name": "new-name"})
+        assert "error" in result
+
+    def test_returns_error_on_non_200_response(self):
+        cc = _make_custom_code(
+            patch_responses={
+                "/api/resources/notebooks/custom_code_notebooks/notebooks/old-id/": FakeResponse(500, {"message": "boom"}),
+            },
+        )
+        result = cc.rename_notebook_folder("old-id", {"name": "new-name"})
+        assert "error" in result

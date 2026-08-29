@@ -97,3 +97,65 @@ print(response)
 - The `type` field is the unique identifier for a Blox action.
 - Saving an action whose `type` already exists will overwrite it.
 - Save and delete use Linux-only endpoints. On Windows, only reading actions is supported.
+
+---
+
+## Example 4: Get BloX Widget Style
+
+Read the `currentCard` and `currentConfig` style objects from a BloX widget. `currentCard` holds the card definition (body, actions, the `style` CSS string); `currentConfig` holds the widget configuration (`fontFamily`, `fontSizes`).
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+widget_id = "65e890abcdef1234567890ab"
+
+style = blox.get_blox_widget_style(dashboard_id, widget_id)
+print(style["currentCard"]["style"])  # the card's CSS string
+print(style["currentConfig"]["fontFamily"])  # the widget font family
+```
+
+Returns `{"error": "..."}` if the widget is not a BloX type.
+
+---
+
+## Example 5: Update BloX Widget Style
+
+The typical flow is read-modify-write: fetch the style objects, change the fields you need, and pass the modified objects back. Each provided object replaces the existing one wholesale; omitted objects are left unchanged.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+widget_id = "65e890abcdef1234567890ab"
+
+style = blox.get_blox_widget_style(dashboard_id, widget_id)
+
+# Change the card's CSS and the widget font family
+style["currentCard"]["style"] = "body { font-size: 14px; color: #333; }"
+style["currentConfig"]["fontFamily"] = "Roboto"
+
+result = blox.update_blox_widget_style(
+    dashboard_id,
+    widget_id,
+    current_card=style["currentCard"],
+    current_config=style["currentConfig"],
+)
+print(result)
+# {"currentCard": {...}, "currentConfig": {...}}
+```
+
+When the API token user does not own the dashboard, pass `executing_user_id` (the Sisense user ID of the token owner) to enable a temporary ownership swap:
+
+```python
+from pysisense import AccessManagement
+
+access_mgmt = AccessManagement(api_client=api_client)
+my_user_id = access_mgmt.get_my_user()["_id"]
+
+result = blox.update_blox_widget_style(
+    dashboard_id,
+    widget_id,
+    current_card=style["currentCard"],
+    executing_user_id=my_user_id,
+)
+print(result)
+```
+
+Ownership is always restored in a `finally` block, so it is returned to the original owner even if the write fails.

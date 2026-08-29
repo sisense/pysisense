@@ -37,11 +37,11 @@ class FakeLogger:
 class FakeResponse:
     """Minimal stand-in for requests.Response."""
 
-    def __init__(self, status_code: int, json_data: Any, text: str = "") -> None:
+    def __init__(self, status_code: int, json_data: Any, text: str = "", content: bytes | None = None) -> None:
         self.status_code = status_code
         self._json_data = json_data
         self.text = text or str(json_data)
-        self.content = b"content"
+        self.content = b"content" if content is None else content
 
     @property
     def ok(self) -> bool:
@@ -64,6 +64,11 @@ class FakeApiClient:
     get_responses / post_responses / put_responses / patch_responses / delete_responses
         ``{url_key: FakeResponse | None}`` mapping.  Use ``None`` as the
         value to simulate the client returning ``None`` (network failure).
+        A value may also be a ``list[FakeResponse | None]`` to return a
+        different response on each successive call to that URL (e.g. for
+        pagination loops) — the last item repeats once the list is
+        exhausted. A plain value keeps returning that same value forever,
+        exactly as before.
     logger
         Optional FakeLogger; a fresh instance is created if omitted.
     """
@@ -85,21 +90,39 @@ class FakeApiClient:
         self._delete = delete_responses or {}
         self.logger = logger or FakeLogger()
         self.operating_system = operating_system
+        self._call_counts: dict[int, int] = {}
 
-    def _lookup(self, store: dict, url: str) -> FakeResponse | None:
+    def _match_key(self, store: dict, url: str) -> str | None:
         # 1. Exact
         if url in store:
-            return store[url]
+            return url
         # 2. Strip query params
         base = url.split("?")[0]
         if base in store:
-            return store[base]
+            return base
         # 3. Longest prefix match (for URLs with dynamic path segments)
-        best, best_len = None, 0
-        for key, val in store.items():
+        best_key, best_len = None, 0
+        for key in store:
             if url.startswith(key) and len(key) > best_len:
-                best, best_len = val, len(key)
-        return best
+                best_key, best_len = key, len(key)
+        return best_key
+
+    def _lookup(self, store: dict, url: str) -> FakeResponse | None:
+        key = self._match_key(store, url)
+        if key is None:
+            return None
+
+        value = store[key]
+        if not isinstance(value, list):
+            return value
+
+        # Sequenced responses: one per call to this key, repeating the last.
+        count_key = id(value)
+        idx = self._call_counts.get(count_key, 0)
+        self._call_counts[count_key] = idx + 1
+        if not value:
+            return None
+        return value[min(idx, len(value) - 1)]
 
     def get(self, url: str, params: dict | None = None, **kwargs: Any) -> FakeResponse | None:
         return self._lookup(self._get, url)

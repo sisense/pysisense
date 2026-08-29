@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DashboardCoreMixin:
     def get_all_dashboards(self) -> list[dict[str, Any]] | dict[str, Any]:
@@ -22,14 +24,10 @@ class DashboardCoreMixin:
 
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve dashboards failed: No response received.")
-            return {"error": "No response received from the server."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve dashboards. Error: {error_message}")
-            return {"error": f"Failed to retrieve dashboards. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to retrieve dashboards", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboards = response.json()
         self.logger.info(f"Successfully retrieved {len(dashboards)} dashboards.")
@@ -57,14 +55,10 @@ class DashboardCoreMixin:
 
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"GET request to retrieve dashboard {dashboard_id} failed: No response received.")
-            return {"error": f"No response received while retrieving dashboard ID '{dashboard_id}'"}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve dashboard {dashboard_id}. Error: {error_message}")
-            return {"error": f"Failed to retrieve dashboard '{dashboard_id}'. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to retrieve dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboard_data = response.json()
         if not dashboard_data:
@@ -96,15 +90,10 @@ class DashboardCoreMixin:
 
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            error_msg = f"GET request to retrieve dashboard {dashboard_name} failed: No response received."
-            self.logger.error(error_msg)
-            return {"error": error_msg}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve dashboard {dashboard_name}. Error: {error_message}")
-            return {"error": f"Failed to retrieve dashboard '{dashboard_name}'. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to retrieve dashboard '{dashboard_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboard_data = response.json()
         if not dashboard_data:
@@ -241,9 +230,9 @@ class DashboardCoreMixin:
         """
         response = self.api_client.get(f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true")
         if response is None or response.status_code != 200:
-            error_msg = f"Failed to export dashboard '{dashboard_id}'"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+            failure = _extract_error_message(response, f"Failed to export dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             data = response.json()
@@ -345,15 +334,10 @@ class DashboardCoreMixin:
         self.logger.debug("Fetching dashboards from standard endpoint")
         response = self.api_client.get(endpoint, params=params if params else None)
 
-        if response is None:
-            msg = "No response received while fetching dashboards."
-            self.logger.error(msg)
-            return {"error": msg}
-
-        if response.status_code != 200:
-            msg = f"Failed to fetch dashboards — status {response.status_code}"
-            self.logger.error(msg)
-            return {"error": msg}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to fetch dashboards", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         dashboards = response.json()
         count = len(dashboards) if isinstance(dashboards, list) else 1
@@ -422,26 +406,26 @@ class DashboardCoreMixin:
         self.logger.error(f"Failed to publish dashboard {dashboard_id}. Error: {error_message}")
         return {"error": f"Failed to publish dashboard '{dashboard_id}'. {error_message}"}
 
-    def rename_dashboard(self, dashboard_id: str, title: str) -> dict[str, Any]:
-        """Rename a dashboard.
+    def _patch_dashboard_field(self, dashboard_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Send a partial dashboard update and normalize the response.
 
-        Sends ``PATCH /api/dashboards/{dashboard_id}`` with only ``title`` in
-        the request body. Other dashboard fields are not modified.
+        Shared by ``rename_dashboard`` and ``move_dashboard_to_folder``,
+        which differ only in the field(s) being patched.
 
         Parameters
         ----------
         dashboard_id : str
-            The ``oid`` of the dashboard to rename.
-        title : str
-            The new dashboard title.
+            The ``oid`` of the dashboard to update.
+        payload : dict[str, Any]
+            The fields to patch, e.g. ``{"title": "..."}``.
 
         Returns
         -------
         dict[str, Any]
-            The updated dashboard object on success, or ``{"error": "..."}`` on
-            failure.
+            The updated dashboard object on success, or ``{"success": True}``
+            when the API responds 200 with an empty body. ``{"error": "..."}``
+            on failure.
         """
-        payload = {"title": title}
         endpoint = f"/api/dashboards/{dashboard_id}"
         self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
         response = self.api_client.patch(endpoint, data=payload)
@@ -458,9 +442,31 @@ class DashboardCoreMixin:
             self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
             return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
 
-        updated = response.json()
+        updated = response.json() if response.content else {"success": True}
         self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
         return updated
+
+    def rename_dashboard(self, dashboard_id: str, title: str) -> dict[str, Any]:
+        """Rename a dashboard.
+
+        Sends ``PATCH /api/dashboards/{dashboard_id}`` with only ``title`` in
+        the request body. Other dashboard fields are not modified.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The ``oid`` of the dashboard to rename.
+        title : str
+            The new dashboard title.
+
+        Returns
+        -------
+        dict[str, Any]
+            The updated dashboard object on success, or ``{"success": True}``
+            when the API responds 200 with an empty body. ``{"error": "..."}``
+            on failure.
+        """
+        return self._patch_dashboard_field(dashboard_id, {"title": title})
 
     def move_dashboard_to_folder(self, dashboard_id: str, folder_id: str) -> dict[str, Any]:
         """Move a dashboard into a folder.
@@ -478,29 +484,11 @@ class DashboardCoreMixin:
         Returns
         -------
         dict[str, Any]
-            The updated dashboard object from the API, or ``{"error": "..."}`` on
-            failure.
+            The updated dashboard object from the API, or ``{"success": True}``
+            when the API responds 200 with an empty body. ``{"error": "..."}``
+            on failure.
         """
-        payload = {"parentFolder": folder_id}
-        endpoint = f"/api/dashboards/{dashboard_id}"
-        self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
-        response = self.api_client.patch(endpoint, data=payload)
-
-        if response is None:
-            self.logger.error(f"PATCH request to update dashboard {dashboard_id} failed: No response received.")
-            return {"error": f"No response received while updating dashboard ID '{dashboard_id}'"}
-
-        if response.status_code != 200:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text or "No response text available."
-            self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
-            return {"error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
-
-        updated = response.json()
-        self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
-        return updated
+        return self._patch_dashboard_field(dashboard_id, {"parentFolder": folder_id})
 
     def can_be_owned(self, dashboard_id: str) -> dict[str, Any]:
         """Check whether a dashboard can be owned by the current user.
@@ -535,4 +523,51 @@ class DashboardCoreMixin:
 
         result = response.json()
         self.logger.info(f"Successfully checked can_be_owned for dashboard {dashboard_id}.")
+        return result
+
+    def import_dashboards_bulk(self, dashboards: list[dict[str, Any]], action: str = "skip") -> dict[str, Any]:
+        """Import one or more dashboards via the bulk import endpoint.
+
+        Sends ``POST /api/v1/dashboards/import/bulk`` with ``action`` as a
+        query parameter and ``dashboards`` as the request body. Each
+        dashboard object is typically the payload returned by
+        ``export_dashboard`` on another environment. The server matches
+        dashboards by their ``oid``: when a dashboard with the same ``oid``
+        already exists, ``action`` controls whether it is left unchanged,
+        replaced, or a new copy is created alongside it.
+
+        Parameters
+        ----------
+        dashboards : list[dict[str, Any]]
+            Dashboard objects to import.
+        action : str, optional
+            Conflict behavior for dashboards whose ``oid`` already exists.
+            One of ``"skip"``, ``"overwrite"``, or ``"duplicate"``. Default
+            is ``"skip"``.
+
+        Returns
+        -------
+        dict[str, Any]
+            The API response body — including ``succeded`` and ``failed``
+            lists describing the outcome for each dashboard — or
+            ``{"error": "..."}`` on failure.
+        """
+        endpoint = f"/api/v1/dashboards/import/bulk?action={action}"
+        self.logger.debug(f"Importing {len(dashboards)} dashboard(s) with action={action}")
+        response = self.api_client.post(endpoint, data=dashboards)
+
+        if response is None:
+            self.logger.error("POST request to import dashboards failed: No response received.")
+            return {"error": "No response received while importing dashboards."}
+
+        if response.status_code not in (200, 201):
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text or "No response text available."
+            self.logger.error(f"Failed to import dashboards. Error: {error_message}")
+            return {"error": f"Failed to import dashboards. {error_message}"}
+
+        result = response.json() if response.content else {"succeded": [], "failed": []}
+        self.logger.info(f"Dashboard import request completed for {len(dashboards)} dashboard(s).")
         return result

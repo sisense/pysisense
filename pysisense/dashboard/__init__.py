@@ -4,15 +4,17 @@ from .columns import ColumnsMixin
 from .core import DashboardCoreMixin
 from .scripts import ScriptsMixin
 from .shares import SharesMixin
+from .widgets import DashboardWidgetsMixin
 
 
-class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin):
-    """Manage Sisense dashboards, their shares, columns, and scripts.
+class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin, DashboardWidgetsMixin):
+    """Manage Sisense dashboards, their shares, columns, scripts, and widgets.
 
     Covers dashboard CRUD (get, export, rename, move, publish), share
     management for users and groups, inspection of all table/column
-    references used within a dashboard, and reading or writing JavaScript
-    scripts attached to dashboards and individual widgets.
+    references used within a dashboard, reading or writing JavaScript
+    scripts attached to dashboards and individual widgets, and direct
+    widget read/write operations.
 
     Modules
     -------
@@ -21,13 +23,16 @@ class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin):
         rename, move to folder, publish; resolve dashboard references.
     shares :
         Dashboard share management — add or update share entries for users
-        and groups; retrieve current shares for a dashboard.
+        and groups; retrieve current shares; change dashboard owner.
     columns :
         Column inspection — extract every distinct table/column reference
         used across widgets and filters in a dashboard.
     scripts :
         Dashboard and widget scripts — read and write JavaScript attached
         to a dashboard or to a specific widget within it.
+    widgets :
+        Widget operations — fetch a single widget by ID, write widget data
+        back to Sisense, and search for widgets by type across dashboards.
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

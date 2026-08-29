@@ -2,7 +2,36 @@
 
 import os
 
-from pysisense.utils import convert_to_dataframe, convert_utc_to_local, export_to_csv
+from pysisense.utils import convert_to_dataframe, convert_utc_to_local, export_to_csv, redact_secrets
+
+
+class TestRedactSecrets:
+    def test_redacts_password_key(self):
+        result = redact_secrets({"userName": "bob", "password": "hunter2"})
+        assert result == {"userName": "bob", "password": "***REDACTED***"}
+
+    def test_redacts_case_insensitively(self):
+        result = redact_secrets({"Password": "hunter2", "TOKEN": "abc"})
+        assert result == {"Password": "***REDACTED***", "TOKEN": "***REDACTED***"}
+
+    def test_redacts_nested_dicts_and_lists(self):
+        data = {"parameters": {"password": "s3cret"}, "items": [{"secret": "x"}, {"name": "ok"}]}
+        result = redact_secrets(data)
+        assert result == {"parameters": {"password": "***REDACTED***"}, "items": [{"secret": "***REDACTED***"}, {"name": "ok"}]}
+
+    def test_leaves_non_sensitive_keys_untouched(self):
+        data = {"name": "connection1", "region": "us-east-1"}
+        assert redact_secrets(data) == data
+
+    def test_does_not_mutate_input(self):
+        data = {"password": "hunter2"}
+        redact_secrets(data)
+        assert data == {"password": "hunter2"}
+
+    def test_passes_through_non_dict_non_list_values(self):
+        assert redact_secrets("plain-string") == "plain-string"
+        assert redact_secrets(None) is None
+        assert redact_secrets(42) == 42
 
 
 class TestConvertToDataframe:

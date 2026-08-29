@@ -5,6 +5,15 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.access_management import AccessManagement
 
+
+class FakeResponseEmpty(FakeResponse):
+    """FakeResponse with an empty body — simulates a 200 with no JSON content."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code, None)
+        self.content = b""
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture data
 # ---------------------------------------------------------------------------
@@ -78,33 +87,6 @@ class TestAccessManagementInit:
 
 
 # ---------------------------------------------------------------------------
-# _build_role_and_group_mappings
-# ---------------------------------------------------------------------------
-
-
-class TestBuildRoleAndGroupMappings:
-    def test_returns_roles_and_groups_dicts(self):
-        am = _make_am(
-            get_responses={
-                "/api/roles": FakeResponse(200, _ROLES),
-                "/api/v1/groups": FakeResponse(200, _GROUPS),
-            }
-        )
-        result = am._build_role_and_group_mappings()
-        assert result is not None
-        assert result["roles_by_id"]["role_consumer"] == "consumer"
-        assert result["groups_by_id"]["grp_engineers"] == "Engineers"
-
-    def test_returns_none_when_roles_api_fails(self):
-        am = _make_am(
-            get_responses={
-                "/api/roles": FakeResponse(500, {"error": "server error"}),
-            }
-        )
-        assert am._build_role_and_group_mappings() is None
-
-
-# ---------------------------------------------------------------------------
 # get_user_with_role_and_group_names
 # ---------------------------------------------------------------------------
 
@@ -135,24 +117,39 @@ class TestGetUserWithRoleAndGroupNames:
 
 class TestGetUsersWithRoleNamesAndGroupNames:
     def test_returns_enriched_user_list(self):
-        am = _make_am(
-            get_responses={
-                "/api/v1/users": FakeResponse(200, [_USER_RAW]),
-                "/api/roles": FakeResponse(200, _ROLES),
-                "/api/v1/groups": FakeResponse(200, _GROUPS),
-            }
-        )
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_users_with_role_names_and_group_names()
         assert isinstance(result, list)
         assert len(result) == 1
         assert result[0]["USER_ID"] == "user123"
+        # Unlike get_user_with_role_and_group_names, this method keeps the
+        # RAW role name ("consumer"), not the public alias ("viewer").
         assert result[0]["ROLE_NAME"] == "consumer"
+        assert "Engineers" in result[0]["GROUP_NAMES"]
 
     def test_returns_error_list_when_users_api_fails(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(500, {})})
         result = am.get_users_with_role_names_and_group_names()
         assert isinstance(result, list)
         assert "error" in result[0]
+
+    def test_stale_role_reference_resolves_to_none_not_preserved(self):
+        # Documents an accepted, UNVERIFIED assumption (see
+        # micael_similar_methods_fixes.md, Users module) about how
+        # GET /api/v1/users?expand=groups,role behaves for a stale roleId —
+        # a role that's been deleted but is still referenced by a user.
+        # Before this method switched from a raw-ID manual join to expand,
+        # a stale roleId was preserved in ROLE_ID (with ROLE_NAME as None).
+        # This pins the now-accepted behavior: if a live tenant's expand
+        # response actually returns "role": null for a stale reference (as
+        # assumed, not confirmed against a live stale reference), both
+        # ROLE_ID and ROLE_NAME come back None, and the raw ID is lost.
+        user = dict(_USER_EXPANDED)
+        user["role"] = None
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_users_with_role_names_and_group_names()
+        assert result[0]["ROLE_ID"] is None
+        assert result[0]["ROLE_NAME"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +174,23 @@ class TestGetUser:
         am = _make_am(get_responses={})  # no response → None
         result = am.get_user("jdoe@example.com")
         assert "error" in result
+
+    def test_returns_empty_role_id_and_name_when_user_has_no_role(self):
+        # Regression: get_user resolves ROLE_ID/ROLE_NAME via _map_user_role_and_groups,
+        # which returns None for a missing role — must still surface as "" here.
+        user = dict(_USER_EXPANDED)
+        user.pop("role")
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_user("jdoe@example.com")
+        assert result["ROLE_ID"] == ""
+        assert result["ROLE_NAME"] == ""
+
+    def test_includes_empty_string_placeholder_for_group_missing_name(self):
+        user = dict(_USER_EXPANDED)
+        user["groups"] = [{"_id": "g9"}]  # no "name" key
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_user("jdoe@example.com")
+        assert result["GROUPS"] == [""]
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +253,69 @@ class TestGetUsersAll:
         result = am.get_users_all()
         assert "error" in result[0]
 
+    def test_skips_user_with_role_missing_name_same_as_before_the_shared_helper_swap(self):
+        # Regression: get_users_all used to build ROLE_NAME via a bare-bracket
+        # `user["role"]["name"]` lookup, which raised (and silently skipped the
+        # user) when "name" was absent. Swapping to the shared, tolerant
+        # `_map_user_role_and_groups` helper must not start including these
+        # malformed records instead of skipping them.
+        user = dict(_USER_EXPANDED)
+        user["role"] = {"_id": "role_consumer"}  # no "name"
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_users_all()
+        assert result == [{"error": "No users found"}]
+
+    def test_skips_user_with_no_role_at_all(self):
+        user = dict(_USER_EXPANDED)
+        user.pop("role")
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
+        result = am.get_users_all()
+        assert result == [{"error": "No users found"}]
+
+
+# ---------------------------------------------------------------------------
+# get_users_expanded
+# ---------------------------------------------------------------------------
+
+
+class TestGetUsersExpanded:
+    def test_returns_raw_user_list_on_success(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
+        result = am.get_users_expanded()
+        assert result == [_USER_EXPANDED]
+
+    def test_returns_empty_list_when_no_users(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
+        result = am.get_users_expanded()
+        assert result == []
+
+    def test_returns_error_on_api_failure(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(500, {"error": "boom"})})
+        result = am.get_users_expanded()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# create_users_bulk
+# ---------------------------------------------------------------------------
+
+
+class TestCreateUsersBulk:
+    def test_returns_created_users_on_success(self):
+        am = _make_am(post_responses={"/api/v1/users/bulk": FakeResponse(201, [_USER_RAW])})
+        result = am.create_users_bulk([{"email": "jdoe@example.com", "firstName": "John", "roleId": "role_consumer"}])
+        assert result == [_USER_RAW]
+
+    def test_returns_error_on_non_201_status(self):
+        am = _make_am(post_responses={"/api/v1/users/bulk": FakeResponse(400, {"error": "bad request"})})
+        result = am.create_users_bulk([{"email": "jdoe@example.com"}])
+        assert "error" in result
+
+    def test_returns_error_when_no_response(self):
+        am = _make_am(post_responses={})
+        result = am.create_users_bulk([{"email": "jdoe@example.com"}])
+        assert "error" in result
+
 
 # ---------------------------------------------------------------------------
 # get_group
@@ -260,6 +337,90 @@ class TestGetGroup:
     def test_returns_error_on_api_failure(self):
         am = _make_am(get_responses={})
         result = am.get_group("Engineers")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_groups
+# ---------------------------------------------------------------------------
+
+
+class TestGetGroups:
+    def test_returns_group_list_on_success(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, _GROUPS)})
+        result = am.get_groups()
+        assert result == _GROUPS
+
+    def test_returns_empty_list_when_no_groups(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [])})
+        result = am.get_groups()
+        assert result == []
+
+    def test_returns_error_on_api_failure(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(500, {"error": "boom"})})
+        result = am.get_groups()
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# create_groups_bulk
+# ---------------------------------------------------------------------------
+
+
+class TestCreateGroupsBulk:
+    def test_returns_created_groups_on_success(self):
+        am = _make_am(post_responses={"/api/v1/groups/bulk": FakeResponse(201, _GROUPS)})
+        result = am.create_groups_bulk([{"name": "Engineers"}, {"name": "Admins"}])
+        assert result == _GROUPS
+
+    def test_returns_error_on_non_201_status(self):
+        am = _make_am(post_responses={"/api/v1/groups/bulk": FakeResponse(400, {"error": "bad request"})})
+        result = am.create_groups_bulk([{"name": "Engineers"}])
+        assert "error" in result
+
+    def test_returns_error_when_no_response(self):
+        am = _make_am(post_responses={})
+        result = am.create_groups_bulk([{"name": "Engineers"}])
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# delete_group
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteGroup:
+    def test_returns_message_on_204(self):
+        am = _make_am(delete_responses={"/api/v1/groups/grp_engineers": FakeResponse(204, {})})
+        result = am.delete_group("grp_engineers")
+        assert result == {"message": "Group deleted successfully."}
+
+    def test_returns_error_on_failure(self):
+        am = _make_am(delete_responses={"/api/v1/groups/grp_engineers": FakeResponse(500, {"error": "cannot delete"})})
+        result = am.delete_group("grp_engineers")
+        assert "error" in result
+
+    def test_returns_error_when_no_response(self):
+        am = _make_am(delete_responses={})
+        result = am.delete_group("grp_engineers")
+        assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_tenants
+# ---------------------------------------------------------------------------
+
+
+class TestGetTenants:
+    def test_returns_tenant_list_on_success(self):
+        tenants = [{"_id": "tenant-system", "name": "system"}]
+        am = _make_am(get_responses={"/api/v1/tenants": FakeResponse(200, tenants)})
+        result = am.get_tenants()
+        assert result == tenants
+
+    def test_returns_error_on_api_failure(self):
+        am = _make_am(get_responses={"/api/v1/tenants": FakeResponse(404, {"error": "not found"})})
+        result = am.get_tenants()
         assert "error" in result
 
 
@@ -289,6 +450,13 @@ class TestCreateUser:
     def test_returns_error_when_roles_api_fails(self):
         am = _make_am(get_responses={})
         result = am.create_user({"email": "x@x.com", "role": "consumer", "groups": []})
+        assert "error" in result
+
+    def test_returns_error_instead_of_raising_when_role_is_explicitly_none(self):
+        # Regression: user_data.get("role", "").upper() raised AttributeError when
+        # "role" was present but explicitly None. Must return a structured error.
+        am = _make_am(get_responses={"/api/roles": FakeResponse(200, _ROLES)})
+        result = am.create_user({"email": "x@x.com", "role": None, "groups": []})
         assert "error" in result
 
 
@@ -393,10 +561,55 @@ class TestUsersPerGroupAll:
         result = am.users_per_group_all()
         assert result == []
 
+    def test_skips_user_group_not_in_current_group_list_instead_of_raising(self):
+        # A user references a group name ("Engineers") that isn't present in the
+        # current /api/v1/groups response — e.g. the group was deleted between calls.
+        user = dict(_USER_EXPANDED)
+        user["groups"] = [{"_id": "grp_engineers", "name": "Engineers"}]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/v1/users": FakeResponse(200, [user]),
+            }
+        )
+        result = am.users_per_group_all()
+        assert result == [{"group": "Admins", "username": []}]
+
+    def test_guarantees_admins_group_when_groups_list_is_empty_but_successful(self):
+        # An empty (but HTTP-successful) /api/v1/groups response is not a failure —
+        # it must still produce the guaranteed "Admins" entry, unlike the API-failure case.
+        admin_user = dict(_USER_EXPANDED)
+        admin_user["role"] = {"_id": "role_super", "name": "super"}  # super -> sysAdmin
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/v1/users": FakeResponse(200, [admin_user]),
+            }
+        )
+        result = am.users_per_group_all()
+        assert result == [{"group": "Admins", "username": ["jdoe"]}]
+
 
 # ---------------------------------------------------------------------------
 # change_folder_and_dashboard_ownership
 # ---------------------------------------------------------------------------
+
+
+_OWNERSHIP_USERS = [
+    {**_USER_EXPANDED, "_id": "executor_id", "email": "executor@example.com"},
+    {**_USER_EXPANDED, "_id": "newowner_id", "email": "newowner@example.com"},
+]
+
+_NAVVER_FOLDERS = {
+    "folders": [
+        {
+            "oid": "folder1",
+            "name": "MyFolder",
+            "dashboards": [{"oid": "dash1", "title": "Sales"}],
+            "folders": [],
+        }
+    ]
+}
 
 
 class TestChangeFolderAndDashboardOwnership:
@@ -405,6 +618,58 @@ class TestChangeFolderAndDashboardOwnership:
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
         result = am.change_folder_and_dashboard_ownership("executor@example.com", "MyFolder", "newowner@example.com")
         assert "error" in result
+
+    def test_changes_ownership_when_folder_and_dashboard_responses_have_no_body(self):
+        # Some Sisense versions return 200 with no JSON body for the folder-owner
+        # PATCH and the dashboard change_owner POST — both must still count as success.
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, _OWNERSHIP_USERS),
+                "/api/v1/navver": FakeResponse(200, _NAVVER_FOLDERS),
+                "/api/v1/dashboards/dash1": FakeResponse(200, {"oid": "dash1", "title": "Sales", "owner": "executor_id"}),
+            },
+            patch_responses={"/api/v1/folders/folder1": FakeResponseEmpty(200)},
+            post_responses={"/api/v1/dashboards/dash1/change_owner": FakeResponseEmpty(200)},
+        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "MyFolder", "newowner@example.com")
+        assert result == {"total_folders_changed": 1, "total_dashboards_changed": 1}
+
+    def test_fallback_path_does_not_crash_when_dashboard_search_post_fails(self):
+        # Regression: the folder-not-found fallback path used to call .json()
+        # directly on the dashboard-search POST response with no None-check,
+        # crashing with AttributeError if that POST failed. It now goes
+        # through the shared _fetch_all_dashboards_paginated() helper, which
+        # handles a failed/missing response gracefully.
+        navver_without_match = {"folders": [{"oid": "other", "name": "OtherFolder", "dashboards": [], "folders": []}]}
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, _OWNERSHIP_USERS),
+                "/api/v1/navver": FakeResponse(200, navver_without_match),
+                "/api/v1/folders": FakeResponse(200, []),
+            },
+            # No post_responses for /api/v1/dashboards/searches -> None -> used
+            # to crash inside the pagination loop before reaching this point.
+        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "NoSuchFolder", "newowner@example.com")
+        assert result is None
+
+    def test_fallback_path_collects_dashboards_across_multiple_pages(self):
+        page_1 = FakeResponse(200, {"items": [{"oid": "dashA", "title": "A", "parentFolder": "folderX", "shares": []}]})
+        page_2_empty = FakeResponse(200, {"items": []})
+        navver_without_match = {"folders": []}
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, _OWNERSHIP_USERS),
+                "/api/v1/navver": FakeResponse(200, navver_without_match),
+                "/api/v1/folders": FakeResponse(200, []),
+            },
+            post_responses={
+                "/api/v1/dashboards/searches": [page_1, page_2_empty],
+                "/api/shares/dashboard/dashA": FakeResponse(200, {"shared": True}),
+            },
+        )
+        result = am.change_folder_and_dashboard_ownership("executor@example.com", "NoSuchFolder", "newowner@example.com")
+        assert result is None  # folder still not found after the access-grant retry
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +785,88 @@ class TestGetAllDashboardShares:
         am = _make_am()  # no POST responses → None → breaks loop → users/groups fail → []
         result = am.get_all_dashboard_shares()
         assert result == []
+
+    def test_resolves_shares_across_multiple_pages(self):
+        # Regression: previously untested — the dashboard-pagination loop was
+        # never exercised with an actual non-empty page followed by the
+        # terminating empty page. Also covers the shared
+        # _fetch_all_dashboards_paginated() helper (used by both this method
+        # and change_folder_and_dashboard_ownership's fallback path).
+        page_1 = FakeResponse(200, {"items": [{"title": "Sales", "shares": [{"type": "user", "shareId": "u1"}, {"type": "group", "shareId": "g1"}]}, {"title": "Marketing", "shares": []}]})
+        page_2_empty = FakeResponse(200, {"items": []})
+        am = _make_am(
+            post_responses={"/api/v1/dashboards/searches": [page_1, page_2_empty]},
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
+            },
+        )
+        result = am.get_all_dashboard_shares()
+        assert result == [
+            {"dashboard": "Sales", "type": "user", "name": "alice@example.com"},
+            {"dashboard": "Sales", "type": "group", "name": "Engineers"},
+            {"dashboard": "Marketing", "type": None, "name": None},
+        ]
+
+    def test_distinguishes_empty_string_email_from_unresolved_share(self):
+        # Regression: the refactor to get_user_email_and_group_name_maps() must
+        # use "shareId in map" membership checks, not truthiness of the
+        # resolved value — a user whose email is genuinely "" must still be
+        # resolved (name: ""), not treated the same as an unresolvable shareId.
+        page_1 = FakeResponse(
+            200,
+            {
+                "items": [
+                    {
+                        "title": "Sales",
+                        "shares": [
+                            {"type": "user", "shareId": "u_empty_email"},
+                            {"type": "user", "shareId": "u_missing"},
+                        ],
+                    }
+                ]
+            },
+        )
+        page_2_empty = FakeResponse(200, {"items": []})
+        am = _make_am(
+            post_responses={"/api/v1/dashboards/searches": [page_1, page_2_empty]},
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [{"_id": "u_empty_email", "email": ""}]),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+        )
+        result = am.get_all_dashboard_shares()
+        assert result == [
+            {"dashboard": "Sales", "type": "user", "name": ""},
+            {"dashboard": "Sales", "type": None, "name": None},
+        ]
+
+
+# ---------------------------------------------------------------------------
+# get_user_email_and_group_name_maps
+# ---------------------------------------------------------------------------
+
+
+class TestGetUserEmailAndGroupNameMaps:
+    def test_returns_id_to_name_maps_on_success(self):
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
+            }
+        )
+        result = am.get_user_email_and_group_name_maps()
+        assert result == {"users_by_id": {"u1": "alice@example.com"}, "groups_by_id": {"g1": "Engineers"}}
+
+    def test_returns_error_when_users_api_fails(self):
+        am = _make_am()
+        result = am.get_user_email_and_group_name_maps()
+        assert "error" in result
+
+    def test_returns_error_when_groups_api_fails(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "a@b.com"}])})
+        result = am.get_user_email_and_group_name_maps()
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,15 @@ import pysisense.dashboard.scripts as scripts_module
 from pysisense.dashboard import Dashboard
 from pysisense.dashboard.scripts import SisenseScript
 
+
+class FakeResponseEmpty(FakeResponse):
+    """FakeResponse with an empty body — simulates a 200 with no JSON content."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(status_code, None)
+        self.content = b""
+
+
 # ---------------------------------------------------------------------------
 # Shared fixture data
 # ---------------------------------------------------------------------------
@@ -258,6 +267,27 @@ class TestAddDashboardScript:
         result = dash.add_dashboard_script("dash123", "{bad json{{")
         assert result.startswith("Error:")
 
+    def test_returns_ownership_hint_on_404_when_no_executing_user(self):
+        # Confirmed correct against a live instance — see
+        # micael_similar_methods_fixes.md, Dashboard Scripts module.
+        # add_dashboard_script's PUT /api/dashboards/{id} returns 404 for an
+        # inaccessible dashboard, while add_widget_script's PUT
+        # /api/dashboards/{id}/widgets/{widget_id} returns 403 for the same
+        # case — a real, observed difference between the two endpoints, not
+        # a bug in either method's status-code check.
+        script = '{"script": "console.log(1);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
+        result = dash.add_dashboard_script("dash123", script)
+        assert "executing_user" in result
+
+    def test_does_not_return_ownership_hint_on_403_when_no_executing_user(self):
+        # Contrast case: unlike add_widget_script, a 403 here currently falls
+        # through to the generic error message, not the ownership hint.
+        script = '{"script": "console.log(1);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
+        result = dash.add_dashboard_script("dash123", script)
+        assert "executing_user" not in result
+
 
 # ---------------------------------------------------------------------------
 # add_widget_script
@@ -280,6 +310,22 @@ class TestAddWidgetScript:
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.add_widget_script("dash123", "widget456", script)
         assert result.startswith("Error:")
+
+    def test_returns_ownership_hint_on_403_when_no_executing_user(self):
+        # Pins CURRENT behavior — see test_returns_ownership_hint_on_404_when_no_executing_user
+        # in TestAddDashboardScript for the corresponding contrast case.
+        script = '{"script": "console.log(widget);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
+        result = dash.add_widget_script("dash123", "widget456", script)
+        assert "executing_user" in result
+
+    def test_does_not_return_ownership_hint_on_404_when_no_executing_user(self):
+        # Contrast case: unlike add_dashboard_script, a 404 here currently falls
+        # through to the generic error message, not the ownership hint.
+        script = '{"script": "console.log(widget);"}'
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
+        result = dash.add_widget_script("dash123", "widget456", script)
+        assert "executing_user" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +415,26 @@ class TestGetDashboardShare:
         result = dash.get_dashboard_share("NoSuchDash")
         assert result == []
 
+    def test_resolves_user_and_group_shares_via_shared_access_mgmt_helper(self):
+        # Regression: get_dashboard_share now resolves shares via
+        # AccessManagement.get_user_email_and_group_name_maps() (self.access_mgmt)
+        # instead of its own direct /api/v1/users + /api/v1/groups fetch —
+        # confirms the shared helper produces the same resolved/unresolved
+        # distinction as before, across the class boundary.
+        dashboard_with_shares = {**_DASHBOARD, "shares": [{"type": "user", "shareId": "user123"}, {"type": "group", "shareId": "grp1"}, {"type": "user", "shareId": "u_missing"}]}
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [dashboard_with_shares]),
+                "/api/v1/users": FakeResponse(200, [_USER]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "grp1", "name": "Engineers"}]),
+            }
+        )
+        result = dash.get_dashboard_share("Sales Report")
+        assert result == [
+            {"type": "user", "name": _USER["email"]},
+            {"type": "group", "name": "Engineers"},
+        ]
+
 
 # ---------------------------------------------------------------------------
 # get_dashboard_shares_v1
@@ -399,6 +465,20 @@ class TestGetDashboardSharesV1:
         )
         result = dash.get_dashboard_shares_v1("dash123")
         assert "error" in result
+
+    def test_retries_without_admin_access_when_api_rejects_the_param(self):
+        # Some Sisense versions reject adminAccess with a strict-schema 422;
+        # the method must retry the bare endpoint. Exact-URL keys let the fake
+        # serve different responses per variant.
+        shares_list = [{"userName": "a@b.com", "rule": "edit"}]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/dash123/shares?adminAccess=true": FakeResponse(422, {"message": "must NOT have additional properties"}),
+                "/api/v1/dashboards/dash123/shares": FakeResponse(200, shares_list),
+            }
+        )
+        result = dash.get_dashboard_shares_v1("dash123")
+        assert result == shares_list
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +622,64 @@ class TestGetWidgetScript:
 
         assert isinstance(result, dict)
         assert "error" in result
+
+    def test_scriptless_widget_returns_explicit_message_not_keyerror(self):
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "widgets": [{"oid": "widget456", "title": "Revenue by Region", "type": "chart/column"}],
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert result == {"error": "Widget 'Revenue by Region' has no widget script."}
+
+    def test_export_omitting_script_field_falls_back_to_direct_widget_fetch(self, monkeypatch):
+        # Some Sisense versions omit 'script' (and 'title') from export widgets
+        # entirely — the getter must fetch the widget directly.
+        class DummyScript:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+        export_data = {
+            "oid": "dash123",
+            "title": "Sales Report",
+            "widgets": [{"oid": "widget456", "type": "chart/pie"}],  # no script key
+        }
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: export_data
+        dash.get_widget_by_id = lambda d, w: {"oid": "widget456", "title": "Pie", "type": "chart/pie", "script": "console.log('w');"}
+        monkeypatch.setattr(scripts_module, "SisenseScript", DummyScript)
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert isinstance(result, DummyScript)
+        assert result.kwargs["script"] == "console.log('w');"
+        assert result.kwargs["title"] == "Pie"
+
+    def test_export_without_widgets_key_reports_widget_not_found(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"oid": "dash123", "title": "Sales Report"}
+
+        result = dash.get_widget_script("dash123", "widget456")
+
+        assert "not found" in result["error"]
+
+
+class TestGetDashboardScriptNoScript:
+    def test_scriptless_dashboard_returns_explicit_message_not_keyerror(self):
+        dash = _make_dash()
+        dash.dashboard = dash
+        dash.export_dashboard = lambda dashboard_id: {"oid": "dash123", "title": "Sales Report"}
+
+        result = dash.get_dashboard_script("dash123")
+
+        assert result == {"error": "Dashboard 'Sales Report' has no dashboard script."}
 
 
 class TestBeautifyJsCode:
@@ -694,6 +832,12 @@ class TestRenameDashboard:
         result = dash.rename_dashboard("dash123", "New Name")
         assert "error" in result
 
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponseEmpty(200)})
+        result = dash.rename_dashboard("dash123", "New Name")
+        assert result == {"success": True}
+
 
 # ---------------------------------------------------------------------------
 # move_dashboard_to_folder
@@ -716,3 +860,111 @@ class TestMoveDashboardToFolder:
         dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.move_dashboard_to_folder("dash123", "folder456")
         assert "error" in result
+
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(patch_responses={"/api/dashboards/dash123": FakeResponseEmpty(200)})
+        result = dash.move_dashboard_to_folder("dash123", "folder456")
+        assert result == {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# change_dashboard_owner
+# ---------------------------------------------------------------------------
+
+
+class TestChangeDashboardOwner:
+    def test_returns_response_on_success(self):
+        body = {"ok": True}
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(200, body)})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert result == body
+
+    def test_returns_error_on_none_response(self):
+        dash = _make_dash()
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert "error" in result
+
+    def test_returns_error_on_403(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(403, {"message": "forbidden"})})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert "error" in result
+
+    def test_returns_error_on_500(self):
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponse(500, {"error": "fail"})})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert "error" in result
+
+    def test_returns_success_dict_when_response_has_no_body(self):
+        # Sisense returns 200 with an empty body on some instances/versions
+        dash = _make_dash(post_responses={"/api/v1/dashboards/dash123/change_owner": FakeResponseEmpty(200)})
+        result = dash.change_dashboard_owner("dash123", "new_owner_id")
+        assert result == {"success": True}
+
+
+# ---------------------------------------------------------------------------
+# add_dashboard_script — ownership restoration via try/finally
+# ---------------------------------------------------------------------------
+
+_EXPANDED_USER = {
+    "_id": "api_user_id",
+    "userName": "api",
+    "email": "api@example.com",
+    "firstName": "Api",
+    "lastName": "User",
+    "role": {"_id": "r1", "name": "consumer"},
+    "groups": [],
+}
+
+
+class _TrackingPostClient(FakeApiClient):
+    """FakeApiClient that records every POST url (before query-params)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.post_urls: list[str] = []
+
+    def post(self, url, data=None, **kwargs):
+        self.post_urls.append(url.split("?")[0])
+        return super().post(url, data=data, **kwargs)
+
+
+def _make_ownership_script_client(put_response: FakeResponse) -> _TrackingPostClient:
+    """Build a tracking client set up for the ownership-swap script flow."""
+    logger = FakeLogger()
+    return _TrackingPostClient(
+        get_responses={
+            "/api/v1/dashboards/admin": FakeResponse(200, [{"owner": "original_owner_id"}]),
+            "/api/shares/dashboard/dash123": FakeResponse(200, {"sharesTo": []}),
+            "/api/v1/users": FakeResponse(200, [_EXPANDED_USER]),
+        },
+        post_responses={
+            "/api/v1/dashboards/dash123/change_owner": FakeResponse(200, {}),
+            "/api/shares/dashboard/dash123": FakeResponse(200, {}),
+        },
+        put_responses={"/api/dashboards/dash123": put_response},
+        logger=logger,
+    )
+
+
+class TestAddDashboardScriptOwnershipRestored:
+    def test_ownership_restored_on_write_success(self):
+        client = _make_ownership_script_client(FakeResponse(200, {}))
+        dash = Dashboard(api_client=client)
+        result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"}', executing_user="api@example.com")
+
+        assert "successfully" in result.lower()
+        change_owner_calls = [u for u in client.post_urls if "change_owner" in u]
+        assert len(change_owner_calls) == 2  # take + restore
+
+    def test_ownership_restored_when_write_fails(self):
+        client = _make_ownership_script_client(FakeResponse(500, {"error": "write failed"}))
+        dash = Dashboard(api_client=client)
+        result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"}', executing_user="api@example.com")
+
+        assert result.startswith("Error:")
+        # Restoration must still have been attempted despite the failed write
+        change_owner_calls = [u for u in client.post_urls if "change_owner" in u]
+        assert len(change_owner_calls) == 2
+        share_restore_calls = [u for u in client.post_urls if "shares/dashboard" in u]
+        assert len(share_restore_calls) >= 1

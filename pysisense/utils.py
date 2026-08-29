@@ -3,6 +3,100 @@ from datetime import datetime
 import pandas as pd
 from pandas import json_normalize
 
+# Key names (case-insensitive) whose values are replaced by redact_secrets().
+_SENSITIVE_KEYS = {
+    "password",
+    "token",
+    "secret",
+    "value",
+    "apisecret",
+    "accesstoken",
+    "refreshtoken",
+    "clientsecret",
+    "privatekey",
+    "authorization",
+}
+
+
+def redact_secrets(data):
+    """
+    Recursively replaces values for credential-shaped keys with a placeholder so a dict/list is safe to write
+    to a debug log. Returns a new structure; the input is left untouched.
+
+    Parameters:
+        data: dict, list, or any other value
+
+    Returns:
+        The same structure with sensitive values replaced by "***REDACTED***".
+    """
+    if isinstance(data, dict):
+        return {key: ("***REDACTED***" if str(key).lower() in _SENSITIVE_KEYS else redact_secrets(value)) for key, value in data.items()}
+    if isinstance(data, list):
+        return [redact_secrets(item) for item in data]
+    return data
+
+
+# Maximum characters of a raw error body carried into a failure message.
+_MAX_ERROR_REASON_CHARS = 300
+
+
+def _extract_error_message(response, context, api_client=None):
+    """
+    Builds a standardized failure dict from a Sisense API response.
+
+    Distinguishes three failure kinds:
+    - HTTP error with a body: relays the Sisense reason and the HTTP status.
+      The reason is taken best-effort from the JSON body ("detail", then
+      "message", then "title", then "error"), falling back to the raw body
+      text truncated to a safe length.
+    - HTTP error with an empty body: says so, with the HTTP status.
+    - No response at all (connection failure): names the target domain and
+      carries no invented status code.
+
+    The body is passed through redact_secrets() before use so credential-shaped
+    values never reach the returned message.
+
+    Parameters:
+        response: requests.Response or None (as returned by SisenseClient requests)
+        context (str): What the caller was doing, e.g. "Failed to retrieve dashboards"
+        api_client: optional SisenseClient, used to name the target domain when
+            there is no response
+
+    Returns:
+        dict: {"error": str} always; plus {"status_code": int} when an HTTP
+        status is available.
+    """
+    if response is None:
+        domain = getattr(api_client, "domain", None) or "the Sisense server"
+        return {"error": f"{context}: no response from {domain} — connection failed"}
+
+    status = response.status_code
+    reason = None
+    try:
+        body = redact_secrets(response.json())
+    except ValueError:
+        raw_text = (response.text or "").strip()
+        if raw_text:
+            reason = raw_text
+    else:
+        if isinstance(body, dict):
+            for key in ("detail", "message", "title", "error"):
+                value = body.get(key)
+                if isinstance(value, str) and value.strip():
+                    reason = value.strip()
+                    break
+            if reason is None and body:
+                reason = str(body)
+        elif body not in (None, "", [], {}):
+            reason = str(body)
+
+    if reason is None:
+        reason = "the server returned an empty error body"
+    elif len(reason) > _MAX_ERROR_REASON_CHARS:
+        reason = reason[:_MAX_ERROR_REASON_CHARS] + "…"
+
+    return {"error": f"{context}: {reason} (HTTP {status})", "status_code": status}
+
 
 def convert_to_dataframe(data, logger=None):
     """
@@ -36,7 +130,6 @@ def convert_to_dataframe(data, logger=None):
         message = f"Data conversion failed: {e}"
         if logger:
             logger.error(message)
-        print(message)
         return None
 
 
@@ -55,17 +148,17 @@ def export_to_csv(data, file_name="export.csv", logger=None):
         if df is not None:
             df.to_csv(file_name, index=False)
             message = f"Data successfully exported to {file_name}"
-            print(message)
             if logger:
                 logger.info(message)
         else:
-            print("Failed to export data due to invalid input format.")
+            message = "Failed to export data due to invalid input format."
+            if logger:
+                logger.warning(message)
 
     except ValueError as e:
         message = f"Data export to CSV failed: {e}"
         if logger:
             logger.error(message)
-        print(message)
 
 
 def convert_utc_to_local(utc_str):

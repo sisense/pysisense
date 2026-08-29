@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from ..payloads import PluginSnapshot
+
 
 class PluginsSnapshotsMixin:
     def save_snapshot(self) -> dict[str, Any]:
@@ -36,7 +38,7 @@ class PluginsSnapshotsMixin:
         self.logger.info(f"Snapshot captured — {len(enabled_folders)} plugin(s) enabled")
         return snapshot
 
-    def restore_snapshot(self, snapshot: dict[str, Any], bulk: bool = True) -> dict[str, Any]:
+    def restore_snapshot(self, snapshot: PluginSnapshot, bulk: bool = True) -> dict[str, Any]:
         """Restore plugin states to exactly match a previously saved snapshot.
 
         Compares the snapshot's plugin list against the live instance state and
@@ -46,7 +48,7 @@ class PluginsSnapshotsMixin:
 
         Parameters
         ----------
-        snapshot : dict[str, Any]
+        snapshot : PluginSnapshot
             A snapshot dict as returned by :meth:`save_snapshot`, containing at
             minimum a ``"plugins"`` key with a list of ``folderName`` values for
             the plugins that should be enabled. All other plugins will be disabled.

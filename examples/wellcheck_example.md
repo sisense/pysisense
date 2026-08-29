@@ -32,9 +32,9 @@ Check dashboard structure (pivot, tabber, jump-to-dashboard, accordion usage) fo
 
 ```python
 dashboards = [
-    "6893741265c9f5484dc999d7",   # dashboard ID
-    "663b8f519ef48f00345bea45",   # dashboard ID
-    "Academy AI Content",         # dashboard title
+    "6893741265c9f5484dc999d7",  # dashboard ID
+    "663b8f519ef48f00345bea45",  # dashboard ID
+    "Academy AI Content",  # dashboard title
 ]
 
 response = wellcheck.check_dashboard_structure(dashboards=dashboards)
@@ -201,16 +201,15 @@ print(df)
 Run the full suite of WellCheck checks for dashboards and data models, and then parse individual sections from the nested report.
 
 ```python
-
 dashboards = [
-    "6893741265c9f5484dc999d7",   # dashboard ID
-    "663b8f519ef48f00345bea45",   # dashboard ID
-    "Academy AI Content",         # dashboard title
+    "6893741265c9f5484dc999d7",  # dashboard ID
+    "663b8f519ef48f00345bea45",  # dashboard ID
+    "Academy AI Content",  # dashboard title
 ]
 
 datamodels = (
     "60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb",  # data model ID
-    "MyDataModel_ec",                        # data model title
+    "MyDataModel_ec",  # data model title
 )
 
 report = wellcheck.run_full_wellcheck(

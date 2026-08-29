@@ -24,7 +24,7 @@ dist/
 *.egg-info/
 
 # Logs and temporary files
-logs/*.log
+logs/*
 
 # Data files
 *.csv

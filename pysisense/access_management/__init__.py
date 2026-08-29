@@ -4,6 +4,7 @@ from .admin import AdminMixin
 from .columns import ColumnsMixin
 from .groups import GroupsMixin
 from .ownership import OwnershipMixin
+from .tenants import TenantsMixin
 from .users import UsersMixin
 
 
@@ -13,13 +14,14 @@ class AccessManagement(
     ColumnsMixin,
     OwnershipMixin,
     AdminMixin,
+    TenantsMixin,
 ):
     """Manage Sisense users, groups, permissions, and access control.
 
     Covers user lifecycle (create, update, deactivate), group membership,
     role assignment, folder and dashboard ownership transfer, column-level
-    security restrictions, and administrative reporting on dashboard shares
-    and scheduled builds.
+    security restrictions, tenant lookup, and administrative reporting on
+    dashboard shares and scheduled builds.
 
     Modules
     -------
@@ -27,7 +29,8 @@ class AccessManagement(
         User CRUD — get, create, update, and deactivate users; resolve by
         email or ID; map role and group names to internal IDs.
     groups :
-        Group membership — list groups by name, list all members per group.
+        Group CRUD — get, list, create (bulk), and delete groups; list
+        members per group.
     columns :
         Column-level data model security — list all columns in a data model,
         identify unused columns across one or more data models.
@@ -37,6 +40,8 @@ class AccessManagement(
     admin :
         Administrative reporting — retrieve share entries for every dashboard
         on the instance; schedule elasticube builds.
+    tenants :
+        Tenant lookup — list tenants on multi-tenant deployments.
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

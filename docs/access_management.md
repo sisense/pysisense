@@ -116,9 +116,9 @@ Fetches all users along with tenant, group, and role information.
 ### `get_users_with_role_names_and_group_names(self)`
 
 Retrieves **all users** from Sisense and enriches them with role and group IDs
-and names. Internally it calls the users API once and then looks up role and
-group names via the roles and groups APIs, so roles and groups are resolved
-in-memory without per-user API calls.
+and names. Internally it fetches the users API once with `groups` and `role`
+expanded and resolves each user's role/group IDs and names from those
+expanded objects — a single API call, no separate roles/groups lookups.
 
 **Returns:**
 
@@ -130,7 +130,9 @@ in-memory without per-user API calls.
     - `EMAIL`
     - `IS_ACTIVE`
     - `ROLE_ID`
-    - `ROLE_NAME`
+    - `ROLE_NAME` — the **raw** Sisense role name (e.g. `"consumer"`), not the
+      public alias. Use `get_user_with_role_and_group_names` for a single
+      user if the aliased name (`"viewer"`) is needed instead.
     - `GROUP_IDS` (list of group IDs)
     - `GROUP_NAMES` (list of group names)  
     or a single-item list with `{'error': 'message'}` if an API call fails.
@@ -142,6 +144,30 @@ in-memory without per-user API calls.
 - Use **`get_users_with_role_names_and_group_names`** when you need a
   **richer export** for all users that includes both IDs and names for roles
   and groups (for reporting, audit, synchronization, or feeding other APIs).
+
+### `get_users_expanded(self)`
+
+Retrieves all users with raw, unmodified role and group objects (``GET /api/v1/users`` with ``groups`` and ``role`` expanded). Unlike `get_users_all` and `get_user_with_role_and_group_names`, role and group names are returned exactly as stored — no display-name aliasing — which is required when resolving role/group mappings across two separate Sisense environments.
+
+**Returns:**
+
+-   `list` | `dict`: The raw list of user objects, or an error message.
+
+* * * * *
+
+### `create_users_bulk(self, users)`
+
+Creates multiple users in a single bulk request. Each entry must already carry a resolved `roleId` and `groups` (list of group IDs) — no name-to-ID resolution is performed.
+
+**Parameters:**
+
+-   `users` (list): User definitions to create. Each dictionary should use canonical Sisense user fields, at minimum `email`, `firstName`, and `roleId`.
+
+**Returns:**
+
+-   `list` | `dict`: The list of created user objects on success, or an error message.
+
+* * * * *
 
 ### `get_group(self, name)`
 
@@ -157,13 +183,51 @@ Retrieves group details by name.
 
 * * * * *
 
-### `create_user(self, user_data)`
+### `get_groups(self)`
 
-Creates a new user by converting group and role names into IDs.
+Retrieves the full list of groups.
+
+**Returns:**
+
+-   `list` | `dict`: A list of raw group objects, or an error message.
+
+* * * * *
+
+### `create_groups_bulk(self, groups)`
+
+Creates multiple groups in a single bulk request.
 
 **Parameters:**
 
--   `user_data` (dict): Includes email, name, role name, groups, preferences.
+-   `groups` (list): Group definitions to create. Each dictionary should use canonical Sisense group fields, at minimum `name`.
+
+**Returns:**
+
+-   `list` | `dict`: The list of created group objects on success, or an error message.
+
+* * * * *
+
+### `delete_group(self, group_id)`
+
+Deletes a group by ID.
+
+**Parameters:**
+
+-   `group_id` (str): The ID of the group to delete.
+
+**Returns:**
+
+-   `dict`: Success or error message.
+
+* * * * *
+
+### `create_user(self, user_data)`
+
+Creates a new user by converting group and role names into IDs. Required fields are validated up front — a missing `email` or `role` is rejected with a clear error before any API call.
+
+**Parameters:**
+
+-   `user_data` (`CreateUserPayload`): User fields. `email` and `role` are **required**; `userName`, `firstName`, `lastName`, `groups` (names, resolved to IDs), and `preferences` are optional.
 
 **Returns:**
 
@@ -179,7 +243,7 @@ Updates a user’s attributes by email address (email-based lookup via get_user)
 
 -   `user_name` (str): Email address of the user to update (used to find the user).
 
--   `user_data` (dict): Fields to update as a dictionary (for example: firstName, lastName, email, userName, role, groups).
+-   `user_data` (`UpdateUserPayload`): Fields to update as a dictionary — all optional, only include fields you want to change (for example: firstName, lastName, email, userName, role, groups).
 
 **Returns:**
 
@@ -243,7 +307,10 @@ Changes ownership of folders and optionally dashboards.
 
 **Returns:**
 
--   None (logs and updates executed internally).
+-   `dict`: `{"total_folders_changed": int, "total_dashboards_changed": int}`
+    on success, `{"error": "..."}` if the executing user or new owner
+    cannot be resolved, or `None` when there are no folders or dashboards
+    to change.
 
 * * * * *
 
@@ -319,6 +386,16 @@ Retrieves all dashboard share settings, including user and group shares.
 
 * * * * *
 
+### `get_user_email_and_group_name_maps(self)`
+
+Fetches all users and groups and builds ID-to-name lookup maps, for resolving share entries (which reference users and groups only by ID) into readable emails and group names. Used internally by `get_all_dashboard_shares` and by `Dashboard.get_dashboard_share`.
+
+**Returns:**
+
+-   `dict`: `{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}` on success, or `{"error": "..."}` if either lookup fails.
+
+* * * * *
+
 ### `create_schedule_build(self, datamodel_name, build_type="ACCUMULATE", *, days=None, hour=None, minute=None, interval_days=None, interval_hours=None, interval_minutes=None)`
 
 Schedules a build for a DataModel. Supports both:
@@ -362,3 +439,16 @@ Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Retur
 -   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"error": "..."}` on failure.
 
 **Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.
+
+* * * * *
+
+Tenant Management
+------------------
+
+### `get_tenants(self)`
+
+Retrieves the full list of tenants. Only meaningful on multi-tenant deployments.
+
+**Returns:**
+
+-   `list` | `dict`: A list of raw tenant objects, or an error message (for example, on a single-tenant deployment where the tenants endpoint is unavailable).

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DataModelCoreMixin:
     def get_datamodel(self, datamodel_name: str) -> dict[str, Any]:
@@ -26,13 +28,10 @@ class DataModelCoreMixin:
         endpoint = f"/api/v2/datamodels/schema?title={datamodel_name}"
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"No response received from API while retrieving DataModel '{datamodel_name}'")
-            return {"error": "No response from API while retrieving DataModel"}
-
-        if not response.ok:
-            self.logger.error(f"Failed to retrieve DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve DataModel. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve DataModel '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         datamodels = response.json()
         if not datamodels:
@@ -77,13 +76,10 @@ class DataModelCoreMixin:
 
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error("No response received from API while retrieving datamodel metadata.")
-            return {"error": "No response from API while retrieving datamodel metadata."}
-
-        if not response.ok:
-            self.logger.error(f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve datamodel metadata", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         data = response.json()
 
@@ -463,6 +459,150 @@ class DataModelCoreMixin:
 
         self.logger.info(f"Deleted data model '{title}' on server '{server}'")
         return {"success": True}
+
+    def export_datamodel_schema(self, datamodel_id: str, dependencies: list[str] | None = None) -> dict[str, Any]:
+        """Export a data model's full schema definition for re-import elsewhere.
+
+        Sends ``GET /api/v2/datamodel-exports/schema`` (or, on Windows
+        deployments, the legacy streaming export endpoint) and returns the
+        exported schema JSON as-is, ready to be passed to
+        ``import_datamodel_schema`` — typically against a different Sisense
+        environment.
+
+        Parameters
+        ----------
+        datamodel_id : str
+            OID of the data model to export.
+        dependencies : list[str] or None, optional
+            API dependency identifiers to include in the export (for example
+            ``"dataContext"``, ``"scopeConfiguration"``,
+            ``"formulaManagement"``, ``"drillHierarchies"``,
+            ``"perspectives"``). Windows: has no effect — the export endpoint
+            used there accepts no dependencies parameter.
+
+        Returns
+        -------
+        dict[str, Any]
+            The exported schema object on success, or ``{"error": "..."}`` on
+            failure.
+        """
+        dependencies = dependencies or []
+        os_ = self.api_client.operating_system
+
+        if os_ == "windows":
+            if dependencies:
+                self.logger.warning(f"Windows datamodel export does not support dependenciesIdsToInclude — dependencies {dependencies} will not be included.")
+            endpoint = f"/api/v1/elasticubes/{datamodel_id}/datamodel-exports/stream/schema"
+            self.logger.debug(f"Exporting datamodel schema (os={os_}) — GET {endpoint}")
+            response = self.api_client.get(endpoint)
+        else:
+            endpoint = "/api/v2/datamodel-exports/schema"
+            self.logger.debug(f"Exporting datamodel schema (os={os_}) — GET {endpoint}")
+            response = self.api_client.get(
+                endpoint,
+                params={"datamodelId": datamodel_id, "type": "schema-latest", "dependenciesIdsToInclude": ",".join(dependencies)},
+            )
+
+        if response is None or response.status_code != 200:
+            status = response.status_code if response is not None else "no response"
+            msg = f"Failed to export datamodel schema for '{datamodel_id}' — status {status}"
+            self.logger.error(msg)
+            return {"error": msg}
+
+        try:
+            schema = response.json()
+        except Exception:
+            msg = f"Export returned invalid JSON for datamodel '{datamodel_id}'."
+            self.logger.error(msg)
+            return {"error": msg}
+
+        if not isinstance(schema, dict):
+            msg = f"Export returned non-dict JSON for datamodel '{datamodel_id}'."
+            self.logger.error(msg)
+            return {"error": msg}
+
+        self.logger.info(f"Exported schema for datamodel '{datamodel_id}'.")
+        return schema
+
+    def import_datamodel_schema(
+        self,
+        schema: dict[str, Any],
+        action: str | None = None,
+        target_datamodel_id: str | None = None,
+        new_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Import a data model schema (as produced by ``export_datamodel_schema``).
+
+        Sends ``POST /api/v2/datamodel-imports/schema``. When ``action`` is
+        ``"overwrite"`` and ``target_datamodel_id`` is provided, the import
+        targets that existing data model via the ``datamodelId`` query
+        parameter; if the target is not found (404), automatically retries as
+        a plain create. When ``action`` is ``"duplicate"``, imports as a new
+        data model titled ``new_title`` (or ``"<title> (Duplicate)"`` when
+        omitted). Any other ``action`` value performs a plain create.
+
+        Parameters
+        ----------
+        schema : dict[str, Any]
+            Schema object to import, typically produced by
+            ``export_datamodel_schema``.
+        action : str or None, optional
+            One of ``"overwrite"`` or ``"duplicate"``. Any other value
+            (including ``None``) performs a plain create.
+        target_datamodel_id : str or None, optional
+            OID of the existing data model to overwrite. Required for
+            ``action="overwrite"`` to take effect.
+        new_title : str or None, optional
+            Title for the duplicated data model. Used only when
+            ``action="duplicate"``.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"datamodel_id": <str or None>, "already_exists": False}`` on
+            success, or ``{"error": "...", "already_exists": bool}`` on
+            failure. ``already_exists`` is ``True`` when the import failed
+            because a data model with the same title already exists on the
+            target under a different ID.
+        """
+        title = schema.get("title", "Untitled") if isinstance(schema, dict) else "Untitled"
+
+        query = ""
+        if action == "overwrite" and target_datamodel_id:
+            query = f"?datamodelId={target_datamodel_id}"
+        elif action == "duplicate":
+            query = f"?newTitle={new_title or f'{title} (Duplicate)'}"
+
+        endpoint = f"/api/v2/datamodel-imports/schema{query}"
+        self.logger.debug(f"Importing datamodel schema for '{title}' (action={action}) — POST {endpoint}")
+        response = self.api_client.post(endpoint, data=schema)
+
+        if response is not None and response.status_code == 404 and action == "overwrite" and target_datamodel_id:
+            self.logger.warning(f"Overwrite target for '{title}' not found (404). Retrying without overwrite.")
+            response = self.api_client.post("/api/v2/datamodel-imports/schema", data=schema)
+
+        try:
+            payload = response.json() if response is not None else None
+        except Exception:
+            payload = None
+
+        if response is not None and response.status_code == 201:
+            target_id = None
+            if isinstance(payload, dict):
+                for key in ("oid", "id", "datamodelId"):
+                    value = payload.get(key)
+                    if isinstance(value, str):
+                        target_id = value
+                        break
+            self.logger.info(f"Successfully imported datamodel schema for '{title}'.")
+            return {"datamodel_id": target_id, "already_exists": False}
+
+        already_exists = response is not None and response.status_code == 400 and isinstance(payload, dict) and payload.get("title") == "ElasticubeAlreadyExists"
+        status = response.status_code if response is not None else "no response"
+        detail = payload if payload is not None else (getattr(response, "text", None) if response is not None else None)
+        msg = f"Failed to import datamodel schema for '{title}' — status {status}: {detail}"
+        self.logger.error(msg)
+        return {"error": msg, "already_exists": already_exists}
 
     def resolve_datamodel_reference(self, datamodel_ref: str) -> dict[str, Any]:
         """

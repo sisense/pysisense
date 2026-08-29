@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class GroupsMixin:
     def get_group(self, name: str) -> dict[str, Any]:
@@ -26,10 +28,10 @@ class GroupsMixin:
         # Make the API call to fetch groups by name
         response = self.api_client.get(f"/api/v1/groups?name={name}")
 
-        if not response or not response.ok:
-            status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve groups for name '{name}'. Status Code: {status_code}")
-            return {"error": f"Failed to retrieve groups for name '{name}'"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve groups for name '{name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             response_data = response.json()
@@ -51,6 +53,114 @@ class GroupsMixin:
 
         self.logger.debug(f"Group '{name}' found. ID: {group_id}")
         return {"GROUP_ID": group_id, "GROUP_NAME": group_name, "defaultRole": group.get("defaultRole", "")}
+
+    def get_groups(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve all groups.
+
+        Fetches the full list of groups defined on the Sisense server.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            A list of raw group objects, or ``{"error": "..."}`` if
+            retrieval fails.
+        """
+        self.logger.debug("Starting 'get_groups' method.")
+
+        response = self.api_client.get("/api/v1/groups")
+
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve groups", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        try:
+            groups = response.json()
+        except Exception as e:
+            self.logger.exception("Failed to parse groups response JSON.")
+            return {"error": f"Failed to parse groups response JSON: {str(e)}"}
+
+        self.logger.debug(f"Retrieved {len(groups or [])} group(s).")
+        return groups or []
+
+    def create_groups_bulk(self, groups: list[dict[str, Any]]) -> list[dict[str, Any]] | dict[str, Any]:
+        """Create multiple groups in a single bulk request.
+
+        Sends the provided group definitions to the bulk group creation
+        endpoint.
+
+        Parameters
+        ----------
+        groups : list[dict[str, Any]]
+            Group definitions to create. Each dictionary should use
+            canonical Sisense group fields, at minimum ``name``.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            The list of created group objects on success, or
+            ``{"error": "..."}`` on failure.
+        """
+        self.logger.debug(f"Starting 'create_groups_bulk' method for {len(groups)} group(s).")
+
+        response = self.api_client.post("/api/v1/groups/bulk", data=groups)
+
+        if response is None:
+            self.logger.error("No response received while creating groups in bulk.")
+            return {"error": "No response received while creating groups in bulk."}
+
+        if response.status_code != 201:
+            try:
+                error_message = response.json()
+            except Exception:
+                error_message = response.text or "Unknown error"
+            self.logger.error(f"Failed to create groups in bulk. Error: {error_message}")
+            return {"error": f"Failed to create groups in bulk. {error_message}"}
+
+        try:
+            created_groups = response.json()
+        except Exception as e:
+            self.logger.exception("Failed to parse bulk group creation response JSON.")
+            return {"error": f"Failed to parse bulk group creation response JSON: {str(e)}"}
+
+        self.logger.info(f"Successfully created {len(created_groups or [])} group(s).")
+        return created_groups or []
+
+    def delete_group(self, group_id: str) -> dict[str, Any]:
+        """Delete a group by ID.
+
+        Sends a DELETE request to remove the group from the Sisense server.
+
+        Parameters
+        ----------
+        group_id : str
+            The ID of the group to delete.
+
+        Returns
+        -------
+        dict[str, Any]
+            A success message dict if successful, or ``{"error": "..."}``
+            on failure.
+        """
+        self.logger.debug(f"Starting 'delete_group' method for group ID: {group_id}")
+
+        response = self.api_client.delete(f"/api/v1/groups/{group_id}")
+
+        if response and response.status_code == 204:
+            self.logger.info(f"Group (ID: {group_id}) deleted. No content returned.")
+            return {"message": "Group deleted successfully."}
+
+        if response and response.ok:
+            try:
+                response_data = response.json()
+            except Exception:
+                response_data = {"message": "Group deleted, but no JSON body returned."}
+            self.logger.info(f"Group (ID: {group_id}) deleted.")
+            return response_data
+
+        failure = _extract_error_message(response, f"Failed to delete group (ID: {group_id})", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def users_per_group(self, group_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all users within a specific group by name.
@@ -85,11 +195,10 @@ class GroupsMixin:
         url = f"/api/v1/users?groupId={group_id}"
         response = self.api_client.get(url)
 
-        if not response or not response.ok:
-            status = response.status_code if response else "No response"
-            error_msg = f"Failed to retrieve users for group '{group_name}'. Status Code: {status}"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve users for group '{group_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             users = response.json()
@@ -120,12 +229,11 @@ class GroupsMixin:
         self.logger.debug("Starting to retrieve all groups and their users.")
 
         # Step 1: Fetch all groups
-        group_response = self.api_client.get("/api/v1/groups")
-        if not group_response or not group_response.ok:
+        group_data = self.get_groups()
+        if isinstance(group_data, dict) and "error" in group_data:
             self.logger.error("Failed to retrieve groups from API.")
             return []
 
-        group_data = group_response.json()
         self.logger.debug(f"Retrieved {len(group_data)} groups.")
 
         # Step 2: Fetch all users
@@ -146,9 +254,13 @@ class GroupsMixin:
         # Step 4: Populate group membership from users
         for user in all_users:
             for group in user.get("GROUPS", []):
-                if group not in EXCLUDED_GROUPS:
-                    groups_dict[group].append(user["USER_NAME"])
-                    self.logger.debug(f"Added user '{user['USER_NAME']}' to group '{group}'")
+                if group in EXCLUDED_GROUPS:
+                    continue
+                if group not in groups_dict:
+                    self.logger.debug(f"Skipping user '{user.get('USER_NAME')}' group '{group}' not in current group list")
+                    continue
+                groups_dict[group].append(user["USER_NAME"])
+                self.logger.debug(f"Added user '{user['USER_NAME']}' to group '{group}'")
 
         # Step 5: Add users with admin-like roles to 'Admins'
         for user in all_users:

@@ -1,6 +1,6 @@
 # pysisense SDK Documentation
 
-Welcome to the official documentation for the `pysisense` Python SDK.
+Welcome to the documentation for the `pysisense` Python SDK — a community project maintained by the Sisense Field Engineering team (not an official Sisense product; see the [README disclaimer](../README.md#%EF%B8%8F-disclaimer--community--field-engineering-project)).
 
 This SDK provides a structured, Pythonic interface for interacting with the Sisense REST APIs. It simplifies common tasks such as user management, dashboard access, data model operations, and cross-environment migrations.
 
@@ -14,8 +14,12 @@ The documentation is organized by feature/module. Click on any section to learn 
   Manage users, groups, roles, and share permissions.
   [Access Management Examples](../examples/access_management_example.md)
 
+- [Blox](blox.md)  
+  Fetch, save, and delete custom BloX actions; read and update BloX widget styles.
+  [Blox Examples](../examples/blox_example.md)
+
 - [Dashboard](dashboard.md)  
-  Read, export, share, and change ownership of dashboards.
+  Read, export, share, change ownership, and manage widgets on dashboards.
   [Dashboard Examples](../examples/dashboard_example.md)
 
 - [Folder](folder.md)  
@@ -28,6 +32,10 @@ The documentation is organized by feature/module. Click on any section to learn 
 
 - [Migration](migration.md)  
   [Migration Examples](../examples/migration_example.md)
+
+- [Report Manager](report_manager.md)  
+  Scheduled report CRUD and on-demand run through the Report Manager plugin.
+  [Report Manager Examples](../examples/report_manager_example.md)
 
 - [Sisense Client](sisenseclient.md)  
   Automate cross-environment migration of users, dashboards, and models.
@@ -49,8 +57,10 @@ token: "<your_api_token>"
 
 For non-SSL (`is_ssl: false`), the default HTTP port is **30845**. Set optional `port` in the YAML to override (ignored when `is_ssl` is `true`).
 
-**Important:** It is recommended to use a new dedicated Sisense admin user's token to ensure all API methods function as expected.  
-Using restricted or scoped users may result in failures or inconsistent behavior, especially for:
+TLS certificate verification is enabled by default. Set `verify_ssl: false` to disable it, only for trusted internal networks with self-signed certificates, since disabling it exposes your API token to on-path interception.
+
+**Tokens and permissions:** The SDK works with any Sisense user's API token — permissions are enforced by Sisense itself, so each call is scoped to what the token's user can see and do (e.g., an admin token may list every dashboard on the instance, while a viewer's token lists only dashboards shared with that user).  
+Inherently administrative operations require a dedicated Sisense admin user's token, and will fail or behave inconsistently with restricted or scoped users, especially:
 
 - Folder and dashboard ownership changes
 - Granting permissions across environments

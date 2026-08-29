@@ -1,16 +1,28 @@
+import base64
+import json
 import logging
 import os
 import re
+import warnings
+from logging.handlers import TimedRotatingFileHandler
+from typing import Any
 
 import requests
 import urllib3
 import yaml
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-from .utils import convert_to_dataframe
+from .utils import convert_to_dataframe, redact_secrets
 from .utils import export_to_csv as export_csv_util
 
 DEFAULT_NON_SSL_PORT = 30845
 DEFAULT_NON_SSL_PORT_WINDOWS = 8081
+DEFAULT_REQUEST_TIMEOUT = 30
+DEFAULT_CONNECT_TIMEOUT = 5
+DEFAULT_RETRY_TOTAL = 3
+DEFAULT_RETRY_BACKOFF_FACTOR = 1
+DEFAULT_RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
 VALID_OPERATING_SYSTEMS = frozenset({"linux", "windows"})
 # Values from a YAML config or kwarg that are treated as "not set" → default to linux
 _OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
@@ -27,6 +39,11 @@ class SisenseClient:
         is_ssl: bool | None = None,
         port: int | None = None,
         operating_system: str = "linux",
+        verify_ssl: bool | None = None,
+        ssl_path: str | None = None,
+        retries: bool | None = None,
+        timeout: float | None = None,
+        connect_timeout: float | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -74,26 +91,69 @@ class SisenseClient:
                 controls which variant is used. Can also be set via the
                 ``operating_system`` key in the YAML config file (the YAML value
                 takes precedence over this argument when both are present).
+            verify_ssl (bool | None): Whether to verify the server's TLS
+                certificate. Defaults to ``True``. Can also be set via the
+                ``verify_ssl`` key in the YAML config file. Only disable this
+                for trusted internal networks with self-signed certificates,
+                doing so removes protection against on-path credential theft.
+            ssl_path (str | None): Path to a CA bundle file or directory used
+                to verify the server's TLS certificate (e.g. a self-signed or
+                internal CA's ``.pem`` file). Can also be set via the
+                ``ssl_path`` key in the YAML config file. When set, it takes
+                precedence over ``verify_ssl`` for the underlying HTTP
+                requests. Ignored if ``verify_ssl`` is explicitly ``False``.
+            retries (bool | None): Whether to automatically retry requests
+                that fail with a transient server error (HTTP 429, 500, 502,
+                503, or 504), using exponential backoff. Defaults to True.
+                Can also be set via the ``retries`` key in the YAML config
+                file; this argument overrides the config value whenever it
+                is explicitly passed. Only idempotent methods (GET, PUT,
+                DELETE) are retried; POST and PATCH are never retried
+                automatically, to avoid duplicating a side effect the server
+                may have already applied. Connection and read timeouts are
+                never retried.
+            timeout (float | None): Client-side read timeout in seconds for
+                every request (default 30). Can also be set via the
+                ``timeout`` key in the YAML config file; this argument
+                overrides the config value when passed. Lower it for
+                read/export-heavy workloads that must fail fast; keep it
+                generous for long-running operations (builds, bulk imports,
+                large exports) and for writes — a client-side timeout on a
+                POST/PATCH leaves the server outcome ambiguous (the change
+                may still have been applied).
+            connect_timeout (float | None): Client-side TCP connect timeout
+                in seconds (default 5). Can also be set via the
+                ``connect_timeout`` YAML key.
         """
         # Decide how to build the base config
-        if domain is not None or token is not None or is_ssl is not None or port is not None:
+        if domain is not None or token is not None:
             # Direct connection mode – require domain + token
             if not domain or not token:
                 raise ValueError("When using direct connection, both 'domain' and 'token' must be provided.")
-
-            self.config = {
-                "domain": domain,
-                "token": token,
-                # if is_ssl is None, default to True
-                "is_ssl": True if is_ssl is None else bool(is_ssl),
-            }
-            if port is not None:
-                self.config["port"] = port
+            self.config = {"domain": domain, "token": token}
         else:
             # Legacy YAML mode
             if not config_file:
                 raise ValueError("config_file must be provided when 'domain' and 'token' are not supplied.")
             self.config = self._load_config(config_file)
+
+        # is_ssl / port / verify_ssl kwargs override whatever the config
+        # source provides (or its absence) whenever explicitly passed, in
+        # both direct-connection and YAML mode.
+        if is_ssl is not None:
+            self.config["is_ssl"] = bool(is_ssl)
+        if port is not None:
+            self.config["port"] = port
+        if verify_ssl is not None:
+            self.config["verify_ssl"] = bool(verify_ssl)
+        if ssl_path is not None:
+            self.config["ssl_path"] = ssl_path
+        if retries is not None:
+            self.config["retries"] = bool(retries)
+        if timeout is not None:
+            self.config["timeout"] = timeout
+        if connect_timeout is not None:
+            self.config["connect_timeout"] = connect_timeout
 
         # Resolve operating_system: YAML config takes precedence over the kwarg.
         # Blank, null, "none", "NA", and similar absent-looking values all fall
@@ -135,20 +195,66 @@ class SisenseClient:
 
         # Logging setup
         log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        os.makedirs(log_dir, exist_ok=True)
+        os.chmod(log_dir, 0o700)
 
         # Set log level to DEBUG if debug is True, otherwise INFO
         log_level = logging.DEBUG if debug else logging.INFO
         log_file_path = os.path.join(log_dir, "pysisense.log")
 
-        # Initialize the logger
+        # Initialize the logger.
         self.logger = self._get_logger("SisenseClient", log_file_path, log_level)
+        if os.path.exists(log_file_path):
+            os.chmod(log_file_path, 0o600)
 
-        # Always disable SSL certificate verification (current behavior)
-        self.verify = False
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        self.logger.warning("SSL verification is disabled. Avoid using this in production.")
+        # SSL certificate verification is enabled by default; only an explicit
+        # verify_ssl: false (YAML) or verify_ssl=False (kwarg) disables it.
+        # ssl_path (a CA bundle file or directory) takes precedence over the
+        # plain True/False verification when provided, unless verify_ssl was
+        # explicitly set to False.
+        verify_flag = bool(self.config.get("verify_ssl", True))
+        raw_ssl_path = self.config.get("ssl_path")
+        self.verify: bool | str = str(raw_ssl_path) if verify_flag and raw_ssl_path else verify_flag
+        if not verify_flag:
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            message = "SSL certificate verification is disabled. This exposes the API token to on-path interception, do not use in production."
+            self.logger.warning(message)
+            warnings.warn(message, UserWarning, stacklevel=2)
+
+        # Automatic retries are enabled by default; only an explicit
+        # retries: false (YAML) or retries=False (kwarg) disables them.
+        self.retries_enabled = bool(self.config.get("retries", True))
+        self.session = requests.Session()
+        if self.retries_enabled:
+            retry_strategy = Retry(
+                total=DEFAULT_RETRY_TOTAL,
+                connect=0,  # Do not retry on connection errors.
+                read=0,  # Do not retry on read timeouts.
+                backoff_factor=DEFAULT_RETRY_BACKOFF_FACTOR,
+                status_forcelist=DEFAULT_RETRY_STATUS_FORCELIST,
+                raise_on_status=False,  # Return the last response instead of raising once retries are exhausted.
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            self.session.mount("https://", adapter)
+            self.session.mount("http://", adapter)
+            self.logger.debug(f"HTTP retries enabled (total={DEFAULT_RETRY_TOTAL}, backoff_factor={DEFAULT_RETRY_BACKOFF_FACTOR}, status_forcelist={list(DEFAULT_RETRY_STATUS_FORCELIST)})")
+        else:
+            self.logger.debug("HTTP retries disabled")
+
+        # Client-side request timeouts (requests-style (connect, read) tuple).
+        # The read timeout bounds how long a single request waits for the
+        # server — without it, callers are hostage to the server's own gateway
+        # timeout (observed at 300s per attempt on live instances). Configure
+        # via YAML keys `timeout` / `connect_timeout` or the constructor
+        # kwargs. The default read timeout is deliberately generous; lower it
+        # for read/export-heavy workloads that must fail fast, but keep it
+        # generous for long-running operations (builds, bulk imports, large
+        # exports) and for writes — a client-side timeout on a POST/PATCH
+        # leaves the server outcome ambiguous (the change may still apply).
+        read_timeout = float(self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT))
+        conn_timeout = float(self.config.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT))
+        self.request_timeout: tuple[float, float] = (conn_timeout, read_timeout)
+        self.logger.debug(f"HTTP timeouts: connect={conn_timeout}s, read={read_timeout}s")
 
     @classmethod
     def from_connection(
@@ -159,6 +265,11 @@ class SisenseClient:
         port: int | None = None,
         debug: bool = False,
         operating_system: str = "linux",
+        verify_ssl: bool = True,
+        ssl_path: str | None = None,
+        retries: bool = True,
+        timeout: float | None = None,
+        connect_timeout: float | None = None,
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -180,6 +291,11 @@ class SisenseClient:
             is_ssl=is_ssl,
             port=port,
             operating_system=operating_system,
+            verify_ssl=verify_ssl,
+            ssl_path=ssl_path,
+            retries=retries,
+            timeout=timeout,
+            connect_timeout=connect_timeout,
         )
 
     def _non_ssl_port(self) -> int:
@@ -205,7 +321,7 @@ class SisenseClient:
         """
         # Open and parse the YAML file
         with open(config_file) as stream:
-            return yaml.load(stream, Loader=yaml.FullLoader)
+            return yaml.safe_load(stream)
 
     def _get_logger(self, name, log_filename, log_level):
         """
@@ -223,8 +339,8 @@ class SisenseClient:
 
         # Check if the logger already has handlers to avoid duplicates
         if not logger.handlers:
-            # Create a file handler for the logger
-            handler = logging.FileHandler(log_filename, mode="a")
+            # Rotate at midnight, keeping 7 days of backups, so the log file can't grow unbounded
+            handler = TimedRotatingFileHandler(log_filename, when="midnight", interval=1, backupCount=7)
 
             # Define the format for log messages
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
@@ -331,21 +447,21 @@ class SisenseClient:
         if extra_headers:
             headers.update(extra_headers)
 
-        # Log the request details (method, URL, params, and data)
-        self.logger.debug(f"Making {method} request to {url} with data: {data} and params: {params}")
+        # Log the request details (method, URL, params, and data).
+        self.logger.debug(f"Making {method} request to {url} with data: {redact_secrets(data)} and params: {redact_secrets(params)}")
 
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
-                response = requests.get(url, headers=headers, params=params, verify=self.verify)
+                response = self.session.get(url, headers=headers, params=params, verify=self.verify, timeout=self.request_timeout)
             elif method == "POST":
-                response = requests.post(url, headers=headers, json=data, verify=self.verify)
+                response = self.session.post(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "PUT":
-                response = requests.put(url, headers=headers, json=data, verify=self.verify)
+                response = self.session.put(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "PATCH":
-                response = requests.patch(url, headers=headers, json=data, verify=self.verify)
+                response = self.session.patch(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "DELETE":
-                response = requests.delete(url, headers=headers, verify=self.verify)
+                response = self.session.delete(url, headers=headers, verify=self.verify, timeout=self.request_timeout)
             else:
                 # Raise an error for unsupported HTTP methods
                 raise ValueError(f"Unsupported HTTP method: {method}")
@@ -353,13 +469,13 @@ class SisenseClient:
             # Handle known response codes
             if response.status_code in [200, 201, 204]:
                 self.logger.debug(f"{method} request to {url} succeeded with status code {response.status_code}")
-            elif response.status_code in [400, 404, 500]:
+            elif response.status_code >= 400:
                 # Log the error response text if available
                 try:
-                    error_message = response.json()
+                    error_message = redact_secrets(response.json())
                 except ValueError:
-                    # If the response is not JSON, use raw text
-                    error_message = response.text
+                    error_message = "(non-JSON error body — see debug log for raw text)"
+                    self.logger.debug(f"Raw non-JSON error body for {method} {url}: {response.text}")
                 self.logger.error(f"{method} request to {url} failed with status code {response.status_code}: {error_message}")
             else:
                 self.logger.warning(f"{method} request to {url} returned unexpected status code {response.status_code}")
@@ -395,3 +511,46 @@ class SisenseClient:
             file_name: str, name of the file to export the CSV to
         """
         export_csv_util(data, file_name=file_name, logger=self.logger)
+
+    def decode_bearer_token(self) -> dict[str, Any]:
+        """Decode the JWT bearer token stored on this client.
+
+        Extracts the payload segment of the bearer token, base64url-decodes it,
+        and returns all claims as a plain dictionary. No network request is made.
+        Decoding is performed locally.
+
+        The token signature is not verified and the claim names are internal
+        details of the Sisense token format. Use this for local inspection
+        only; to resolve the API token user's ID for other SDK calls, prefer
+        ``AccessManagement.get_my_user()``, which asks the server directly.
+
+        Returns
+        -------
+        dict[str, Any]
+            All JWT payload claims. Commonly useful keys:
+
+            - ``"user"`` (str): Sisense user ID of the token owner.
+            - ``"exp"`` (int): Token expiry as a Unix timestamp.
+            - ``"iat"`` (int): Token issued-at as a Unix timestamp.
+
+            Returns ``{"error": "..."}`` when the token is missing, malformed,
+            or cannot be decoded.
+        """
+        if not self.token:
+            self.logger.error("No bearer token is configured on this client.")
+            return {"error": "No bearer token configured."}
+
+        try:
+            segments = self.token.split(".")
+            if len(segments) < 2:
+                raise ValueError("Token does not have the expected JWT structure (header.payload.signature).")
+
+            payload_segment = segments[1]
+            # Pad to a multiple of 4 for standard base64 decoding
+            padded = payload_segment + "=" * (-len(payload_segment) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded))
+            self.logger.debug(f"Bearer token decoded — user: {payload.get('user', 'unknown')}")
+            return payload
+        except Exception as e:
+            self.logger.error(f"Failed to decode bearer token: {e}")
+            return {"error": f"Failed to decode bearer token: {e}"}

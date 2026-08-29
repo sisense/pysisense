@@ -39,7 +39,7 @@ dashboard_df = api_client.to_dataframe(response)
 print(dashboard_df)
 
 # Optional: Export the response to a CSV file
-api_client.export_to_csv(response, 'all_dashboard.csv')
+api_client.export_to_csv(response, "all_dashboard.csv")
 ```
 
 ---
@@ -54,7 +54,7 @@ response = dashboard.get_dashboard_by_id(dashboard_id)
 print(json.dumps(response, indent=4))
 dashboard_df = api_client.to_dataframe(response)
 print(dashboard_df)
-api_client.export_to_csv(response, 'dashboard.csv')
+api_client.export_to_csv(response, "dashboard.csv")
 ```
 
 ---
@@ -118,7 +118,7 @@ dashboard.on('widgetready', function(d) {
         .css('padding-left', '20px');
 });
 """
-response = dashboard.add_dashboard_script(dashboard_id, script, executing_user='sisensepy@sisense.com')
+response = dashboard.add_dashboard_script(dashboard_id, script, executing_user="sisensepy@sisense.com")
 print(response)
 ```
 
@@ -147,7 +147,7 @@ widget.on('beforeviewloaded', function(se, ev){
     legend.y=y
 }) 
 """
-response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user='sisensepy@sisense.com')
+response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user="sisensepy@sisense.com")
 print(response)
 ```
 
@@ -159,11 +159,7 @@ Share a dashboard with users and groups, specifying permissions.
 
 ```python
 dashboard_id = "6823c49365acb80033041c88"
-shares = [
-    {"name": "john.doe@sisense.com", "type": "user", "rule": "edit"},
-    {"name": "viewer@sisense.com", "type": "user", "rule": "view"},
-    {"name": "mig_test", "type": "group", "rule": "view"}
-]
+shares = [{"name": "john.doe@sisense.com", "type": "user", "rule": "edit"}, {"name": "viewer@sisense.com", "type": "user", "rule": "view"}, {"name": "mig_test", "type": "group", "rule": "view"}]
 response = dashboard.add_dashboard_shares(dashboard_id, shares)
 print(response)
 ```
@@ -218,7 +214,7 @@ Resolve one or more Dashboard references that may be either IDs or names.
 # Mix of Dashboard IDs and titles
 dashboard_refs = [
     "6893741265c9f5484dc999d7",  # Dashboard ID
-    "Academy AI Content",        # Dashboard title
+    "Academy AI Content",  # Dashboard title
 ]
 
 for ref in dashboard_refs:
@@ -278,64 +274,6 @@ else:
 
 ---
 
-## Example 13: Move Dashboard to Folder
-
-Place an imported dashboard into a target folder after migration.
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-folder_id = "folder_oid_here"
-result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Example 14: Rename Dashboard
-
-Update a dashboard title after import.
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Example 15: Publish Dashboard
-
-Republish a dashboard (for example preflight when the user already has access).
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-result = dashboard.publish_dashboard(dashboard_id)
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Example 16: Check Can Be Owned
-
-Check whether the current user can take ownership of a dashboard.
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-result = dashboard.can_be_owned(dashboard_id)
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Notes
-
-- Adjust parameters as needed for your environment.
-- For more details, refer to the documentation in the `docs/` folder.
-
----
-
----
-
 ## Example 13: Get Dashboards (Standard Endpoint)
 
 Retrieve dashboards visible to the authenticated user. Unlike `get_all_dashboards` which uses the admin endpoint, this uses `GET /api/v1/dashboards` and returns dashboards owned by or shared with the current user.
@@ -353,38 +291,146 @@ print(df)
 
 ---
 
-## Example 14: Publish a Dashboard
+## Example 14: Move Dashboard to Folder
 
-Publish a dashboard to make it visible to shared users after programmatic ownership or share changes.
+Place an imported dashboard into a target folder after migration.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+folder_id = "folder_oid_here"
+result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 15: Rename Dashboard
+
+Update a dashboard title after import.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 16: Publish Dashboard
+
+Republish a dashboard (for example preflight when the user already has access).
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.publish_dashboard(dashboard_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 17: Check Can Be Owned
+
+Check whether the current user can take ownership of a dashboard.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.can_be_owned(dashboard_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 18: Change Dashboard Owner
+
+Transfer ownership of a dashboard to a different user. Pass the Sisense user ID (not email). Use `AccessManagement.get_user(email)` to look up the user ID.
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-response = dashboard.publish_dashboard(dashboard_id)
+new_owner_id = "65ab1234567890abcdef0001"
+response = dashboard.change_dashboard_owner(dashboard_id, new_owner_id)
 print(response)
-# {"success": True}
+```
+
+When restoring ownership back (the API token user already owns the dashboard), pass `admin_access=False`:
+
+```python
+response = dashboard.change_dashboard_owner(dashboard_id, original_owner_id, admin_access=False)
 ```
 
 ---
 
-## Example 15: Rename a Dashboard
+## Example 19: Get a Widget by ID
 
-Update a dashboard's title.
+Fetch the full widget object for a single widget.
 
 ```python
 dashboard_id = "65d62c9wregfhg0e33bc64e8"
-response = dashboard.rename_dashboard(dashboard_id, "Q4 Sales Overview")
+widget_id = "65e890abcdef1234567890ab"
+widget = dashboard.get_widget_by_id(dashboard_id, widget_id)
+print(json.dumps(widget, indent=4))
+```
+
+---
+
+## Example 20: Update a Widget
+
+Read a widget, change a field, and write it back. Server-managed fields are stripped automatically.
+
+```python
+dashboard_id = "65d62c9wregfhg0e33bc64e8"
+widget_id = "65e890abcdef1234567890ab"
+
+widget = dashboard.get_widget_by_id(dashboard_id, widget_id)
+widget["title"] = "Updated Widget Title"
+
+response = dashboard.update_widget(dashboard_id, widget_id, widget)
 print(json.dumps(response, indent=4))
 ```
 
 ---
 
-## Example 16: Move a Dashboard to a Folder
+## Example 21: Find Widgets by Type
 
-Place a dashboard inside a specific folder.
+Search for all BloX widgets across the entire instance.
 
 ```python
-dashboard_id = "65d62c9wregfhg0e33bc64e8"
-folder_id    = "65d62c9wregfhg0e33bc64f0"
-response = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
-print(json.dumps(response, indent=4))
+# All BloX widgets on the instance
+results = dashboard.find_widgets_by_type("BloX")
+for r in results:
+    print(r["dashboard_title"], r["widget_title"], r["widget_id"])
 ```
+
+Search only within specific dashboards:
+
+```python
+results = dashboard.find_widgets_by_type(
+    "BloX",
+    dashboards=["65d62c9wregfhg0e33bc64e8", "My Sales Dashboard"],
+)
+```
+
+Cap results and export to CSV:
+
+```python
+results = dashboard.find_widgets_by_type("chart", max_results=50)
+api_client.export_to_csv(results, "chart_widgets.csv")
+```
+
+---
+
+## Example 22: Import Dashboards in Bulk
+
+Import a previously exported dashboard payload — typically obtained from `export_dashboard` on another environment. Used internally by `MergeTool.migrate_dashboards`; see `mergetool_example.md` for full cross-environment dashboard migration.
+
+```python
+exported = dashboard.export_dashboard("65d62c9wregfhg0e33bc64e8")
+result = dashboard.import_dashboards_bulk([exported], action="skip")  # Options: "skip", "overwrite", "duplicate"
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Notes
+
+- Adjust parameters as needed for your environment.
+- For more details, refer to the documentation in the `docs/` folder.

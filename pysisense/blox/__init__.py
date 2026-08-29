@@ -1,12 +1,14 @@
 from ..sisenseclient import SisenseClient
 from .core import BloxCoreMixin
+from .widgets import BloxWidgetsMixin
 
 
-class Blox(BloxCoreMixin):
-    """Manage custom Blox actions on a Sisense instance.
+class Blox(BloxCoreMixin, BloxWidgetsMixin):
+    """Manage custom Blox actions and BloX widget styles on a Sisense instance.
 
-    Provides read, write, and delete access to Blox custom actions. Fetch
-    operations are supported on both Linux and Windows deployments via
+    Provides read, write, and delete access to Blox custom actions, and
+    read/write access to individual BloX widget styles. Fetch operations for
+    custom actions are supported on both Linux and Windows deployments via
     OS-routed endpoints; save and delete are Linux-only.
 
     Modules
@@ -14,6 +16,10 @@ class Blox(BloxCoreMixin):
     core :
         Custom Blox actions — retrieve all actions (OS-routed), save a new
         action (Linux), and delete an existing action (Linux).
+    widgets :
+        BloX widget styles — read and update the CSS and font family of
+        BloX widgets, with optional temporary ownership transfer for
+        dashboards the API token user does not own.
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

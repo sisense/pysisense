@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pysisense"
-version = "1.0.2"
+version = "1.1.0"
 description = "A Python SDK for interacting with Sisense API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,6 +20,8 @@ dependencies = [
   "PyYAML>=6.0.2",
   "pandas>=2.2.3",
   "jsbeautifier>=1.15.4",
+  "pydantic>=2.13.4",
+  "typing-extensions>=4.9",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -90,10 +92,18 @@ select = [
     "I",  # isort
     "UP", # pyupgrade
     "B",  # bugbear
+    "S",  # flake8-bandit
     "SIM" # simplify
 ]
 
-ignore = []
+ignore = [
+    "S101",  # assert is valid in tests
+    "S105",  # token parameter name, not a secret
+    "S106",  # token parameter name, not a secret
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
 
 [tool.ruff.format]
 quote-style = "double"

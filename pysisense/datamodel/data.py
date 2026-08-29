@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DataMixin:
     def get_data(self, datamodel_name: str, table_name: str, query: str | None = None) -> list[dict[str, Any]]:
@@ -33,7 +35,7 @@ class DataMixin:
             return []
 
         safe_table_name = table_name.replace("]", "]]")
-        q = query if query else f"SELECT * FROM [{safe_table_name}]"
+        q = query if query else f"SELECT * FROM [{safe_table_name}]"  # noqa: S608 -- identifier is bracket-escaped above
         self.logger.debug(f"SQL Query: {q}")
 
         url = f"/api/datasources/{datamodel_name}/sql?query={q}"
@@ -57,8 +59,8 @@ class DataMixin:
             return rows
 
         else:
-            error_text = response.text if response else "No response from API."
-            self.logger.error(f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'. Error: {error_text}")
+            failure = _extract_error_message(response, f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'", self.api_client)
+            self.logger.error(failure["error"])
             return []
 
     def get_row_count(self, datamodel_name: str) -> list[dict[str, Any]]:
@@ -104,7 +106,7 @@ class DataMixin:
 
         for table_name in table_names:
             safe_table_name = table_name.replace("]", "]]")
-            query = f"SELECT COUNT(*) FROM [{safe_table_name}]"
+            query = f"SELECT COUNT(*) FROM [{safe_table_name}]"  # noqa: S608 -- identifier is bracket-escaped above
             self.logger.debug(f"SQL Query for table '{table_name}': {query}")
             rows = self.get_data(datamodel_name, table_name, query=query)
 
