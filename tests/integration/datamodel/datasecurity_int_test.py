@@ -1,15 +1,17 @@
 """Integration tests for datasecurity write paths against a live Sisense instance.
 
-These encode live findings from FES-side testing (2026-08 sandbox, L2025.x):
-- update_datasecurity PUT route returned an HTML 404 on an extract model
-- set_live_datasecurity_add_many failed 422 (missing allMembers/live/fullname)
-  and then "Elasticube has not been found" on a live model (title-vs-oid suspect)
+Live-verified findings these encode (2026-08 sandbox, L2025.x):
+- the extract write route is POST (PUT does not exist — HTML 404)
+- writes require the cube to be BUILT/RUNNING (extract) or PUBLISHED (live);
+  draft models fail ("[object Object]" / "Elasticube has not been found")
+- rules must carry allMembers (+ live/fullname for live models); members must
+  be a list of strings; server-managed fields are rejected on write
 
-Local-only: requires config.yaml (gitignored); never runs in CI. The live
-addMany test WRITES a datasecurity rule and is additionally gated behind
-PYSISENSE_RUN_DATASECURITY_WRITES=1 because the SDK has no rule-delete method
-to clean up after itself. The extract round-trip PUTs back the model's own
-existing rules unchanged, so it is state-neutral.
+Local-only: requires config.yaml (gitignored); never runs in CI. Both tests
+are self-cleaning lifecycles: add one behavior-neutral rule (allMembers=True,
+default share — same visibility as having no rule) to a fresh column, verify
+it, delete it via delete_datasecurity, and verify the model is back to its
+original state.
 """
 
 import os
@@ -28,89 +30,87 @@ def _make_datamodel() -> DataModel:
     return DataModel(api_client=SisenseClient(config_file=CONFIG_PATH, debug=False))
 
 
-def _find_model_by_type(dm: DataModel, wanted_type: str) -> dict:
+def _find_model(dm: DataModel, wanted_type: str, wanted_statuses: set[str]) -> dict:
     models = dm.get_all_datamodel()
     if not isinstance(models, list):
         pytest.skip(f"Could not list datamodels: {models}")
-    match = next((m for m in models if str(m.get("type", "")).lower() == wanted_type), None)
+    match = next(
+        (m for m in models if str(m.get("type", "")).lower() == wanted_type and str(m.get("status", "")).lower() in wanted_statuses),
+        None,
+    )
     if match is None:
-        pytest.skip(f"No {wanted_type.upper()} datamodel found on the instance.")
+        pytest.skip(f"No {wanted_type.upper()} datamodel with status in {sorted(wanted_statuses)} found (writes require a built/published model).")
     return match
 
 
-@pytest.mark.integration
-def test_update_datasecurity_route_accepts_put_on_extract_model() -> None:
-    """Finding: PUT /api/elasticubes/localhost/{title}/datasecurity returned
-    an HTML 404 ('Cannot PUT ...') while the GET on the same path works.
+def _fresh_column(dm: DataModel, title: str) -> tuple[str, str, str]:
+    """Pick a column that has no existing datasecurity rule."""
+    schema = dm.get_model_schema(title)
+    if not isinstance(schema, list) or not schema:
+        pytest.skip(f"Could not read schema for '{title}': {schema}")
+    ruled = {(r.get("table"), r.get("column")) for r in dm.get_datasecurity_raw(title) if isinstance(r, dict)}
+    for row in schema:
+        if (row["table_name"], row["column_name"]) not in ruled:
+            ctype = str(row.get("column_type", "text")).lower()
+            datatype = "numeric" if ctype in ("integer", "double", "bigint", "decimal", "float", "real") else "datetime" if ctype == "datetime" else "text"
+            return row["table_name"], row["column_name"], datatype
+    pytest.skip(f"Every column of '{title}' already has a datasecurity rule.")
 
-    State-neutral round-trip: reads the model's existing rules and PUTs the
-    exact same payload back. Skips when the model has no rules to round-trip.
-    A failure here reproduces the stale-route finding and carries the real
-    status/body via the error contract.
-    """
-    dm = _make_datamodel()
-    models = dm.get_all_datamodel()
-    if not isinstance(models, list):
-        pytest.skip(f"Could not list datamodels: {models}")
 
-    title, raw_rules = None, None
-    for model in models:
-        if str(model.get("type", "")).lower() != "extract":
-            continue
-        candidate_rules = dm.get_datasecurity_raw(model["title"], datamodel_type="extract")
-        if isinstance(candidate_rules, list) and candidate_rules:
-            title, raw_rules = model["title"], candidate_rules
-            break
-    if title is None:
-        pytest.skip("No extract model with existing datasecurity rules found to round-trip.")
-
-    result = dm.update_datasecurity(title, raw_rules)
-
-    assert isinstance(result, dict)
-    assert "error" not in result, f"update_datasecurity round-trip failed on '{title}': {result}"
+def _neutral_rule(table: str, column: str, datatype: str) -> dict:
+    # allMembers=True + default share = everyone sees everything, which is the
+    # same visibility as having no rule at all — behavior-neutral while present.
+    return {"table": table, "column": column, "datatype": datatype, "shares": [{"type": "default"}], "members": [], "exclusionary": False, "allMembers": True}
 
 
 @pytest.mark.integration
-def test_set_live_datasecurity_add_many_reaches_the_live_model() -> None:
-    """Finding: with the documented field list the API returned 422 (missing
-    allMembers/live/fullname); with those added it failed 'Elasticube has not
-    been found' — suspicion: the URL uses the title where the live API wants
-    the oid.
-
-    WRITE TEST — leaves a rule on the live model (no delete API). Gated behind
-    PYSISENSE_RUN_DATASECURITY_WRITES=1. Builds the least-invasive rule
-    (allMembers=True on the first real table/column) with the full field list
-    observed as required. Assertion failures carry the raw response as
-    evidence for the endpoint investigation.
+def test_extract_datasecurity_add_and_delete_lifecycle() -> None:
+    """update_datasecurity (POST, add semantics) + delete_datasecurity on a
+    RUNNING extract cube. Reproduces the stale-PUT-route finding if the verb
+    regresses, and the draft-cube failure if run against unbuilt models.
     """
-    if os.environ.get("PYSISENSE_RUN_DATASECURITY_WRITES") != "1":
-        pytest.skip("Set PYSISENSE_RUN_DATASECURITY_WRITES=1 to run the live datasecurity write test.")
-
     dm = _make_datamodel()
-    model = _find_model_by_type(dm, "live")
+    model = _find_model(dm, "extract", {"running"})
     title = model["title"]
+    before = dm.get_datasecurity_raw(title)
+    table, column, datatype = _fresh_column(dm, title)
 
-    schema_rows = dm.get_model_schema(title)
-    if not isinstance(schema_rows, list) or not schema_rows:
-        pytest.skip(f"Could not read schema for live model '{title}': {schema_rows}")
-    first = schema_rows[0]
+    result = dm.update_datasecurity(title, [_neutral_rule(table, column, datatype)])
+    assert isinstance(result, dict | list)
+    assert "error" not in result, f"update_datasecurity failed on running cube '{title}': {result}"
 
-    rule = {
-        "table": first["table_name"],
-        "column": first["column_name"],
-        "datatype": str(first.get("column_type", "text")).lower(),
-        "members": [],
-        "exclusionary": False,
-        "shares": [],
-        # Required by the live API per the 422 response (2026-08, L2025.x):
-        "allMembers": True,
-        "live": True,
-        "fullname": f"live:{title}",
-    }
+    added = dm.get_datasecurity_raw(title)
+    assert len(added) == len(before) + 1, f"rule not added: {added}"
 
-    result = dm.set_live_datasecurity_add_many(title, [rule])
+    cleanup = dm.delete_datasecurity(title, table, column)
+    assert cleanup == {"success": True}, f"cleanup failed — REMOVE THE RULE ON {title} {table}.{column} MANUALLY: {cleanup}"
 
-    assert isinstance(result, dict)
-    assert "must have required property" not in str(result), f"Live API rejected the rule fields — docstring field list is wrong: {result}"
-    assert "has not been found" not in str(result), f"Live model not found by title-based URL (title-vs-oid suspect confirmed): {result}"
-    assert "error" not in result, f"set_live_datasecurity_add_many failed on '{title}': {result}"
+    final = dm.get_datasecurity_raw(title)
+    assert len(final) == len(before), f"model not back to original state: {final}"
+
+
+@pytest.mark.integration
+def test_live_datasecurity_add_many_and_delete_lifecycle() -> None:
+    """set_live_datasecurity_add_many + delete_datasecurity on a PUBLISHED
+    live model. Reproduces the 422-required-fields and draft-model findings.
+    """
+    dm = _make_datamodel()
+    model = _find_model(dm, "live", {"published"})
+    title = model["title"]
+    before = dm.get_datasecurity_raw(title)
+    if not isinstance(before, list):
+        pytest.skip(f"Could not read datasecurity for live model '{title}': {before}")
+    table, column, datatype = _fresh_column(dm, title)
+
+    result = dm.set_live_datasecurity_add_many(title, [_neutral_rule(table, column, datatype)])
+    assert isinstance(result, dict | list)
+    assert "error" not in result, f"addMany failed on published live model '{title}': {result}"
+
+    added = dm.get_datasecurity_raw(title)
+    assert len(added) == len(before) + 1, f"rule not added: {added}"
+
+    cleanup = dm.delete_datasecurity(title, table, column)
+    assert cleanup == {"success": True}, f"cleanup failed — REMOVE THE RULE ON {title} {table}.{column} MANUALLY: {cleanup}"
+
+    final = dm.get_datasecurity_raw(title)
+    assert len(final) == len(before), f"model not back to original state: {final}"

@@ -4,6 +4,10 @@ from typing import Any
 
 from ..utils import _extract_error_message
 
+# Fields Sisense manages server-side on datasecurity rules; the API rejects
+# them on write, so they are stripped before POSTing rules back.
+_DATASECURITY_SERVER_FIELDS = frozenset({"_id", "created", "lastModified", "importedIdIdentifier"})
+
 
 class SecurityMixin:
     def _build_datasecurity_url(self, resolved_name: str, datamodel_type: str) -> str | None:
@@ -274,25 +278,36 @@ class SecurityMixin:
         return detailed_rows
 
     def update_datasecurity(self, datamodel_name: str, datasecurity: list[dict[str, Any]]) -> dict[str, Any]:
-        """Replace datasecurity rules on an EXTRACT (Elasticube) datamodel.
+        """Add datasecurity rules to an EXTRACT (Elasticube) datamodel.
 
-        Sends ``PUT /api/elasticubes/localhost/{datamodel_name}/datasecurity``
-        with the full datasecurity payload. Use this for a standalone
+        Sends ``POST /api/elasticubes/localhost/{datamodel_name}/datasecurity``
+        with the rule list. The API **adds** the given rules (bulk); it does not
+        replace existing ones — to replace a column's rules, remove them first
+        with :meth:`delete_datasecurity`. Use this for a standalone
         ``migrate_datasecurity`` phase after the datamodel exists on the target.
+
+        Server-managed fields (``_id``, ``created``, ``lastModified``,
+        ``importedIdIdentifier``) are stripped from each rule automatically, so
+        rules read back via ``get_datasecurity_raw`` can be re-submitted as-is.
 
         Parameters
         ----------
         datamodel_name : str
             Title of the EXTRACT datamodel to update.
         datasecurity : list[dict[str, Any]]
-            Complete datasecurity rule list in Sisense API format. Each rule
-            typically includes fields such as ``table``, ``column``,
-            ``datatype``, ``members``, ``exclusionary``, and ``shares``.
+            Datasecurity rule list in Sisense API format. Each rule includes
+            ``table``, ``column``, ``datatype``, ``members`` (list of strings),
+            ``exclusionary``, ``shares``, and ``allMembers``.
 
         Returns
         -------
         dict[str, Any]
             API response on success, or ``{"error": "..."}`` on failure.
+
+        Notes
+        -----
+        The Elasticube must be **built and running** — datasecurity writes are
+        rejected by the API for unbuilt (draft) cubes.
         """
         if not isinstance(datasecurity, list):
             self.logger.error("update_datasecurity requires datasecurity to be a list.")
@@ -311,9 +326,12 @@ class SecurityMixin:
             self.logger.error(msg)
             return {"error": msg}
 
+        # Strip server-managed fields so read-back rules can be re-submitted.
+        payload = [{k: v for k, v in rule.items() if k not in _DATASECURITY_SERVER_FIELDS} for rule in datasecurity]
+
         endpoint = f"/api/elasticubes/localhost/{title}/datasecurity"
-        self.logger.debug(f"Updating datasecurity for EXTRACT datamodel '{title}' — {len(datasecurity)} rule(s)")
-        response = self.api_client.put(endpoint, data=datasecurity)
+        self.logger.debug(f"Adding datasecurity rules to EXTRACT datamodel '{title}' — {len(payload)} rule(s)")
+        response = self.api_client.post(endpoint, data=payload)
 
         if response is None or not response.ok:
             failure = _extract_error_message(response, f"Failed to update datasecurity for '{title}'", self.api_client)
@@ -340,13 +358,23 @@ class SecurityMixin:
             Title of the LIVE datamodel to update.
         rules : list[dict[str, Any]]
             Datasecurity rules to add in Sisense API format. Each rule
-            typically includes fields such as ``table``, ``column``,
-            ``datatype``, ``members``, ``exclusionary``, and ``shares``.
+            requires ``table``, ``column``, ``datatype``, ``members`` (list of
+            strings), ``exclusionary``, ``shares``, ``allMembers``, ``live``,
+            and ``fullname`` (``"live:{title}"``). ``live`` and ``fullname``
+            are filled in automatically when omitted; server-managed fields
+            (``_id``, ``created``, ``lastModified``, ``importedIdIdentifier``)
+            are stripped automatically.
 
         Returns
         -------
         dict[str, Any]
             API response on success, or ``{"error": "..."}`` on failure.
+
+        Notes
+        -----
+        The LIVE datamodel must be **published** — the API answers
+        ``"Elasticube has not been found"`` for unpublished (draft) live
+        models.
         """
         if not isinstance(rules, list):
             self.logger.error("set_live_datasecurity_add_many requires rules to be a list.")
@@ -365,12 +393,23 @@ class SecurityMixin:
             self.logger.error(msg)
             return {"error": msg}
 
+        # Fill derivable required fields and strip server-managed ones so
+        # read-back rules can be re-submitted as-is.
+        payload = []
+        for rule in rules:
+            cleaned = {k: v for k, v in rule.items() if k not in _DATASECURITY_SERVER_FIELDS}
+            cleaned.setdefault("live", True)
+            cleaned.setdefault("fullname", f"live:{title}")
+            payload.append(cleaned)
+
         endpoint = f"/api/v1/elasticubes/live/{title}/datasecurity/addMany"
-        self.logger.debug(f"Adding datasecurity rules to LIVE datamodel '{title}' — {len(rules)} rule(s)")
-        response = self.api_client.post(endpoint, data=rules)
+        self.logger.debug(f"Adding datasecurity rules to LIVE datamodel '{title}' — {len(payload)} rule(s)")
+        response = self.api_client.post(endpoint, data=payload)
 
         if response is None or not response.ok:
             failure = _extract_error_message(response, f"Failed to add datasecurity rules for '{title}'", self.api_client)
+            if "has not been found" in failure["error"]:
+                failure["error"] += " (the LIVE datamodel must be published — draft live models are not registered with the datasecurity API)"
             self.logger.error(failure["error"])
             return failure
 
@@ -381,3 +420,51 @@ class SecurityMixin:
 
         self.logger.info(f"Successfully added datasecurity rules to LIVE datamodel '{title}'.")
         return result
+
+    def delete_datasecurity(self, datamodel_name: str, table: str, column: str) -> dict[str, Any]:
+        """Delete all datasecurity rules for one table/column of a datamodel.
+
+        Sends ``DELETE {datasecurity_endpoint}/{table}/{column}`` using the
+        endpoint flavor for the model's type (EXTRACT or LIVE). Combined with
+        ``update_datasecurity`` / ``set_live_datasecurity_add_many`` (which
+        add rules), this enables replace semantics: delete the column's rules,
+        then add the new ones.
+
+        Parameters
+        ----------
+        datamodel_name : str
+            Title of the datamodel.
+        table : str
+            Table name the rules apply to.
+        column : str
+            Column name the rules apply to.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True}`` on success (the API answers 200 or 204), or
+            ``{"error": "..."}`` on failure.
+        """
+        datamodel = self.get_datamodel(datamodel_name)
+        if "error" in datamodel:
+            self.logger.error(f"DataModel '{datamodel_name}' not found.")
+            return {"error": datamodel["error"]}
+
+        title = datamodel.get("title") or datamodel_name
+        base_url = self._build_datasecurity_url(title, datamodel.get("type", ""))
+        if base_url is None:
+            msg = f"delete_datasecurity does not support datamodel type '{datamodel.get('type')}'."
+            self.logger.error(msg)
+            return {"error": msg}
+
+        endpoint = f"{base_url}/{table}/{column}"
+        self.logger.debug(f"Deleting datasecurity rules for '{title}' — {table}.{column}")
+        response = self.api_client.delete(endpoint)
+
+        if response is None or response.status_code not in (200, 204):
+            failure = _extract_error_message(response, f"Failed to delete datasecurity rules for '{title}' ({table}.{column})", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        self.logger.info(f"Deleted datasecurity rules for '{title}' — {table}.{column}.")
+        return {"success": True}

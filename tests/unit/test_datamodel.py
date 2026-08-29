@@ -736,7 +736,7 @@ class TestUpdateDatasecurity:
     def test_returns_response_on_200(self):
         dm = _make_dm(
             get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
-            put_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, _DS_RULES)},
+            post_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, _DS_RULES)},
         )
         result = dm.update_datasecurity("SalesCube", _DS_RULES)
         assert "error" not in result
@@ -763,6 +763,27 @@ class TestUpdateDatasecurity:
         dm = _make_dm()
         result = dm.update_datasecurity("SalesCube", {"bad": "input"})
         assert "error" in result
+
+    def test_strips_server_managed_fields_before_posting(self):
+        # Rules read back via get_datasecurity_raw carry server-managed fields
+        # that the write API rejects — they must be stripped automatically.
+        class RecordingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                self.last_post = (url, data)
+                return super().post(url, data=data, **kwargs)
+
+        client = RecordingClient(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
+            post_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, {})},
+            logger=FakeLogger(),
+        )
+        dm = DataModel(api_client=client)
+        dirty_rule = {**_DS_RULES[0], "_id": "abc", "created": "2025-01-01", "lastModified": "2026-01-01", "importedIdIdentifier": "xyz"}
+        result = dm.update_datasecurity("SalesCube", [dirty_rule])
+        assert "error" not in result
+        sent = client.last_post[1][0]
+        assert not ({"_id", "created", "lastModified", "importedIdIdentifier"} & sent.keys())
+        assert sent["table"] == "Orders"
 
 
 # ---------------------------------------------------------------------------
@@ -793,6 +814,62 @@ class TestSetLiveDatasecurityAddMany:
         dm = _make_dm()
         result = dm.set_live_datasecurity_add_many("LiveModel", {"bad": "input"})
         assert "error" in result
+
+    def test_autofills_live_and_fullname(self):
+        class RecordingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                self.last_post = (url, data)
+                return super().post(url, data=data, **kwargs)
+
+        client = RecordingClient(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _LIVE_MODEL)},
+            post_responses={"/api/v1/elasticubes/live/LiveModel/datasecurity/addMany": FakeResponse(201, [{}])},
+            logger=FakeLogger(),
+        )
+        dm = DataModel(api_client=client)
+        result = dm.set_live_datasecurity_add_many("LiveModel", _DS_RULES)
+        assert "error" not in result
+        sent = client.last_post[1][0]
+        assert sent["live"] is True
+        assert sent["fullname"] == "live:LiveModel"
+
+    def test_draft_model_failure_carries_published_hint(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _LIVE_MODEL)},
+            post_responses={"/api/v1/elasticubes/live/LiveModel/datasecurity/addMany": FakeResponse(500, {"status": "error", "message": "Elasticube has not been found"})},
+        )
+        result = dm.set_live_datasecurity_add_many("LiveModel", _DS_RULES)
+        assert "must be published" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# delete_datasecurity
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteDatasecurity:
+    def test_deletes_extract_rule(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
+            delete_responses={"/api/elasticubes/localhost/SalesCube/datasecurity/Orders/Region": FakeResponse(200, {})},
+        )
+        assert dm.delete_datasecurity("SalesCube", "Orders", "Region") == {"success": True}
+
+    def test_deletes_live_rule_on_204(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _LIVE_MODEL)},
+            delete_responses={"/api/v1/elasticubes/live/LiveModel/datasecurity/trips/zip": FakeResponse(204, None, text="")},
+        )
+        assert dm.delete_datasecurity("LiveModel", "trips", "zip") == {"success": True}
+
+    def test_returns_error_on_failure(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
+            delete_responses={"/api/elasticubes/localhost/SalesCube/datasecurity/Orders/Region": FakeResponse(404, {"detail": "no rules"})},
+        )
+        result = dm.delete_datasecurity("SalesCube", "Orders", "Region")
+        assert "no rules" in result["error"]
+        assert result["status_code"] == 404
 
 
 # ---------------------------------------------------------------------------

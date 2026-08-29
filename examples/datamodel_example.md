@@ -461,6 +461,19 @@ response = datamodel.set_live_datasecurity_add_many("live_sales_model", rules)
 print(json.dumps(response, indent=4))
 ```
 
+Notes: the extract cube must be **built and running** and the live model must be **published** for datasecurity writes; both methods **add** rules (`allMembers` is required, `live`/`fullname` are auto-filled for live models).
+
+---
+
+## Example 15d: Delete Datasecurity Rules for a Column
+
+Remove all rules for one table/column (works for both EXTRACT and LIVE models). Combined with the add methods, this enables replace semantics.
+
+```python
+response = datamodel.delete_datasecurity("pysense_databricks", "orders", "region")
+print(json.dumps(response, indent=4))  # {"success": True}
+```
+
 ---
 
 ## Example 16: Get Datasecurity Information in Detail
