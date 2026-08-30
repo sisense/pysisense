@@ -14,8 +14,12 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
     Runs structural and best-practice checks across dashboards (widget counts,
     pivot field density, tabber/accordion/jump-to-dashboard usage) and data
     models (custom table SQL, island tables, RLS column datatypes, import
-    queries, many-to-many relationships, unused columns). Results are returned
-    as structured row lists suitable for export or further analysis.
+    queries, many-to-many relationships). Results are returned as structured
+    row lists suitable for export or further analysis. Unused-column analysis
+    is not a check of this class — it lives on
+    ``AccessManagement.get_unused_columns_bulk``; ``run_full_wellcheck`` can
+    include its rows in the aggregate when an ``AccessManagement`` instance is
+    configured.
 
     Modules
     -------
@@ -65,7 +69,11 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
 
         This method is a convenience wrapper that orchestrates multiple
         dashboard-level and data-model-level checks and returns a structured
-        report that groups their results.
+        report that groups their results. It additionally delegates
+        unused-column analysis to ``AccessManagement.get_unused_columns_bulk``
+        when an ``AccessManagement`` instance is configured on this WellCheck
+        (the default constructor configures one); otherwise the
+        ``unused_columns`` section is an empty list and a warning is logged.
 
         Parameters
         ----------
