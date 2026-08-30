@@ -476,8 +476,8 @@ Behavior (live-verified):
 
 * Both model types key share entries by `partyId`, but use different endpoints and verbs: EXTRACT shares are merged with the existing raw permission list and written via `PUT /api/elasticubes/localhost/{title}/permissions`; LIVE shares are written via `PATCH /api/v1/elasticubes/live/{oid}/permissions` (unchanged).
 * A party that already has a share gets its permission updated in place instead of a duplicate entry (EXTRACT path).
-* Shares for INACTIVE users are skipped with a logged warning — Sisense accepts the write (HTTP 200) but silently drops such entries, so submitting them would report success for a share that never lands.
-* When NO given share resolves (unknown or inactive parties), the method returns `{"ok": False, "error": "..."}` instead of writing the existing shares back unchanged.
+* Shares for INACTIVE users are skipped and reported in the returned `skipped` list — Sisense accepts the write (HTTP 200) but silently drops such entries, so submitting them would report success for a share that never lands.
+* When NO given share resolves (unknown or inactive parties), the method returns `{"ok": False, "error": "...", "skipped": [...]}` instead of writing the existing shares back unchanged.
 
 #### Parameters:
 
@@ -493,7 +493,7 @@ Behavior (live-verified):
 
 #### Returns:
 
-* `dict`: API response on success, or `{"ok": False, "error": "..."}` on failure (including when none of the given shares can be resolved — no changes are written in that case).
+* `dict`: `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>, "skipped": [...]}` on success — `skipped` lists every requested share that was not submitted, as `{"name", "type", "reason"}` entries (unknown user/group, inactive user, invalid share type); an empty list means every requested share was submitted. On failure, the standard `{"ok": False, "error": "..."}` dict (when none of the given shares resolve, no changes are written and the failure dict carries the same `"skipped"` list).
 
 ---
 

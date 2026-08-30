@@ -88,6 +88,9 @@ def test_add_datamodel_shares_extract_lifecycle() -> None:
     result = dm.add_datamodel_shares(title, [share_def])
     assert isinstance(result, dict)
     assert result.get("ok") is not False and "error" not in result, f"add_datamodel_shares failed on extract cube '{title}': {result}"
+    assert result.get("success") is True
+    assert result.get("new_shares") == 1
+    assert result.get("skipped") == [], f"unexpected skips: {result.get('skipped')}"
 
     after = dm.get_datamodel_permissions_extract(title)
     assert isinstance(after, list), f"could not re-read permissions: {after}"

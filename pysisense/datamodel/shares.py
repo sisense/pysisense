@@ -114,10 +114,15 @@ class SharesMixin:
         Returns
         -------
         dict[str, Any]
-            API response on success, or the standard
-            ``{"ok": False, "error": "...", ...}`` dict on failure (including
-            when none of the given shares can be resolved to an existing user
-            or group — no changes are written in that case).
+            On success: ``{"success": True, "message": "...", "new_shares":
+            <n>, "updated_shares": <n>, "skipped": [...]}``. ``skipped``
+            lists every requested share that was not submitted, as
+            ``{"name", "type", "reason"}`` entries (unknown user/group,
+            inactive user, invalid share type) — an empty list means every
+            requested share was submitted. On failure: the standard
+            ``{"ok": False, "error": "...", ...}`` dict; when none of the
+            given shares can be resolved, no changes are written and the
+            failure dict carries the same ``"skipped"`` list.
 
         Notes
         -----
@@ -127,9 +132,9 @@ class SharesMixin:
         LIVE via ``PATCH /api/v1/elasticubes/live/{oid}/permissions`` (by
         oid). A share for a party that already has one updates that party's
         permission instead of duplicating the entry (EXTRACT path). Shares
-        for inactive users are skipped with a warning — Sisense accepts the
-        write but silently drops such entries, so submitting them would
-        report success for a share that never lands.
+        for inactive users are skipped and reported in ``skipped`` — Sisense
+        accepts the write but silently drops such entries, so submitting
+        them would report success for a share that never lands.
         """
         self.logger.debug(f"[START] Adding shares to DataModel '{datamodel_name}'")
 
@@ -146,9 +151,12 @@ class SharesMixin:
         # Step 2: Fetch users and groups for share resolution
         users_detail, groups_detail = self._fetch_users_and_groups_detail_lists()
 
-        # Step 3: Prepare new shares with normalized permission
+        # Step 3: Prepare new shares with normalized permission. Every share
+        # that cannot be submitted is reported in "skipped" — a log-only skip
+        # would let callers believe a share landed when it never did.
         reverse_permission_map = {"edit": "w", "read": "a", "use": "r"}
         new_shares = []
+        skipped: list[dict[str, Any]] = []
 
         for share in shares:
             name = share.get("name")
@@ -160,11 +168,13 @@ class SharesMixin:
                 user = next((u for u in users_detail if u["email"] == name), None)
                 if user is None:
                     self.logger.warning(f"User '{name}' not found. Skipping share addition.")
+                    skipped.append({"name": name, "type": "user", "reason": "User not found."})
                 elif user.get("active") is False:
                     # Live-verified: Sisense silently drops permission entries
                     # for inactive users (HTTP 200, entry never lands) — skip
                     # loudly instead of letting the write pretend it worked.
                     self.logger.warning(f"User '{name}' is inactive — Sisense ignores shares for inactive users. Skipping share addition.")
+                    skipped.append({"name": name, "type": "user", "reason": "User is inactive — Sisense silently ignores shares for inactive users."})
                 else:
                     new_shares.append({"partyId": user["id"], "type": "user", "permission": permission_short})
             elif share_type == "group":
@@ -173,15 +183,17 @@ class SharesMixin:
                     new_shares.append({"partyId": group["id"], "type": "group", "permission": permission_short})
                 else:
                     self.logger.warning(f"Group '{name}' not found. Skipping share addition.")
+                    skipped.append({"name": name, "type": "group", "reason": "Group not found."})
             else:
                 self.logger.warning(f"Invalid share type '{share_type}' for '{name}'. Skipping share addition.")
+                skipped.append({"name": name, "type": share_type, "reason": f"Invalid share type '{share_type}' — must be 'user' or 'group'."})
 
         if not new_shares:
             # Writing the existing shares back unchanged would read as success
             # while adding nothing — fail loudly instead.
             error_msg = f"None of the given shares could be resolved for DataModel '{datamodel_name}' — no changes made."
             self.logger.error(error_msg)
-            return {"ok": False, "error": error_msg}
+            return {"ok": False, "error": error_msg, "skipped": skipped}
 
         # Step 4: Route by model type — both endpoints key entries by
         # "partyId", but EXTRACT is a PUT by title and LIVE a PATCH by oid.
@@ -193,20 +205,30 @@ class SharesMixin:
                 return existing_raw
 
             combined = list(existing_raw)
+            added_count = 0
+            updated_count = 0
             for share in new_shares:
                 party_id = share["partyId"]
                 existing_entry = next((e for e in combined if e.get("partyId") == party_id), None)
                 if existing_entry is not None:
                     self.logger.debug(f"Party '{party_id}' already has a share — updating its permission to '{share['permission']}'.")
                     existing_entry["permission"] = share["permission"]
+                    updated_count += 1
                 else:
                     combined.append(share)
+                    added_count += 1
 
             result = self.update_datamodel_permissions_extract(datamodel_title, combined)
             if result.get("ok") is False or "error" in result:
                 return result
-            self.logger.info(f"Shares added successfully to DataModel '{datamodel_name}'")
-            return result
+            self.logger.info(f"Shares added successfully to DataModel '{datamodel_name}' — {added_count} new, {updated_count} updated, {len(skipped)} skipped.")
+            return {
+                "success": True,
+                "message": f"Shares added to DataModel '{datamodel_name}'.",
+                "new_shares": added_count,
+                "updated_shares": updated_count,
+                "skipped": skipped,
+            }
 
         elif datamodel_type.upper() == "LIVE":
             endpoint = f"/api/v1/elasticubes/live/{datamodel_id}/permissions"
@@ -222,8 +244,14 @@ class SharesMixin:
         self.logger.debug(f"Payload for adding shares to DataModel '{datamodel_name}': {payload}")
         response = self.api_client.patch(endpoint, data=payload)
         if response and response.status_code == 200:
-            self.logger.info(f"Shares added successfully to DataModel '{datamodel_name}'")
-            return response.json()
+            self.logger.info(f"Shares added successfully to DataModel '{datamodel_name}' — {len(new_shares)} new, {len(skipped)} skipped.")
+            return {
+                "success": True,
+                "message": f"Shares added to DataModel '{datamodel_name}'.",
+                "new_shares": len(new_shares),
+                "updated_shares": 0,
+                "skipped": skipped,
+            }
         else:
             failure = _extract_error_message(response, f"Failed to add shares to DataModel '{datamodel_name}'", self.api_client)
             self.logger.error(failure["error"])

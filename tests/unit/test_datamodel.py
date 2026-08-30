@@ -522,11 +522,13 @@ class TestAddDatamodelShares:
             patch_responses={"/api/v1/elasticubes/live/dm456/permissions": FakeResponse(200, {"success": True})},
         )
         result = dm.add_datamodel_shares("LiveModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
-        assert result == {"success": True}
+        assert result["success"] is True
+        assert result["new_shares"] == 1
+        assert result["skipped"] == []
 
     def test_returns_error_when_no_share_resolves(self):
         # Nothing resolvable must fail loudly, not write existing shares back
-        # unchanged and report success.
+        # unchanged and report success — and the failure names each skip.
         dm = _make_dm(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
@@ -537,6 +539,7 @@ class TestAddDatamodelShares:
         result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
         assert result["ok"] is False
         assert "could be resolved" in result["error"]
+        assert result["skipped"] == [{"name": "alice@example.com", "type": "user", "reason": "User not found."}]
 
     def test_adds_shares_to_extract_model_via_put_by_title(self):
         # Live-verified (2026-08 sandbox): the EXTRACT permissions endpoint
@@ -562,7 +565,10 @@ class TestAddDatamodelShares:
         )
         dm = DataModel(api_client=client)
         result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
-        assert result == {"success": True}
+        assert result["success"] is True
+        assert result["new_shares"] == 1
+        assert result["updated_shares"] == 0
+        assert result["skipped"] == []
 
         url, payload = put_payloads[0]
         assert url == "/api/elasticubes/localhost/SalesModel/permissions"
@@ -591,7 +597,9 @@ class TestAddDatamodelShares:
         )
         dm = DataModel(api_client=client)
         result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
-        assert result == {"success": True}
+        assert result["success"] is True
+        assert result["new_shares"] == 0
+        assert result["updated_shares"] == 1
 
         _, payload = put_payloads[0]
         assert payload == [{"partyId": "u1", "type": "user", "permission": "w"}]
@@ -610,6 +618,31 @@ class TestAddDatamodelShares:
         result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
         assert result["ok"] is False
         assert "could be resolved" in result["error"]
+        assert result["skipped"][0]["name"] == "alice@example.com"
+        assert "inactive" in result["skipped"][0]["reason"]
+
+    def test_partial_skip_is_reported_in_the_success_dict(self):
+        # One resolvable share + one unknown user: the write succeeds, and the
+        # unknown user is reported in "skipped" instead of a log-only warning.
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com", "active": True}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"shares": []}),
+            },
+            put_responses={"/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"success": True})},
+        )
+        result = dm.add_datamodel_shares(
+            "SalesModel",
+            [
+                {"name": "alice@example.com", "type": "user", "permission": "EDIT"},
+                {"name": "ghost@example.com", "type": "user", "permission": "USE"},
+            ],
+        )
+        assert result["success"] is True
+        assert result["new_shares"] == 1
+        assert result["skipped"] == [{"name": "ghost@example.com", "type": "user", "reason": "User not found."}]
 
     def test_extract_returns_error_when_permissions_fetch_fails(self):
         dm = _make_dm(

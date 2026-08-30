@@ -534,15 +534,21 @@ shares_to_add = [
     {"name": "viewer@sisense.com", "type": "user", "permission": "READ"},
 ]
 response = datamodel.add_datamodel_shares(datamodel_name, shares_to_add)
-print(json.dumps(response, indent=4))
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(f"{response['message']} new={response['new_shares']} updated={response['updated_shares']}")
+    for skip in response["skipped"]:
+        print(f"skipped {skip['type']} '{skip['name']}': {skip['reason']}")
 ```
 
 Notes (live-verified):
 
+- On success this returns `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>, "skipped": [...]}`. `skipped` lists every requested share that was **not** submitted (`{"name", "type", "reason"}` — unknown user/group, inactive user, invalid type); always check it, since a skipped share never reached Sisense.
 - EXTRACT shares merge with the model's existing raw permission list and are written via `PUT /api/elasticubes/localhost/{title}/permissions`; the LIVE path is unchanged (`PATCH` by oid). Both are keyed by `partyId`.
 - A party that already has a share gets its permission updated in place (EXTRACT path) rather than duplicated.
-- Shares for INACTIVE users are skipped with a warning — Sisense returns HTTP 200 but silently drops such entries.
-- When no given share resolves (unknown or inactive parties), the method returns `{"ok": False, "error": "..."}` instead of writing the existing shares back unchanged.
+- Shares for INACTIVE users are skipped and reported in `skipped` — Sisense returns HTTP 200 but silently drops such entries.
+- When no given share resolves (unknown or inactive parties), the method returns `{"ok": False, "error": "...", "skipped": [...]}` instead of writing the existing shares back unchanged.
 
 ---
 
