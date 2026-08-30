@@ -809,16 +809,20 @@ class TestGetUnusedColumnsBulk:
     def test_explicit_none_returns_error_dict(self):
         am = _make_am()
         result = am.get_unused_columns_bulk(None)
+        assert result["ok"] is False
         assert "error" in result
+        assert result["results"] == []
 
     def test_empty_list_input_returns_error_dict(self):
         am = _make_am()
         result = am.get_unused_columns_bulk([])
+        assert result["ok"] is False
         assert "error" in result
+        assert result["results"] == []
 
     def test_unresolvable_reference_fails_loudly_not_silently(self):
-        # A typo'd model name must NOT return [] (which reads as "no unused
-        # columns") — it must return the error contract naming the reference.
+        # A typo'd model name must NOT read as "no unused columns" — the
+        # total-failure dict carries ok: False and names the reference.
         am = _make_am(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(404, {}),
@@ -826,9 +830,49 @@ class TestGetUnusedColumnsBulk:
             }
         )
         result = am.get_unused_columns_bulk("NoSuchModel")
-        assert "error" in result
+        assert result["ok"] is False
         assert "NoSuchModel" in result["error"]
-        assert result["failed_references"][0]["ref"] == "NoSuchModel"
+        assert result["results"] == []
+        assert result["errors"][0]["ref"] == "NoSuchModel"
+
+    def test_success_returns_results_and_empty_errors(self):
+        schema = {"oid": "dm123", "title": "MyModel"}
+        datasets = [{"oid": "ds1"}]
+        tables = [{"name": "tbl", "columns": [{"name": "col1"}]}]
+        am = _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, schema),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, datasets),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
+                "/api/v1/dashboards/admin": FakeResponse(200, []),  # no dashboards
+            }
+        )
+        result = am.get_unused_columns_bulk("MyModel")
+        assert result["errors"] == []
+        assert "ok" not in result
+        assert len(result["results"]) == 1
+        assert result["results"][0]["used"] is False
+
+    def test_partial_success_reports_typo_in_errors_alongside_good_rows(self):
+        # The 5-models-one-typo case: good rows land in "results", the typo'd
+        # reference is reported in-band in "errors" instead of a silent skip.
+        schema = {"oid": "dm123", "title": "MyModel"}
+        datasets = [{"oid": "ds1"}]
+        tables = [{"name": "tbl", "columns": [{"name": "col1"}]}]
+        am = _make_am(
+            get_responses={
+                # Called 3× in order: resolve MyModel, column fetch for MyModel,
+                # resolve NoSuchModel (list values are consumed per call).
+                "/api/v2/datamodels/schema": [FakeResponse(200, schema), FakeResponse(200, schema), FakeResponse(404, {})],
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, datasets),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
+                "/api/v1/dashboards/admin": FakeResponse(200, []),
+            }
+        )
+        result = am.get_unused_columns_bulk(["MyModel", "NoSuchModel"])
+        assert "ok" not in result
+        assert len(result["results"]) == 1
+        assert result["errors"][0]["ref"] == "NoSuchModel"
 
 
 # ---------------------------------------------------------------------------

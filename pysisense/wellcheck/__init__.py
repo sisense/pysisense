@@ -215,10 +215,12 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
                 self.logger.warning("WellCheck.access_mgmt is not configured. Unused-columns analysis will be skipped in run_full_wellcheck.")
             else:
                 unused_result = access_mgmt.get_unused_columns_bulk(datamodels=datamodel_refs)
-                if isinstance(unused_result, dict) and "error" in unused_result:
+                if unused_result.get("ok") is False:
                     self.logger.warning(f"Unused-columns analysis failed: {unused_result['error']}")
                 else:
-                    unused_columns = unused_result
+                    unused_columns = unused_result["results"]
+                    for entry in unused_result["errors"]:
+                        self.logger.warning(f"Unused-columns analysis skipped reference '{entry['ref']}': {entry['error']}")
                 self.logger.info(
                     "Completed unused-columns analysis for %d data model reference(s). Total result rows: %d",
                     len(datamodel_refs),

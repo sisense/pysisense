@@ -358,10 +358,10 @@ class ColumnsMixin:
     def get_unused_columns_bulk(
         self,
         datamodels: str | list[str],
-    ) -> list[dict[str, Any]] | dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run unused-column analysis for one or more data models and return a
-        combined result set.
+        combined per-model outcome.
 
         Parameters
         ----------
@@ -375,15 +375,19 @@ class ColumnsMixin:
 
         Returns
         -------
-        list of dict | dict
-            A flat list of rows across all processed data models. Each row has
-            the same structure as returned by get_unused_columns(). A model
-            that resolves and genuinely has no unused columns contributes no
-            rows. When **none** of the given references can be resolved and
-            processed, an ``{"error": "...", "failed_references": [...]}``
-            dictionary is returned instead, naming each reference and why it
-            failed. References that fail while others succeed are skipped with
-            a logged warning.
+        dict[str, Any]
+            Always a dict with ``"results"`` and ``"errors"``:
+              - ``"results"``: flat list of column rows across all processed
+                data models, each row shaped as ``get_datamodel_columns`` rows
+                plus a ``"used"`` boolean. A model that resolves and genuinely
+                has no columns in use contributes rows with ``used: False``.
+              - ``"errors"``: list of ``{"ref": ..., "error": ...}`` entries,
+                one per reference that could not be resolved or processed —
+                empty when every reference succeeded.
+            When **none** of the given references can be processed (or the
+            input is invalid), the dict additionally carries ``"ok": False``
+            and a top-level ``"error"`` summary, so standard failure detection
+            (``payload.get("ok") is False``) still fires.
         """
         self.logger.info("Starting bulk unused-column analysis for data models.")
         self.logger.debug(f"Input datamodels parameter: {datamodels}")
@@ -391,19 +395,19 @@ class ColumnsMixin:
         if datamodels is None:
             error_msg = "get_unused_columns_bulk requires at least one data model reference (ID or name)."
             self.logger.error(error_msg)
-            return {"ok": False, "error": error_msg}
+            return {"ok": False, "error": error_msg, "results": [], "errors": []}
 
         refs = [datamodels] if isinstance(datamodels, str) else [ref for ref in datamodels if isinstance(ref, str)]
 
         if not refs:
             error_msg = "No valid data model references provided — pass a data model ID or title, or a list of them."
             self.logger.error(error_msg)
-            return {"ok": False, "error": error_msg}
+            return {"ok": False, "error": error_msg, "results": [], "errors": []}
 
         self.logger.info(f"Processing specified data models: {refs}")
 
         all_results: list[dict[str, Any]] = []
-        failed_references: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
         processed_count = 0
 
         for ref in refs:
@@ -412,13 +416,13 @@ class ColumnsMixin:
 
             if not resolved.get("success"):
                 self.logger.warning(f"Skipping data model reference '{ref}': {resolved.get('error')}")
-                failed_references.append({"ref": ref, "error": resolved.get("error", "Could not resolve data model reference.")})
+                errors.append({"ref": ref, "error": resolved.get("error", "Could not resolve data model reference.")})
                 continue
 
             datamodel_title = resolved.get("datamodel_title")
             if not datamodel_title:
                 self.logger.warning(f"Resolved data model reference '{ref}' has no title. Skipping.")
-                failed_references.append({"ref": ref, "error": "Resolved data model has no title."})
+                errors.append({"ref": ref, "error": "Resolved data model has no title."})
                 continue
 
             try:
@@ -427,25 +431,25 @@ class ColumnsMixin:
             except ValueError as exc:
                 # _unused_columns_for_model raises ValueError when no columns found
                 self.logger.warning(f"Skipping data model '{datamodel_title}' due to error: {exc}")
-                failed_references.append({"ref": ref, "error": str(exc)})
+                errors.append({"ref": ref, "error": str(exc)})
                 continue
 
             all_results.extend(rows)
             processed_count += 1
 
         if processed_count == 0:
-            # A silent [] here would read as "no unused columns" to consumers
-            # that count rows — fail loudly, naming each reference and reason.
-            failure_summary = "; ".join(f"'{f['ref']}': {f['error']}" for f in failed_references) or "no references given"
+            # A silent empty result here would read as "no unused columns" to
+            # consumers that count rows — fail loudly, naming each reference.
+            failure_summary = "; ".join(f"'{f['ref']}': {f['error']}" for f in errors) or "no references given"
             error_msg = f"None of the given data model references could be processed — {failure_summary}"
             self.logger.error(error_msg)
-            return {"ok": False, "error": error_msg, "failed_references": failed_references}
+            return {"ok": False, "error": error_msg, "results": [], "errors": errors}
 
-        if failed_references:
+        if errors:
             self.logger.warning(
                 "get_unused_columns_bulk skipped %d unresolvable reference(s): %s",
-                len(failed_references),
-                [f["ref"] for f in failed_references],
+                len(errors),
+                [f["ref"] for f in errors],
             )
 
         self.logger.info(
@@ -453,4 +457,4 @@ class ColumnsMixin:
             processed_count,
             len(all_results),
         )
-        return all_results
+        return {"results": all_results, "errors": errors}
