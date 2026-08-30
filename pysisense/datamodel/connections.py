@@ -365,7 +365,7 @@ class ConnectionsMixin:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def create_connections(self, connection_payload: ConnectionPayload) -> dict[str, Any] | None:
+    def create_connections(self, connection_payload: ConnectionPayload) -> dict[str, Any]:
         """Create a new connection using the provided payload.
 
         Sends ``POST /api/v2/connections`` with the given payload, which is
@@ -383,7 +383,8 @@ class ConnectionsMixin:
         -------
         dict[str, Any] | None
             JSON response with the created connection details on success
-            (HTTP 201), otherwise ``None``.
+            (HTTP 201), or the standard ``{"ok": False, "error": "...", ...}``
+            dict on failure.
         """
         endpoint = "/api/v2/connections"
         self.logger.debug(f"Creating connection with payload: {redact_secrets(connection_payload)}")
@@ -398,4 +399,4 @@ class ConnectionsMixin:
 
         failure = _extract_error_message(response, "Failed to create connection", self.api_client)
         self.logger.error(failure["error"])
-        return None
+        return failure

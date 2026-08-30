@@ -58,7 +58,7 @@ class SharesMixin:
         self.logger.info(f"Dashboard {dashboard_id} owner changed to {new_owner_id}.")
         return response.json() if response.content else {"success": True}
 
-    def add_dashboard_shares(self, dashboard_id: str, shares: list[dict[str, Any]]) -> str:
+    def add_dashboard_shares(self, dashboard_id: str, shares: list[dict[str, Any]]) -> dict[str, Any]:
         """Add or update shares for a dashboard for the given users and groups.
 
         Resolves each share's ``name`` to its user or group ``shareId``, compares
@@ -83,10 +83,12 @@ class SharesMixin:
 
         Returns
         -------
-        str
-            A success message summarizing the new and updated shares, a message
-            indicating no changes were needed, or an error description on
-            failure.
+        dict[str, Any]
+            On success: ``{"success": True, "message": ..., "new_shares": <n>,
+            "updated_shares": <n>}`` (``new_shares``/``updated_shares`` are the
+            counts actually written; both 0 when every requested share already
+            existed with the same rule). On failure: the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
         """
 
         endpoint = f"/api/shares/dashboard/{dashboard_id}?adminAccess=true"
@@ -130,7 +132,7 @@ class SharesMixin:
         if shares_response is None or shares_response.status_code != 200:
             failure = _extract_error_message(shares_response, f"Failed to retrieve existing shares for dashboard {dashboard_id}", self.api_client)
             self.logger.error(failure["error"])
-            return f"Error: {failure['error']}"
+            return failure
 
         existing_shares = shares_response.json().get("sharesTo", [])
         # Ignore shares without a "rule" key to prevent KeyError since the dashboard owner does not have a rule
@@ -164,7 +166,7 @@ class SharesMixin:
         if not new_users and not new_groups and not updated_users and not updated_groups:
             reason = "All provided users/groups already have access with the same rule."
             self.logger.info(f"No new or updated shares for dashboard {dashboard_id}. Reason: {reason}")
-            return f"No new or updated shares added. Reason: {reason}"
+            return {"success": True, "message": f"No new or updated shares added. {reason}", "new_shares": 0, "updated_shares": 0}
 
         # Remove updated users/groups from existing_shares to prevent duplication
         existing_shares = [share for share in existing_shares if share["shareId"] not in {user["shareId"] for user in updated_users}]
@@ -185,9 +187,9 @@ class SharesMixin:
 
                 # If fallback also fails, return error
                 if response is None or response.status_code != 200:
-                    error_message = response.json() if response and response.content else "No response received."
-                    self.logger.error(f"Failed to add/update shares for dashboard '{dashboard_id}' via fallback. Error: {error_message}")
-                    return f"Error: Failed to add/update shares for dashboard '{dashboard_id}'."
+                    failure = _extract_error_message(response, f"Failed to add/update shares for dashboard '{dashboard_id}' (fallback without adminAccess also failed)", self.api_client)
+                    self.logger.error(failure["error"])
+                    return failure
 
             if response.status_code == 200:
                 success_message = (
@@ -198,17 +200,22 @@ class SharesMixin:
                     f"Updated groups: {[group['shareId'] for group in updated_groups]}"
                 )
                 self.logger.info(success_message)
-                return success_message
+                return {
+                    "success": True,
+                    "message": success_message,
+                    "new_shares": len(new_users) + len(new_groups),
+                    "updated_shares": len(updated_users) + len(updated_groups),
+                }
             else:
                 failure = _extract_error_message(response, f"Failed to add/update shares for dashboard {dashboard_id}", self.api_client)
                 self.logger.error(failure["error"])
-                return f"Error: {failure['error']}"
+                return failure
 
         except Exception as e:
             self.logger.exception(f"Exception while adding/updating shares for dashboard {dashboard_id}: {e}")
-            return f"Exception: {str(e)}"
+            return {"ok": False, "error": f"Exception while adding/updating shares for dashboard '{dashboard_id}': {e}"}
 
-    def get_dashboard_share(self, dashboard_name: str) -> list[dict[str, Any]]:
+    def get_dashboard_share(self, dashboard_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve share details (users and groups) for a dashboard by title.
 
         Resolves the dashboard by title, then maps each share's ``shareId`` to a
@@ -224,21 +231,25 @@ class SharesMixin:
         -------
         list[dict[str, Any]]
             A list of share entries, each containing ``type`` (``"user"`` or
-            ``"group"``) and ``name`` (email or group name). Returns an empty
-            list when the dashboard is not found, has no shares, or the users or
-            groups lookup fails.
+            ``"group"``) and ``name`` (email or group name). An empty list means
+            the dashboard genuinely has no shares. On failure (dashboard not
+            found, users/groups lookup failed), returns the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.info(f"Fetching share details for dashboard: '{dashboard_name}'")
 
         # Step 1: Retrieve dashboard(s) by name
         dashboards = self.get_dashboard_by_name(dashboard_name)
+        if isinstance(dashboards, dict) and "error" in dashboards:
+            return dashboards
 
         # Handle case where response is a list
         dashboard = next((d for d in dashboards if d.get("title", "").lower() == dashboard_name.lower()), None) if isinstance(dashboards, list) else dashboards
 
         if not dashboard:
-            self.logger.warning(f"Dashboard '{dashboard_name}' not found.")
-            return []
+            error_msg = f"Dashboard '{dashboard_name}' not found."
+            self.logger.warning(error_msg)
+            return {"ok": False, "error": error_msg}
 
         shares = dashboard.get("shares", [])
         if not shares:
@@ -249,7 +260,7 @@ class SharesMixin:
         maps = self.access_mgmt.get_user_email_and_group_name_maps()
         if "error" in maps:
             self.logger.error(f"Failed to fetch users or groups: {maps['error']}")
-            return []
+            return maps
 
         users_detail = maps["users_by_id"]
         groups_detail = maps["groups_by_id"]

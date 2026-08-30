@@ -38,7 +38,7 @@ class SharesMixin:
 
         return users_detail, groups_detail
 
-    def get_datamodel_shares(self, datamodel_name: str) -> list[dict[str, Any]]:
+    def get_datamodel_shares(self, datamodel_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all share entries (users and groups) for a given data model.
 
         Resolves user and group identifiers to names/emails and returns the shares
@@ -54,8 +54,9 @@ class SharesMixin:
         -------
         list[dict[str, Any]]
             List of dicts, each with ``"datamodel_name"``, ``"datamodel_id"``,
-            ``"party_name"``, ``"party_type"``, and ``"permission"``. Returns an
-            empty list on failure.
+            ``"party_name"``, ``"party_type"``, and ``"permission"`` — an empty
+            list means the model genuinely has no shares. On failure, returns
+            the standard ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.debug(f"[START] Resolving share info for DataModel '{datamodel_name}'")
 
@@ -63,7 +64,7 @@ class SharesMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return []
+            return datamodel
 
         datamodel_id = datamodel.get("oid")
 

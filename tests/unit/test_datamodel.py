@@ -207,10 +207,11 @@ class TestCreateConnections:
         result = dm.create_connections({"name": "NewConn"})
         assert result["oid"] == "conn1"
 
-    def test_returns_none_on_failure(self):
+    def test_returns_error_dict_on_failure(self):
         dm = _make_dm()
         result = dm.create_connections({"name": "NewConn"})
-        assert result is None
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -412,11 +413,11 @@ class TestGetDatamodelShares:
             {"datamodel_name": "LiveModel", "datamodel_id": "dm456", "party_name": "Engineers", "party_type": "group", "permission": "READ"},
         ]
 
-    def test_returns_empty_list_when_model_not_found(self):
-        # get_datamodel_shares returns [] when model not found
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datamodel_shares("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------
@@ -436,10 +437,11 @@ class TestGetDatasecurity:
         )
         assert dm.get_datasecurity("SalesModel") == []
 
-    def test_returns_empty_list_when_model_not_found(self):
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datasecurity("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchModel" in result["error"]
 
     def test_returns_security_rules_when_present(self):
         datasecurity = [{"table": "orders", "column": "amount", "datatype": "numeric"}]
@@ -469,10 +471,11 @@ class TestGetDatasecurityDetail:
         )
         assert dm.get_datasecurity_detail("SalesModel") == []
 
-    def test_returns_empty_list_when_model_not_found(self):
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datasecurity_detail("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchModel" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -552,11 +555,11 @@ class TestGetData:
         assert len(result) == 2
         assert result[0]["id"] == 1
 
-    def test_returns_empty_list_on_api_failure(self):
-        # get_data returns [] (not error dict) on failure
+    def test_returns_error_dict_on_api_failure(self):
         dm = _make_dm()
         result = dm.get_data("SalesModel", "orders")
-        assert result == []
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -573,11 +576,11 @@ class TestGetRowCount:
         result = dm.get_row_count("SalesModel")
         assert isinstance(result, list)
 
-    def test_returns_empty_list_when_model_not_found(self):
-        # get_row_count returns [] (not error dict) when model not found
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_row_count("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------

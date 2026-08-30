@@ -248,24 +248,27 @@ class TestGetDashboardWidgets:
 
 
 class TestAddDashboardScript:
-    def test_returns_success_string_on_put_200(self):
+    def test_returns_success_dict_on_put_200(self):
         script = '{"script": "console.log(1);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(200, {})})
         result = dash.add_dashboard_script("dash123", script)
-        assert "successfully" in result.lower()
+        assert result["success"] is True
+        assert "successfully" in result["message"].lower()
 
-    def test_returns_error_string_on_put_failure(self):
+    def test_returns_error_dict_on_put_failure(self):
         script = '{"script": "console.log(1);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.add_dashboard_script("dash123", script)
-        assert result.startswith("Error:")
+        assert result["ok"] is False
+        assert "fail" in result["error"]
+        assert result["status_code"] == 500
 
-    def test_returns_error_string_on_invalid_json_script(self):
+    def test_returns_error_dict_on_invalid_json_script(self):
         dash = _make_dash()
-        # If the script is not valid JSON and not a plain string, it stays a string
         # Pass something that causes JSONDecodeError on json.loads
         result = dash.add_dashboard_script("dash123", "{bad json{{")
-        assert result.startswith("Error:")
+        assert result["ok"] is False
+        assert "valid JSON" in result["error"]
 
     def test_returns_ownership_hint_on_404_when_no_executing_user(self):
         # Confirmed correct against a live instance — see
@@ -278,7 +281,7 @@ class TestAddDashboardScript:
         script = '{"script": "console.log(1);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
         result = dash.add_dashboard_script("dash123", script)
-        assert "executing_user" in result
+        assert "executing_user" in result["error"]
 
     def test_does_not_return_ownership_hint_on_403_when_no_executing_user(self):
         # Contrast case: unlike add_widget_script, a 403 here currently falls
@@ -286,7 +289,7 @@ class TestAddDashboardScript:
         script = '{"script": "console.log(1);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
         result = dash.add_dashboard_script("dash123", script)
-        assert "executing_user" not in result
+        assert "executing_user" not in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -295,21 +298,23 @@ class TestAddDashboardScript:
 
 
 class TestAddWidgetScript:
-    def test_returns_success_string_on_put_200(self):
+    def test_returns_success_dict_on_put_200(self):
         script = '{"script": "console.log(widget);"}'
         dash = _make_dash(
             put_responses={"/api/dashboards/dash123": FakeResponse(200, {})},
             post_responses={"/api/v1/dashboards/dash123": FakeResponse(204, {})},
         )
         result = dash.add_widget_script("dash123", "widget456", script)
-        assert "successfully" in result.lower()
+        assert result["success"] is True
+        assert "successfully" in result["message"].lower()
 
-    def test_returns_error_string_on_500_put_response(self):
-        # Use a 500 response (not None) to avoid a source-code NPE on status_code
+    def test_returns_error_dict_on_500_put_response(self):
         script = '{"script": "console.log(widget);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(500, {"error": "fail"})})
         result = dash.add_widget_script("dash123", "widget456", script)
-        assert result.startswith("Error:")
+        assert result["ok"] is False
+        assert "fail" in result["error"]
+        assert result["status_code"] == 500
 
     def test_returns_ownership_hint_on_403_when_no_executing_user(self):
         # Pins CURRENT behavior — see test_returns_ownership_hint_on_404_when_no_executing_user
@@ -317,7 +322,7 @@ class TestAddWidgetScript:
         script = '{"script": "console.log(widget);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
         result = dash.add_widget_script("dash123", "widget456", script)
-        assert "executing_user" in result
+        assert "executing_user" in result["error"]
 
     def test_does_not_return_ownership_hint_on_404_when_no_executing_user(self):
         # Contrast case: unlike add_dashboard_script, a 404 here currently falls
@@ -325,7 +330,7 @@ class TestAddWidgetScript:
         script = '{"script": "console.log(widget);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
         result = dash.add_widget_script("dash123", "widget456", script)
-        assert "executing_user" not in result
+        assert "executing_user" not in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -348,20 +353,24 @@ class TestAddDashboardShares:
             "dash123",
             [{"type": "user", "name": "jdoe@example.com", "rule": "EDIT"}],
         )
-        assert "No new or updated shares" in result
+        assert result["success"] is True
+        assert "No new or updated shares" in result["message"]
+        assert result["new_shares"] == 0
+        assert result["updated_shares"] == 0
 
-    def test_returns_error_string_when_share_fetch_fails(self):
+    def test_returns_error_dict_when_share_fetch_fails(self):
         dash = _make_dash(
             get_responses={
                 "/api/v1/users": FakeResponse(200, [_USER]),
             }
-            # No share endpoint → None → error
+            # No share endpoint → None → connection-failure error dict
         )
         result = dash.add_dashboard_shares(
             "dash123",
             [{"type": "user", "name": "jdoe@example.com", "rule": "EDIT"}],
         )
-        assert result.startswith("Error:")
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -370,10 +379,11 @@ class TestAddDashboardShares:
 
 
 class TestGetDashboardColumns:
-    def test_returns_empty_list_when_dashboard_not_found(self):
+    def test_returns_error_dict_when_dashboard_not_found(self):
         dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_columns("NoSuchDash")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchDash" in result["error"]
 
     def test_returns_column_list_on_success(self):
         export_data = [
@@ -410,10 +420,11 @@ class TestGetDashboardShare:
         result = dash.get_dashboard_share("Sales Report")
         assert result == []
 
-    def test_returns_empty_list_when_dashboard_not_found(self):
+    def test_returns_error_dict_when_dashboard_not_found(self):
         dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         result = dash.get_dashboard_share("NoSuchDash")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchDash" in result["error"]
 
     def test_resolves_user_and_group_shares_via_shared_access_mgmt_helper(self):
         # Regression: get_dashboard_share now resolves shares via
@@ -953,7 +964,7 @@ class TestAddDashboardScriptOwnershipRestored:
         dash = Dashboard(api_client=client)
         result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"}', executing_user="api@example.com")
 
-        assert "successfully" in result.lower()
+        assert result["success"] is True
         change_owner_calls = [u for u in client.post_urls if "change_owner" in u]
         assert len(change_owner_calls) == 2  # take + restore
 
@@ -962,7 +973,7 @@ class TestAddDashboardScriptOwnershipRestored:
         dash = Dashboard(api_client=client)
         result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"}', executing_user="api@example.com")
 
-        assert result.startswith("Error:")
+        assert result["ok"] is False
         # Restoration must still have been attempted despite the failed write
         change_owner_calls = [u for u in client.post_urls if "change_owner" in u]
         assert len(change_owner_calls) == 2

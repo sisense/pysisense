@@ -110,7 +110,7 @@ class SecurityMixin:
             return {"ok": False, "error": f"Failed to fetch raw datasecurity rules for '{resolved_name}'."}
         return datasecurity_data
 
-    def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]]:
+    def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve datasecurity table and column entries for a given data model.
 
         Resolves the data model, fetches its datasecurity rules, and returns the
@@ -123,20 +123,22 @@ class SecurityMixin:
 
         Returns
         -------
-        list[dict[str, Any]]
+        list[dict[str, Any]] | dict[str, Any]
             List of dicts, each with ``"datamodel_name"``, ``"table_name"``,
-            ``"column_name"``, and ``"data_type"``. Returns an empty list when
-            the model has no rules, cannot be resolved, or the rules cannot be
-            fetched (failure details are logged) — the row count always equals
-            the number of secured columns.
+            ``"column_name"``, and ``"data_type"`` — an empty list means the
+            model genuinely has no rules, so the row count always equals the
+            number of secured columns. On failure (model cannot be resolved,
+            or the rules cannot be fetched), returns the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
+        requested_name = datamodel_name
         datamodel_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
         if datamodel_name is None:
-            return []
+            return {"ok": False, "error": f"DataModel '{requested_name}' not found."}
         if datasecurity_data is None:
-            return []
+            return {"ok": False, "error": f"Failed to fetch datasecurity rules for '{datamodel_name}'."}
 
         # Step 4: Parse datasecurity
         datasecurity_info = []
@@ -159,7 +161,7 @@ class SecurityMixin:
         self.logger.info(f"Resolved {len(datasecurity_info)} datasecurity entries for DataModel '{datamodel_name}'")
         return datasecurity_info
 
-    def get_datasecurity_detail(self, datamodel_name: str) -> list[dict[str, Any]]:
+    def get_datasecurity_detail(self, datamodel_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve detailed datasecurity rules for a data model, including share-level visibility.
 
         Each row represents a unique column-level rule and is repeated per share for
@@ -179,22 +181,24 @@ class SecurityMixin:
 
         Returns
         -------
-        list[dict[str, Any]]
+        list[dict[str, Any]] | dict[str, Any]
             List of dicts representing datasecurity rules in flat, share-resolved
             format, each with ``"datamodel_name"``, ``"table_name"``,
             ``"column_name"``, ``"data_type"``, ``"value"``, ``"exclusionary"``,
-            ``"share_type"``, ``"share_name"``, and ``"rule_description"``. Returns
-            an empty list when the model has no rules, cannot be resolved, or the
-            rules cannot be fetched (failure details are logged) — the row count
-            always equals the number of rule/share combinations.
+            ``"share_type"``, ``"share_name"``, and ``"rule_description"`` — an
+            empty list means the model genuinely has no rules, so the row count
+            always equals the number of rule/share combinations. On failure
+            (model cannot be resolved, or the rules cannot be fetched), returns
+            the standard ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
+        requested_name = datamodel_name
         datamodel_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
         if datamodel_name is None:
-            return []
+            return {"ok": False, "error": f"DataModel '{requested_name}' not found."}
         if datasecurity_data is None:
-            return []
+            return {"ok": False, "error": f"Failed to fetch datasecurity rules for '{datamodel_name}'."}
 
         # Step 4: Parse datasecurity rules
         detailed_rows = []
