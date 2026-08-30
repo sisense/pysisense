@@ -275,7 +275,7 @@ This method is a convenience wrapper that orchestrates the individual checks:
   - `"datamodel_rls_datatypes"`: list of rows from `check_datamodel_rls_datatypes`.  
   - `"datamodel_import_queries"`: list of rows from `check_datamodel_import_queries`.  
   - `"datamodel_m2m_relationships"`: list of rows from `check_datamodel_m2m_relationships`.  
-  - `"unused_columns"`: list of rows from `AccessManagement.get_unused_columns_bulk`, if `access_mgmt` is configured; otherwise an empty list with a warning logged.
+  - `"unused_columns"`: the `results` rows from `AccessManagement.get_unused_columns_bulk`, if `access_mgmt` is configured; otherwise an empty list with a warning logged. References the bulk call could not process are logged as warnings (its `errors` entries).
 
 Each value is exactly the same structure as if the underlying method had been called directly, which makes it easy to:
 

@@ -6,7 +6,7 @@ from ..utils import _extract_error_message
 
 
 class DataMixin:
-    def get_data(self, datamodel_name: str, table_name: str, query: str | None = None) -> list[dict[str, Any]]:
+    def get_data(self, datamodel_name: str, table_name: str, query: str | None = None) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve data from a specific table in a data model.
 
         Runs a SQL query against the data model and returns the rows in a
@@ -24,15 +24,16 @@ class DataMixin:
 
         Returns
         -------
-        list[dict[str, Any]]
-            List of dictionaries where each dict represents a row. Returns an empty
-            list on failure or when no data is available.
+        list[dict[str, Any]] | dict[str, Any]
+            List of dictionaries where each dict represents a row — an empty
+            list means the query genuinely returned no data. On failure,
+            returns the standard ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.debug(f"[START] Retrieving data from DataModel '{datamodel_name}', Table '{table_name}'")
 
         if not datamodel_name or not table_name:
             self.logger.error("DataModel name and table name are required.")
-            return []
+            return {"ok": False, "error": "get_data requires both datamodel_name and table_name."}
 
         safe_table_name = table_name.replace("]", "]]")
         q = query if query else f"SELECT * FROM [{safe_table_name}]"  # noqa: S608 -- identifier is bracket-escaped above
@@ -61,9 +62,9 @@ class DataMixin:
         else:
             failure = _extract_error_message(response, f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}'", self.api_client)
             self.logger.error(failure["error"])
-            return []
+            return failure
 
-    def get_row_count(self, datamodel_name: str) -> list[dict[str, Any]]:
+    def get_row_count(self, datamodel_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve the row count for each table in a specific data model.
 
         Resolves the data model's tables, counts rows per table, and returns the
@@ -76,22 +77,23 @@ class DataMixin:
 
         Returns
         -------
-        list[dict[str, Any]]
+        list[dict[str, Any]] | dict[str, Any]
             List of dictionaries, each with ``"table_name"`` and ``"row_count"``,
-            plus a final entry with the total row count. Returns an empty list on
-            failure.
+            plus a final entry with the total row count. On failure, returns the
+            standard ``{"ok": False, "error": "...", ...}`` dict; tables whose
+            count query fails are skipped with a logged warning.
         """
         self.logger.debug(f"[START] Retrieving row count for DataModel '{datamodel_name}'")
 
         if not datamodel_name:
             self.logger.error("DataModel name is required.")
-            return []
+            return {"ok": False, "error": "get_row_count requires datamodel_name."}
 
         # Step 1: Get DataModel by name
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return []
+            return datamodel
 
         table_names = []
         for dataset in datamodel.get("datasets", []):
@@ -110,7 +112,7 @@ class DataMixin:
             self.logger.debug(f"SQL Query for table '{table_name}': {query}")
             rows = self.get_data(datamodel_name, table_name, query=query)
 
-            if not rows:
+            if isinstance(rows, dict) or not rows:
                 self.logger.warning(f"No data retrieved for table '{table_name}'. Skipping.")
                 continue
 

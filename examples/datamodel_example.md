@@ -70,7 +70,7 @@ response = datamodel.get_connections_all()
 print(json.dumps(response, indent=4))
 ```
 
-`get_connections()` still works as a deprecated alias with identical behavior.
+The former `get_connections()` alias was removed in 2.0 — use `get_connections_all`.
 
 ---
 
@@ -202,6 +202,8 @@ Create a connection using a generated payload.
 response = datamodel.create_connections(athena_connection)
 print(json.dumps(response, indent=4))
 ```
+
+On failure this returns `{"ok": False, "error": "...", "status_code": ...}` (it no longer returns `None`).
 
 ---
 
@@ -377,7 +379,7 @@ print(json.dumps(response, indent=4))
 
 ## Example 14: Get DataModel Shares
 
-Get sharing information for a DataModel.
+Get sharing information for a DataModel. An empty list means the model genuinely has no shares; if the model cannot be resolved, `{"ok": False, "error": "..."}` is returned instead (no longer an empty list).
 
 ```python
 response = datamodel.get_datamodel_shares("pysense_databricks_ec")
@@ -390,7 +392,7 @@ print(df)
 
 ## Example 15: Get Datasecurity
 
-Get datasecurity info for a datamodel.
+Get datasecurity info for a datamodel. An empty list always means the model genuinely has zero rules; failures (model cannot be resolved, or rules cannot be fetched) return `{"ok": False, "error": "..."}` instead.
 
 ```python
 response = datamodel.get_datasecurity("pysense_databricks")
@@ -410,7 +412,7 @@ for model in response:
 all_ds = []
 for datamodel_name in all_datamodels:
     response = datamodel.get_datasecurity(datamodel_name)
-    if response:
+    if isinstance(response, list):  # a dict here is the {"ok": False, "error": "..."} failure shape
         all_ds.extend(response)
 # Print the combined list of all datasecurity details
 df = api_client.to_dataframe(all_ds)
@@ -478,7 +480,7 @@ print(json.dumps(response, indent=4))  # {"success": True}
 
 ## Example 16: Get Datasecurity Information in Detail
 
-Get detailed datasecurity info for a datamodel.
+Get detailed datasecurity info for a datamodel. An empty list always means the model genuinely has zero rules; failures (model cannot be resolved, or rules cannot be fetched) return `{"ok": False, "error": "..."}` instead.
 
 ```python
 response = datamodel.get_datasecurity_detail("pysense_databricks")
@@ -497,7 +499,7 @@ for model in response:
 all_ds = []
 for datamodel_name in all_datamodels:
     response = datamodel.get_datasecurity_detail(datamodel_name)
-    if response:
+    if isinstance(response, list):  # a dict here is the {"ok": False, "error": "..."} failure shape
         all_ds.extend(response)
 df = api_client.to_dataframe(all_ds)
 print(df)
@@ -521,8 +523,8 @@ print(df)
 
 ## Example 18: Add Shares
 
-Add sharing permissions to a DataModel. Only LIVE DataModels are currently
-supported — calling this on an EXTRACT (Elasticube) model returns an error.
+Add sharing permissions to a DataModel. Works for both EXTRACT (Elasticube)
+and LIVE DataModels — EXTRACT support is new in 2.0.
 
 ```python
 datamodel_name = "pysense_databricks"
@@ -532,14 +534,27 @@ shares_to_add = [
     {"name": "viewer@sisense.com", "type": "user", "permission": "READ"},
 ]
 response = datamodel.add_datamodel_shares(datamodel_name, shares_to_add)
-print(json.dumps(response, indent=4))
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(f"{response['message']} new={response['new_shares']} updated={response['updated_shares']}")
+    for skip in response["skipped"]:
+        print(f"skipped {skip['type']} '{skip['name']}': {skip['reason']}")
 ```
+
+Notes (live-verified):
+
+- On success this returns `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>, "skipped": [...]}`. `skipped` lists every requested share that was **not** submitted (`{"name", "type", "reason"}` — unknown user/group, inactive user, invalid type); always check it, since a skipped share never reached Sisense.
+- EXTRACT shares merge with the model's existing raw permission list and are written via `PUT /api/elasticubes/localhost/{title}/permissions`; the LIVE path is unchanged (`PATCH` by oid). Both are keyed by `partyId`.
+- A party that already has a share gets its permission updated in place (EXTRACT path) rather than duplicated.
+- Shares for INACTIVE users are skipped and reported in `skipped` — Sisense returns HTTP 200 but silently drops such entries.
+- When no given share resolves (unknown or inactive parties), the method returns `{"ok": False, "error": "...", "skipped": [...]}` instead of writing the existing shares back unchanged.
 
 ---
 
 ## Example 19: Get Data
 
-Query data from a table in a DataModel and export to CSV.
+Query data from a table in a DataModel and export to CSV. An empty list always means the query genuinely returned no rows; failures return `{"ok": False, "error": "..."}` (no longer an empty list).
 
 ```python
 datamodel_name = "pysense_databricks"
@@ -560,7 +575,7 @@ api_client.export_to_csv(response, file_name=f"{table_name}.csv")
 
 ## Example 20: Get DataModel Row Count
 
-Get row count for a DataModel and export to CSV.
+Get row count for a DataModel and export to CSV. If the model cannot be resolved, the `{"ok": False, "error": "..."}` dict is propagated; tables whose count query fails are skipped with a logged warning.
 
 ```python
 datamodel_name = "pysense_databricks_ec"

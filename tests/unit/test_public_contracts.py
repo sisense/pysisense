@@ -123,7 +123,7 @@ class TestDeprecatedAliases:
 
     def test_every_deprecated_alias_names_a_live_counterpart(self):
         deprecated = self._deprecated_methods()
-        assert deprecated, "expected at least one deprecated alias (get_connections)"
+        assert deprecated, "expected at least one deprecated alias (e.g. get_group)"
         for cls, name, message in deprecated:
             match = re.search(r"use (\w+)", message)
             assert match, f"{cls.__name__}.{name} deprecation message must say 'use <new_name>', got: {message!r}"
@@ -131,10 +131,16 @@ class TestDeprecatedAliases:
             assert counterpart is not None, f"{cls.__name__}.{name} points at missing counterpart {match.group(1)!r}"
             assert getattr(counterpart, "__deprecated__", None) is None, f"counterpart {match.group(1)!r} is itself deprecated"
 
-    def test_get_connections_is_machine_readable_deprecated(self):
+    def test_a_deprecated_alias_is_machine_readable(self):
+        from pysisense import AccessManagement
+
+        assert getattr(AccessManagement.get_group, "__deprecated__", None) == "use get_groups"
+
+    def test_get_connections_removed_after_its_deprecation_window(self):
+        # Deprecated in 1.1.0, removed in 2.0 — must not come back.
         from pysisense import DataModel
 
-        assert getattr(DataModel.get_connections, "__deprecated__", None) == "use get_connections_all"
+        assert not hasattr(DataModel, "get_connections")
 
 
 class TestDictParamsHaveContracts:

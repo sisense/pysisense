@@ -60,7 +60,7 @@ class OwnershipMixin:
         if not user_info or "USER_ID" not in user_info:
             error_msg = f"User '{executing_user}' not found or USER_ID missing."
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
         user_id = user_info["USER_ID"]
 
         # Check if the new owner exists and retrieve their USER_ID
@@ -68,7 +68,7 @@ class OwnershipMixin:
         if not new_owner or "USER_ID" not in new_owner:
             error_msg = f"New owner '{new_owner_name}' not found or USER_ID missing."
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
         new_owner_id = new_owner["USER_ID"]
 
         # Build a parent map and collect matching folders

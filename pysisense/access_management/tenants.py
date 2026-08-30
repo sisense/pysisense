@@ -32,7 +32,7 @@ class TenantsMixin:
             tenants = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse tenants response JSON.")
-            return {"error": f"Failed to parse tenants response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse tenants response JSON: {str(e)}"}
 
         self.logger.debug(f"Retrieved {len(tenants or [])} tenant(s).")
         return tenants or []

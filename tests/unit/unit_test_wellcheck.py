@@ -1227,17 +1227,20 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
         def get_unused_columns_bulk(
             self,
             datamodels: list[str] | None = None,
-        ) -> list[dict[str, Any]]:
+        ) -> dict[str, Any]:
             self.called_with = datamodels
-            # Return a simple stub row
-            return [
-                {
-                    "datamodel_name": "DM1",
-                    "table": "T_unused",
-                    "column": "C_unused",
-                    "used": False,
-                }
-            ]
+            # Return a simple stub row in the {"results", "errors"} shape
+            return {
+                "results": [
+                    {
+                        "datamodel_name": "DM1",
+                        "table": "T_unused",
+                        "column": "C_unused",
+                        "used": False,
+                    }
+                ],
+                "errors": [],
+            }
 
     class FullWellCheckHarness(WellCheckTestHarness):
         """

@@ -3,6 +3,8 @@ Dashboard Class Documentation
 
 The `Dashboard` class provides high-level methods to interact with Sisense dashboards using the API. It allows users to retrieve, update, share, and analyze dashboards.
 
+All methods report failures as a standard error dict: `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. An empty list from a read method always means a genuinely empty result, never a failure.
+
 * * * * *
 
 Class: `Dashboard`
@@ -68,7 +70,7 @@ Exports a full dashboard definition as JSON using the admin export API (`GET /ap
 
 **Returns:**
 
--   `dict`: The first element of the export array on success (the dashboard object). On failure, a dict with an `"error"` key and a short message (HTTP failure, invalid JSON, or unexpected response shape).
+-   `dict`: The first element of the export array on success (the dashboard object). On failure, the standard error dict `{"ok": False, "error": "..."}` (HTTP failure, invalid JSON, or unexpected response shape).
 
 * * * * *
 
@@ -82,7 +84,7 @@ Returns the `widgets` collection from an admin **export** of the dashboard—the
 
 **Returns:**
 
--   `list`: Widget objects from the export payload on success (may be empty). On failure, a dict with an `"error"` key (unresolved reference or export failure). If `widgets` is present but not a list or object map of widget dicts, returns an error dict.
+-   `list`: Widget objects from the export payload on success (may be empty). On failure, the standard error dict `{"ok": False, "error": "..."}` (unresolved reference or export failure). If `widgets` is present but not a list or object map of widget dicts, returns the error dict as well.
 
 * * * * *
 
@@ -98,11 +100,11 @@ Adds or overwrites the dashboard-level JavaScript script. Sisense only allows th
 **`executing_user` (optional)**
 
 -   Sisense **username** (login) of the API token user. When provided, the method temporarily changes dashboard ownership to that user (using admin APIs), reapplies the script, then restores the previous owner and prior share rows.
--   When omitted, the code assumes the token user is already the dashboard owner. If the PUT fails with **404** and no `executing_user` was passed, the returned message explains that the token may not be the owner and suggests passing `executing_user` or making the token user the owner.
+-   When omitted, the code assumes the token user is already the dashboard owner. If the PUT fails with **404** and no `executing_user` was passed, a hint is appended to the `error` sentence explaining that the token may not be the owner and suggesting passing `executing_user` or making the token user the owner.
 
 **Returns:**
 
--   `str`: `"Dashboard Script added successfully."` on success, or an `"Error: ..."` string on failure.
+-   `dict`: `{"success": True, "message": "..."}` on success, or the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure. An invalid JSON script returns `{"ok": False, "error": "Dashboard Script must be a valid JSON string."}`.
 
 * * * * *
 
@@ -110,13 +112,13 @@ Adds or overwrites the dashboard-level JavaScript script. Sisense only allows th
 
 Adds or overwrites the JavaScript script for one widget. Same **owner** and **`executing_user`** semantics as `add_dashboard_script` (temporary ownership, share restore, owner restore when `executing_user` is set).
 
-**After a successful script update**, the dashboard is **republished** via `POST /api/v1/dashboards/{dashboard_id}/publish?force=true`. A **204** response is treated as success; otherwise an error string is returned (the script may already have been saved).
+**After a successful script update**, the dashboard is **republished** via `POST /api/v1/dashboards/{dashboard_id}/publish?force=true`. A **204** response is treated as success; otherwise the standard error dict is returned, stating that the script was added but republishing the dashboard failed.
 
-If the PUT fails with **403** and `executing_user` was not provided, the error text suggests the token user is not the owner and recommends `executing_user` or changing ownership.
+If the PUT fails with **403** and `executing_user` was not provided, a hint is appended to the `error` sentence suggesting the token user is not the owner and recommending `executing_user` or changing ownership.
 
 **Returns:**
 
--   `str`: `"Widget Script added successfully."` on success, or an `"Error: ..."` string on failure.
+-   `dict`: `{"success": True, "message": "..."}` on success, or the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure (including when the script was added but the republish failed). An invalid JSON script returns `{"ok": False, "error": "Widget Script must be a valid JSON string."}`.
 
 * * * * *
 
@@ -130,7 +132,7 @@ Builds a **`SisenseScript`** helper from an admin export of the dashboard (`expo
 
 **Returns:**
 
--   `SisenseScript` or `dict`: A `SisenseScript` instance on success, or `{"error": "..."}` if the export fails (with `status_code` for HTTP failures) or the dashboard has no script — a normal state, reported as an explicit "has no dashboard script" message rather than an exception.
+-   `SisenseScript` or `dict`: A `SisenseScript` instance on success, or the standard error dict `{"ok": False, "error": "..."}` if the export fails (with `status_code` for HTTP failures) or the dashboard has no script — a normal state, reported as an explicit "has no dashboard script" message rather than an exception.
 
 * * * * *
 
@@ -145,7 +147,7 @@ Builds a **`SisenseScript`** helper for one widget in the exported dashboard pay
 
 **Returns:**
 
--   `SisenseScript` or `dict`: A `SisenseScript` instance when the widget exists and has a script, or `{"error": "..."}` on failure — export failure (with `status_code` for HTTP failures), widget not found in the export, or the widget has no script (a normal state, reported as an explicit "has no widget script" message rather than an exception).
+-   `SisenseScript` or `dict`: A `SisenseScript` instance when the widget exists and has a script, or the standard error dict `{"ok": False, "error": "..."}` on failure — export failure (with `status_code` for HTTP failures), widget not found in the export, or the widget has no script (a normal state, reported as an explicit "has no widget script" message rather than an exception).
 
 * * * * *
 
@@ -161,7 +163,7 @@ Adds or updates sharing settings for a dashboard.
 
 **Returns:**
 
--   `str`: Status message of the operation.
+-   `dict`: On success, `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>}` — the counts of shares actually written. When every requested share already exists with the same rule, the result is still a success dict with both counts at `0` ("No new or updated shares added"). On failure, the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`.
 
 * * * * *
 
@@ -175,7 +177,7 @@ Extracts distinct columns used in a dashboard (filters and widgets).
 
 **Returns:**
 
--   `list`: List of unique table/column combinations with metadata.
+-   `list` or `dict`: List of unique table/column combinations with metadata. An empty list means the dashboard genuinely references no columns. On failure (dashboard not found, or the export failed or could not be parsed), the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 
@@ -189,7 +191,7 @@ Retrieves share information (users and groups) for a specific dashboard by its t
 
 **Returns:**
 
-- `list`: A list of dictionaries, each containing the type of share (`user` or `group`) and the corresponding name (email or group name). Returns an empty list if the dashboard is not found or has no shares.
+- `list` or `dict`: A list of dictionaries, each containing the type of share (`user` or `group`) and the corresponding name (email or group name). An empty list always means the dashboard genuinely has no shares. On failure (dashboard not found, or the users/groups lookup failed), the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 
@@ -204,7 +206,7 @@ Retrieves share details using ``GET /api/v1/dashboards/{dashboard_id}/shares``. 
 
 **Returns:**
 
-- `dict`: Shares response on success, or `{"error": "..."}` on failure.
+- `dict`: Shares response on success, or the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -248,7 +250,7 @@ Moves a dashboard into a folder by PATCHing ``parentFolder`` on ``/api/dashboard
 
 **Returns:**
 
-- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
+- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. The standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -263,7 +265,7 @@ Renames a dashboard by PATCHing ``title`` on ``/api/dashboards/{dashboard_id}``.
 
 **Returns:**
 
-- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
+- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. The standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -279,7 +281,7 @@ Publishes (republishes) a dashboard via ``POST /api/v1/dashboards/{dashboard_id}
 
 **Returns:**
 
-- `dict`: `{"success": True}` or the JSON body on success; `{"error": "..."}` on failure.
+- `dict`: `{"success": True}` or the JSON body on success; the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -293,7 +295,7 @@ Checks whether the dashboard can be owned by the current user via ``GET /api/v1/
 
 **Returns:**
 
-- `dict`: API response on success, or `{"error": "..."}` on failure.
+- `dict`: API response on success, or the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -308,7 +310,7 @@ Imports one or more dashboards via `POST /api/v1/dashboards/import/bulk`. Dashbo
 
 **Returns:**
 
-- `dict`: The API response body, including `succeded` and `failed` lists describing the outcome for each dashboard, or `{"error": "..."}` on failure.
+- `dict`: The API response body, including `succeded` and `failed` lists describing the outcome for each dashboard, or the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -340,7 +342,7 @@ Retrieves dashboards visible to the authenticated user via `GET /api/v1/dashboar
 
 **Returns:**
 
--   `list[dict]`: List of dashboard objects on success, or `{"error": "..."}` on failure.
+-   `list[dict]`: List of dashboard objects on success, or the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -359,7 +361,7 @@ Used directly when you know the new owner's user ID. Also called internally by `
 
 **Returns:**
 
--   `dict`: API response body on success, or `{"success": True}` when the API responds 200 with an empty body. `{"error": "..."}` on failure.
+-   `dict`: API response body on success, or `{"success": True}` when the API responds 200 with an empty body. The standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -375,7 +377,7 @@ Retrieves a single widget by its dashboard and widget IDs via `GET /api/v1/dashb
 
 **Returns:**
 
--   `dict`: The full widget object on success, or `{"error": "..."}` on failure.
+-   `dict`: The full widget object on success, or the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -393,7 +395,7 @@ Only the dashboard owner can write widgets. Pair with `change_dashboard_owner` i
 
 **Returns:**
 
--   `dict`: The API response body on success, or `{"error": "..."}` on failure.
+-   `dict`: The API response body on success, or the standard error dict `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 

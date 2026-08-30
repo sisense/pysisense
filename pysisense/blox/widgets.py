@@ -138,7 +138,7 @@ class BloxWidgetsMixin:
         if executing_user_id:
             take_result = self._blox_take_ownership(dashboard_id, executing_user_id)
             if isinstance(take_result, str):
-                return {"error": take_result}
+                return {"ok": False, "error": take_result}
             original_owner_id, original_shares = take_result
             took_ownership = True
 
@@ -192,7 +192,7 @@ class BloxWidgetsMixin:
         if widget.get("type") != _BLOX_WIDGET_TYPE:
             msg = f"Widget '{widget_id}' is of type '{widget.get('type')}', not '{_BLOX_WIDGET_TYPE}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         return widget
 

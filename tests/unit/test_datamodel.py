@@ -207,10 +207,11 @@ class TestCreateConnections:
         result = dm.create_connections({"name": "NewConn"})
         assert result["oid"] == "conn1"
 
-    def test_returns_none_on_failure(self):
+    def test_returns_error_dict_on_failure(self):
         dm = _make_dm()
         result = dm.create_connections({"name": "NewConn"})
-        assert result is None
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -412,11 +413,11 @@ class TestGetDatamodelShares:
             {"datamodel_name": "LiveModel", "datamodel_id": "dm456", "party_name": "Engineers", "party_type": "group", "permission": "READ"},
         ]
 
-    def test_returns_empty_list_when_model_not_found(self):
-        # get_datamodel_shares returns [] when model not found
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datamodel_shares("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------
@@ -436,10 +437,11 @@ class TestGetDatasecurity:
         )
         assert dm.get_datasecurity("SalesModel") == []
 
-    def test_returns_empty_list_when_model_not_found(self):
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datasecurity("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchModel" in result["error"]
 
     def test_returns_security_rules_when_present(self):
         datasecurity = [{"table": "orders", "column": "amount", "datatype": "numeric"}]
@@ -469,10 +471,11 @@ class TestGetDatasecurityDetail:
         )
         assert dm.get_datasecurity_detail("SalesModel") == []
 
-    def test_returns_empty_list_when_model_not_found(self):
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_datasecurity_detail("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchModel" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -519,11 +522,13 @@ class TestAddDatamodelShares:
             patch_responses={"/api/v1/elasticubes/live/dm456/permissions": FakeResponse(200, {"success": True})},
         )
         result = dm.add_datamodel_shares("LiveModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
-        assert result == {"success": True}
+        assert result["success"] is True
+        assert result["new_shares"] == 1
+        assert result["skipped"] == []
 
-    def test_returns_error_for_extract_model_without_crashing(self):
-        # EXTRACT share writes are intentionally disabled — see
-        # micael_similar_methods_fixes.md, DataModel Shares module.
+    def test_returns_error_when_no_share_resolves(self):
+        # Nothing resolvable must fail loudly, not write existing shares back
+        # unchanged and report success — and the failure names each skip.
         dm = _make_dm(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
@@ -532,7 +537,125 @@ class TestAddDatamodelShares:
             },
         )
         result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
-        assert "error" in result
+        assert result["ok"] is False
+        assert "could be resolved" in result["error"]
+        assert result["skipped"] == [{"name": "alice@example.com", "type": "user", "reason": "User not found."}]
+
+    def test_adds_shares_to_extract_model_via_put_by_title(self):
+        # Live-verified (2026-08 sandbox): the EXTRACT permissions endpoint
+        # keys entries by "partyId" (same as LIVE) — a "party"-keyed entry is
+        # silently dropped by the PUT. New entries merge with the existing
+        # raw share list.
+        put_payloads = []
+
+        class _RecordingClient(FakeApiClient):
+            def put(self, url, data=None, **kwargs):
+                put_payloads.append((url, data))
+                return super().put(url, data=data, **kwargs)
+
+        client = _RecordingClient(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"shares": [{"partyId": "u0", "type": "user", "permission": "r"}]}),
+            },
+            put_responses={"/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"success": True})},
+            logger=FakeLogger(),
+        )
+        dm = DataModel(api_client=client)
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result["success"] is True
+        assert result["new_shares"] == 1
+        assert result["updated_shares"] == 0
+        assert result["skipped"] == []
+
+        url, payload = put_payloads[0]
+        assert url == "/api/elasticubes/localhost/SalesModel/permissions"
+        assert payload == [
+            {"partyId": "u0", "type": "user", "permission": "r"},
+            {"partyId": "u1", "type": "user", "permission": "w"},
+        ]
+
+    def test_extract_share_for_existing_party_updates_permission_in_place(self):
+        put_payloads = []
+
+        class _RecordingClient(FakeApiClient):
+            def put(self, url, data=None, **kwargs):
+                put_payloads.append((url, data))
+                return super().put(url, data=data, **kwargs)
+
+        client = _RecordingClient(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"shares": [{"partyId": "u1", "type": "user", "permission": "r"}]}),
+            },
+            put_responses={"/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"success": True})},
+            logger=FakeLogger(),
+        )
+        dm = DataModel(api_client=client)
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result["success"] is True
+        assert result["new_shares"] == 0
+        assert result["updated_shares"] == 1
+
+        _, payload = put_payloads[0]
+        assert payload == [{"partyId": "u1", "type": "user", "permission": "w"}]
+
+    def test_share_for_inactive_user_is_skipped_not_submitted(self):
+        # Live-verified: Sisense accepts the write but silently drops entries
+        # for inactive users — the SDK must not submit them and pretend the
+        # share landed. With only an inactive candidate, nothing resolves.
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com", "active": False}]),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+        )
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result["ok"] is False
+        assert "could be resolved" in result["error"]
+        assert result["skipped"][0]["name"] == "alice@example.com"
+        assert "inactive" in result["skipped"][0]["reason"]
+
+    def test_partial_skip_is_reported_in_the_success_dict(self):
+        # One resolvable share + one unknown user: the write succeeds, and the
+        # unknown user is reported in "skipped" instead of a log-only warning.
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com", "active": True}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"shares": []}),
+            },
+            put_responses={"/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"success": True})},
+        )
+        result = dm.add_datamodel_shares(
+            "SalesModel",
+            [
+                {"name": "alice@example.com", "type": "user", "permission": "EDIT"},
+                {"name": "ghost@example.com", "type": "user", "permission": "USE"},
+            ],
+        )
+        assert result["success"] is True
+        assert result["new_shares"] == 1
+        assert result["skipped"] == [{"name": "ghost@example.com", "type": "user", "reason": "User not found."}]
+
+    def test_extract_returns_error_when_permissions_fetch_fails(self):
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                # No /permissions endpoint → None → connection-failure dict
+            },
+        )
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -552,11 +675,11 @@ class TestGetData:
         assert len(result) == 2
         assert result[0]["id"] == 1
 
-    def test_returns_empty_list_on_api_failure(self):
-        # get_data returns [] (not error dict) on failure
+    def test_returns_error_dict_on_api_failure(self):
         dm = _make_dm()
         result = dm.get_data("SalesModel", "orders")
-        assert result == []
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -573,11 +696,11 @@ class TestGetRowCount:
         result = dm.get_row_count("SalesModel")
         assert isinstance(result, list)
 
-    def test_returns_empty_list_when_model_not_found(self):
-        # get_row_count returns [] (not error dict) when model not found
+    def test_returns_error_dict_when_model_not_found(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, None)})
         result = dm.get_row_count("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "error" in result
 
 
 # ---------------------------------------------------------------------------

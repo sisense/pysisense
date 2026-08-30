@@ -94,6 +94,8 @@ Add a custom JavaScript script to a dashboard for UI customization.
 
 The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Only the **dashboard owner** can save scripts; pass **`executing_user`** as the Sisense **username** of your API token user to temporarily take ownership (admin), apply the script, then restore the previous owner and shares.
 
+On success this returns `{"success": True, "message": "..."}`; failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`. If the update fails with **404** and no `executing_user` was passed, a hint about passing `executing_user` is appended to the `error` sentence.
+
 ```python
 dashboard_id = "65d62c9574851800339cf49e"
 script = """
@@ -119,14 +121,17 @@ dashboard.on('widgetready', function(d) {
 });
 """
 response = dashboard.add_dashboard_script(dashboard_id, script, executing_user="sisensepy@sisense.com")
-print(response)
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(response["message"])  # {"success": True, "message": "..."}
 ```
 
 ---
 
 ## Example 6: Add Widget Script
 
-Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** often indicates an ownership issue.
+Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect and returns `{"success": True, "message": "..."}`. Failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}` — including when the script was added but the republish failed, in which case the `error` sentence says so. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** and no `executing_user` appends a hint about passing `executing_user` to the `error` sentence.
 
 ```python
 dashboard_id = "67dc928ae72ce30033bc6680"
@@ -148,48 +153,61 @@ widget.on('beforeviewloaded', function(se, ev){
 }) 
 """
 response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user="sisensepy@sisense.com")
-print(response)
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(response["message"])  # {"success": True, "message": "..."}
 ```
 
 ---
 
 ## Example 7: Add Dashboard Shares
 
-Share a dashboard with users and groups, specifying permissions.
+Share a dashboard with users and groups, specifying permissions. On success this returns `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>}` — when every requested share already exists with the same rule, both counts are `0`. Failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`.
 
 ```python
 dashboard_id = "6823c49365acb80033041c88"
 shares = [{"name": "john.doe@sisense.com", "type": "user", "rule": "edit"}, {"name": "viewer@sisense.com", "type": "user", "rule": "view"}, {"name": "mig_test", "type": "group", "rule": "view"}]
 response = dashboard.add_dashboard_shares(dashboard_id, shares)
-print(response)
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(response["message"])
+    print(f"New shares: {response['new_shares']}, updated shares: {response['updated_shares']}")
 ```
 
 ---
 
 ## Example 8: Get Columns from a Dashboard
 
-Retrieve all columns from a specific dashboard.
+Retrieve all columns from a specific dashboard. An empty list means the dashboard genuinely references no columns; failures (dashboard not found, export failed or unparseable) return the standard error dict `{"ok": False, "error": "..."}`.
 
 ```python
 dashboard_id = "pysense_databricks"
 dashboard_columns = dashboard.get_dashboard_columns(dashboard_id)
-print(json.dumps(dashboard_columns, indent=4))
-df = api_client.to_dataframe(dashboard_columns)
-print(df)
+if isinstance(dashboard_columns, dict) and dashboard_columns.get("ok") is False:
+    print(dashboard_columns["error"])
+else:
+    print(json.dumps(dashboard_columns, indent=4))
+    df = api_client.to_dataframe(dashboard_columns)
+    print(df)
 ```
 
 ---
 
 ## Example 9: Get Dashboard Shares
 
-Get sharing information for a dashboard by name.
+Get sharing information for a dashboard by name. An empty list always means the dashboard genuinely has no shares; a dashboard that cannot be found returns the standard error dict `{"ok": False, "error": "..."}`.
 
 ```python
 dashboard_name = "pysense_databricks"
 share_info = dashboard.get_dashboard_share(dashboard_name)
-print(json.dumps(share_info, indent=4))
-df = api_client.to_dataframe(share_info)
-print(df)
+if isinstance(share_info, dict) and share_info.get("ok") is False:
+    print(share_info["error"])
+else:
+    print(json.dumps(share_info, indent=4))
+    df = api_client.to_dataframe(share_info)
+    print(df)
 ```
 
 ---

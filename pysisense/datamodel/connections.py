@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from typing_extensions import deprecated
-
 from ..payloads import (
     AthenaConnectionParams,
     BigQueryConnectionParams,
@@ -40,16 +38,16 @@ class ConnectionsMixin:
 
         if response is None:
             self.logger.error(f"No response received while retrieving connections with name '{connection_name}'")
-            return {"error": "No response from API while retrieving connections"}
+            return {"ok": False, "error": "No response from API while retrieving connections"}
 
         if not response.ok:
             self.logger.error(f"Failed to retrieve connections. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve connections. Status Code: {response.status_code}"}
+            return {"ok": False, "error": f"Failed to retrieve connections. Status Code: {response.status_code}"}
 
         connections = response.json()
         if not connections:
             self.logger.warning(f"No connections found with name '{connection_name}'")
-            return {"error": f"No connections found with name '{connection_name}'"}
+            return {"ok": False, "error": f"No connections found with name '{connection_name}'"}
 
         self.logger.info(f"Successfully retrieved connections with name '{connection_name}'")
         self.logger.debug(f"Connection details: {connections}")
@@ -80,22 +78,6 @@ class ConnectionsMixin:
         self.logger.info(f"Successfully retrieved {count} connections.")
         return connections
 
-    @deprecated("use get_connections_all")
-    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
-        """Retrieve all connections.
-
-        Deprecated alias for :meth:`get_connections_all`, kept for backward
-        compatibility. Prefer ``get_connections_all``, which makes the
-        all-vs-single distinction from ``get_connection`` explicit.
-
-        Returns
-        -------
-        list[dict[str, Any]] | dict[str, Any]
-            List of connection objects on success, or ``{"error": "..."}`` on
-            failure.
-        """
-        return self.get_connections_all()
-
     def update_connection(self, connection_id: str, connection_data: ConnectionUpdatePayload) -> dict[str, Any]:
         """Update an existing connection.
 
@@ -120,7 +102,7 @@ class ConnectionsMixin:
         """
         if not connection_data:
             self.logger.error("update_connection requires at least one field in connection_data.")
-            return {"error": "connection_data must contain at least one field to update."}
+            return {"ok": False, "error": "connection_data must contain at least one field to update."}
 
         endpoint = f"/api/v2/connections/{connection_id}"
         self.logger.debug(f"Updating connection {connection_id} — fields: {list(connection_data.keys())}")
@@ -169,7 +151,7 @@ class ConnectionsMixin:
         connection = self.get_connection(connection_name)
         if not connection or "error" in connection:
             self.logger.error(f"Connection '{connection_name}' not found. Cannot retrieve table schema.")
-            return {"error": f"Connection '{connection_name}' not found."}
+            return {"ok": False, "error": f"Connection '{connection_name}' not found."}
 
         connection_id = connection[0].get("oid")
         connection_provider = connection[0].get("provider")
@@ -184,16 +166,16 @@ class ConnectionsMixin:
         # Step 3: Handle response
         if response is None:
             self.logger.error(f"No response received while retrieving schema for table '{table_name}'")
-            return {"error": "No response from API while retrieving table schema"}
+            return {"ok": False, "error": "No response from API while retrieving table schema"}
 
         if not response.ok:
             self.logger.error(f"Failed to retrieve schema for table '{table_name}'. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve table schema. Status Code: {response.status_code}"}
+            return {"ok": False, "error": f"Failed to retrieve table schema. Status Code: {response.status_code}"}
 
         schema = response.json()
         if not schema:
             self.logger.warning(f"No schema data found for table '{table_name}'")
-            return {"error": f"No schema found for table '{table_name}'"}
+            return {"ok": False, "error": f"No schema found for table '{table_name}'"}
 
         self.logger.info(f"Successfully retrieved schema for table '{table_name}'")
         self.logger.debug(f"Table schema details: {schema}")
@@ -365,7 +347,7 @@ class ConnectionsMixin:
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
-    def create_connections(self, connection_payload: ConnectionPayload) -> dict[str, Any] | None:
+    def create_connections(self, connection_payload: ConnectionPayload) -> dict[str, Any]:
         """Create a new connection using the provided payload.
 
         Sends ``POST /api/v2/connections`` with the given payload, which is
@@ -383,7 +365,8 @@ class ConnectionsMixin:
         -------
         dict[str, Any] | None
             JSON response with the created connection details on success
-            (HTTP 201), otherwise ``None``.
+            (HTTP 201), or the standard ``{"ok": False, "error": "...", ...}``
+            dict on failure.
         """
         endpoint = "/api/v2/connections"
         self.logger.debug(f"Creating connection with payload: {redact_secrets(connection_payload)}")
@@ -398,4 +381,4 @@ class ConnectionsMixin:
 
         failure = _extract_error_message(response, "Failed to create connection", self.api_client)
         self.logger.error(failure["error"])
-        return None
+        return failure

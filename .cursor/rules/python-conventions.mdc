@@ -29,15 +29,19 @@ from typing import Dict, List  # don't use deprecated aliases
 
 ## Error handling — return dicts, don't raise
 
-Methods return `{"error": "..."}` dicts on failure. Do not raise exceptions from public methods unless the module already uses exceptions consistently.
+Methods return `{"ok": False, "error": "..."}` dicts on failure — every failure dict carries the explicit `"ok": False` marker. Do not raise exceptions from public methods unless the module already uses exceptions consistently. HTTP failures are built ONLY by `_extract_error_message()` (`pysisense/utils.py`); hand-built validation/not-found failures must include the marker.
 
 ```python
-# ✅ GOOD
+# ✅ GOOD — HTTP failure via the central helper
 response = self.api_client.get(url)
-if "error" in response:
-    self.logger.error(f"Failed to get dashboard: {response['error']}")
-    return {"error": response["error"]}
-return response
+if response is None or response.status_code != 200:
+    failure = _extract_error_message(response, "Failed to get dashboard", self.api_client)
+    self.logger.error(failure["error"])
+    return failure
+return response.json()
+
+# ✅ GOOD — hand-built validation failure carries the marker
+return {"ok": False, "error": "dashboard_name is required."}
 ```
 
 ## Logging — levels and secrets policy
@@ -82,7 +86,9 @@ if isinstance(dashboards, str):
 
 ## Role name mapping
 
-| Sisense internal | User-facing |
+Canonical user rows carry both vocabularies: `ROLE_NAME` is the **raw** Sisense value and `ROLE_DISPLAY_NAME` is the name the Sisense UI shows. The alias table lives once, as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
+
+| `ROLE_NAME` (raw Sisense) | `ROLE_DISPLAY_NAME` (UI) |
 |---|---|
 | `consumer` | `viewer` |
 | `super` | `sysAdmin` |

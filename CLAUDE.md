@@ -88,9 +88,9 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 |---|---|---|
 | `blox/` | `core.py` | `get_blox_actions` (OS-routed), `save_blox_action`, `delete_blox_action` |
 | | `widgets.py` | `get_blox_widget_style`, `update_blox_widget_style` |
-| `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_users_expanded`, `create_users_bulk`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
-| | `groups.py` | `get_group`, `get_groups`, `create_groups_bulk`, `delete_group`, `users_per_group`, `users_per_group_all` |
-| | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
+| `access_management/` | `users.py` | `get_user` (canonical row), `get_my_user`, `get_roles`, `change_user_password`, `get_users_all` (canonical rows), `create_users_bulk`, `create_user`, `update_user`, `delete_user`; deprecated: `get_user_with_role_and_group_names`→get_user, `get_users_with_role_names_and_group_names`→get_users_all, `get_users_expanded`→get_users_all |
+| | `groups.py` | `get_groups` (optional `name=` filter), `create_groups_bulk`, `delete_group`, `users_per_group` (flat membership rows, optional `group_name=`); deprecated: `get_group`→get_groups, `users_per_group_all`→users_per_group |
+| | `columns.py` | `get_datamodel_columns`, `get_unused_columns_bulk` (returns `{"results", "errors"}`); deprecated: `get_unused_columns`→get_unused_columns_bulk |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `get_user_email_and_group_name_maps`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
@@ -104,7 +104,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference`, `get_elasticubes`, `load_datamodel`, `delete_datamodel`, `export_datamodel_schema`, `import_datamodel_schema` |
-| | `connections.py` | `get_connection`, `get_connections_all` (`get_connections` kept as deprecated alias), `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `connections.py` | `get_connection`, `get_connections_all`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
@@ -310,15 +310,19 @@ from typing import Dict, List  # don't use deprecated aliases
 
 ### Error handling — return dicts, don't raise
 
-Methods return `{"error": "..."}` dicts on failure. Do not raise exceptions from public methods unless the module already uses exceptions consistently.
+Methods return `{"ok": False, "error": "..."}` dicts on failure — every failure dict carries the explicit `"ok": False` marker. Do not raise exceptions from public methods unless the module already uses exceptions consistently. HTTP failures are built ONLY by `_extract_error_message()` (`pysisense/utils.py`); hand-built validation/not-found failures must include the marker.
 
 ```python
-# ✅ GOOD
+# ✅ GOOD — HTTP failure via the central helper
 response = self.api_client.get(url)
-if "error" in response:
-    self.logger.error(f"Failed to get dashboard: {response['error']}")
-    return {"error": response["error"]}
-return response
+if response is None or response.status_code != 200:
+    failure = _extract_error_message(response, "Failed to get dashboard", self.api_client)
+    self.logger.error(failure["error"])
+    return failure
+return response.json()
+
+# ✅ GOOD — hand-built validation failure carries the marker
+return {"ok": False, "error": "dashboard_name is required."}
 ```
 
 ### Logging — levels and secrets policy
@@ -384,7 +388,11 @@ if isinstance(dashboards, str):
 
 ### Role name mapping
 
-| Sisense internal | User-facing |
+Canonical user rows carry both vocabularies: `ROLE_NAME` is the **raw** Sisense value
+and `ROLE_DISPLAY_NAME` is the name the Sisense UI shows. The alias table lives once,
+as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
+
+| `ROLE_NAME` (raw Sisense) | `ROLE_DISPLAY_NAME` (UI) |
 |---|---|
 | `consumer` | `viewer` |
 | `super` | `sysAdmin` |
@@ -520,28 +528,33 @@ functions. New top-level SDK classes must be added to `FACADES`.
 
 ### Error-dict shape — stable public API
 
-Failure returns are `{"error": "<human-readable message>", "status_code": <int, when an
-HTTP status exists>}`. Consumers key failure detection on the **presence of** `"error"`
-(never on an exact key set — the dict may gain additive keys in minor releases, e.g.
-`failed_references`) and relay the string to end users. Renaming or removing these keys
+Failure returns are `{"ok": False, "error": "<human-readable message>", "status_code":
+<int, when an HTTP status exists>}`. Every failure dict carries the explicit
+`"ok": False` marker — the self-identifying, forward-compatible failure signal.
+Consumers key failure detection on `payload.get("ok") is False` (or the presence of
+`"error"`; never on an exact key set — the dict may gain additive keys in any release,
+e.g. `raw_body`) and relay the string to end users. Success returns never
+carry `ok` — the marker only marks failures. Renaming or removing these keys
 is a breaking change even with no signature change; adding keys is not, but must be
 called out in the downstream changelog with a "consumers matching exact key sets must
 widen" note. `_extract_error_message` (`pysisense/utils.py`) is the only place that
 builds this dict — never hand-roll it. Redaction happens **before** message
 construction and is part of the contract — the error string is the one channel some
-consumers pass across privacy boundaries.
+consumers pass across privacy boundaries. `"error"` is always a clean sentence: the
+recognised Sisense reason, or an honest label (`"unrecognized error body"`) with the
+redacted, truncated dump traveling separately in the additive `"raw_body"` key.
 
 The resolver envelopes (`resolve_dashboard_reference` / `resolve_datamodel_reference`:
 `{"success", "status_code", "<entity>_id", "<entity>_title", "error"}`) are their own
 stable shape, detected via `success` — never fold them into the generic error dict.
 
-Documented failure-shape exceptions (string returns, `[]`, `None`, list-wrapped error
-dicts, report_manager's own handler) are listed in the README's "Stable Contracts for
-Programmatic Consumers" section. Do not add new exceptions. **2.0 wishlist:** converge
-the exception shapes onto the error-dict contract (`[]`-on-403 hides permission denials
-from consumers), and consider splitting the recognised Sisense sentence (`error`) from
-the unrecognised-body fallback (`raw_body`) so consumers with different trust
-boundaries can handle each independently — both breaking, so they wait for a major.
+The 2.0 wishlist is **delivered**: every live method returns the error dict on failure
+(the pre-2.0 `[]`/string/`None`/list-wrapped exceptions are gone — an empty list from a
+read method always means a genuinely empty result), and unrecognised bodies are split
+into `error` (clean sentence) + `raw_body` (redacted dump). Do not add new
+failure-shape exceptions. Deprecated aliases are fossils: their old shapes (including
+old failure shapes) stay frozen until removal. Remaining for a future major: removing
+the six aliases deprecated in 2.0.
 
 ### Release ritual — downstream-generators changelog block
 
@@ -588,10 +601,11 @@ datamodel.deploy_datamodel(name)
 ### Datasecurity readers — empty means empty
 
 `get_datasecurity`, `get_datasecurity_detail`, and `get_datasecurity_raw` all return
-``[]`` when a model has no RLS rules — never a placeholder row. Row counts must always
-equal real rule counts: programmatic consumers count rows, so a fabricated blank entry
-reads as "one rule". The same rule applies SDK-wide — never substitute a placeholder
-row for an empty result.
+``[]`` only when a model genuinely has no RLS rules — never a placeholder row, and
+(since 2.0) never as a failure disguise: resolve/fetch failures return the standard
+error dict. Row counts must always equal real rule counts: programmatic consumers
+count rows, so a fabricated blank entry reads as "one rule". The same rule applies
+SDK-wide — never substitute a placeholder row for an empty result.
 
 ### Share permissions
 
