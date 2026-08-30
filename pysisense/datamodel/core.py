@@ -687,9 +687,9 @@ class DataModelCoreMixin:
         title_response = self.api_client.get(title_endpoint, params=title_params)
 
         if title_response is None:
-            error_msg = "No response received while resolving data model by title."
+            failure = _extract_error_message(title_response, "Failed to resolve data model by title", self.api_client)
             self.logger.error(
-                error_msg,
+                failure["error"],
                 extra={"datamodel_ref": datamodel_ref},
             )
             return {
@@ -697,15 +697,12 @@ class DataModelCoreMixin:
                 "status_code": 500,
                 "datamodel_id": None,
                 "datamodel_title": None,
-                "error": error_msg,
+                "error": failure["error"],
             }
 
         if title_response.status_code != 200:
-            try:
-                error_body = title_response.json()
-            except Exception:
-                error_body = getattr(title_response, "text", "No response text")
-            error_msg = f"Failed to resolve data model by title. Status: {title_response.status_code}, Error: {error_body}"
+            failure = _extract_error_message(title_response, "Failed to resolve data model by title", self.api_client)
+            error_msg = failure["error"]
             self.logger.error(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref},
