@@ -192,7 +192,7 @@ Retrieves groups — one named group, or all of them. With `name` the API filter
 
 **Returns:**
 
--   `list` | `dict`: A list of raw group objects in both modes (each with `_id`, `name`, `defaultRole`, and related fields) — empty when a `name` filter matches nothing. Returns `{"ok": False, "error": "..."}` on failure.
+-   `list` | `dict`: A list of raw group objects in both modes (each with `_id`, `name`, `defaultRole`, and related fields). Without `name`, an empty list means the server genuinely has no groups. The `name` filter is an exact-match lookup — an unknown name returns `{"ok": False, "error": "..."}` naming it (same honesty rule as `get_user`), never an empty list. Returns the standard error dict on failure.
 
 * * * * *
 

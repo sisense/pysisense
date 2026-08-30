@@ -77,9 +77,11 @@ class GroupsMixin:
         -------
         list[dict[str, Any]] | dict[str, Any]
             A list of raw group objects as returned by the API (each with
-            ``_id``, ``name``, ``defaultRole``, and related fields) — empty
-            when a ``name`` filter matches nothing. Returns ``{"error": "..."}``
-            on failure.
+            ``_id``, ``name``, ``defaultRole``, and related fields). Without
+            ``name``, an empty list means the server genuinely has no groups.
+            With ``name``, the filter is an exact-match lookup — an unknown
+            name returns ``{"ok": False, "error": "..."}`` naming it, never
+            an empty list. Returns the standard error dict on failure.
         """
         self.logger.debug(f"Starting 'get_groups' method (name={name!r}).")
 
@@ -96,6 +98,14 @@ class GroupsMixin:
         except Exception as e:
             self.logger.exception("Failed to parse groups response JSON.")
             return {"ok": False, "error": f"Failed to parse groups response JSON: {str(e)}"}
+
+        if name is not None and not groups:
+            # The name filter is an exact-match dereference (live-verified) —
+            # an unknown name must fail loudly naming the reference, not
+            # return [] as if the listing were genuinely empty.
+            error_msg = f"Group '{name}' not found."
+            self.logger.error(error_msg)
+            return {"ok": False, "error": error_msg}
 
         self.logger.debug(f"Retrieved {len(groups or [])} group(s).")
         return groups or []
@@ -209,15 +219,12 @@ class GroupsMixin:
         self.logger.debug(f"Starting 'users_per_group' method (group_name={group_name!r}).")
 
         # A filtered request for a group that doesn't exist must fail loudly —
-        # an empty list would read as "the group has no members".
+        # an empty list would read as "the group has no members". get_groups
+        # returns the not-found error dict itself; pass it through.
         if group_name is not None:
             groups = self.get_groups(name=group_name)
             if isinstance(groups, dict):
                 return groups
-            if not groups:
-                error_msg = f"Group '{group_name}' not found."
-                self.logger.error(error_msg)
-                return {"ok": False, "error": error_msg}
 
         users = self._get_users_raw()
         if isinstance(users, dict):

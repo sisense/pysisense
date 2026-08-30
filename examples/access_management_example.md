@@ -325,7 +325,7 @@ else:
 
 ## Example 7a: Get All Groups (or One by Name)
 
-`get_groups()` returns the raw group-object list. Pass `name=` to filter server-side to one group — the result is still a list of raw group objects (empty when the name matches nothing).
+`get_groups()` returns the raw group-object list. Pass `name=` to look up one group server-side (exact match) — the result is still a list of raw group objects. An unknown name returns `{"ok": False, "error": "..."}` naming it, never an empty list.
 
 ```python
 response = access_mgmt.get_groups()
