@@ -78,22 +78,31 @@ class TestExtractErrorMessage:
         assert failure["error"] == "Failed to deploy: the server returned an empty error body (HTTP 502)"
         assert failure["status_code"] == 502
 
-    def test_non_json_body_is_relayed_as_text(self):
+    def test_non_json_body_travels_in_raw_body_with_clean_error_sentence(self):
+        # Unrecognised bodies split: "error" stays a clean sentence, the dump
+        # travels in "raw_body" so consumers with different trust boundaries
+        # can relay or drop it independently.
         failure = _extract_error_message(_NonJsonResponse(500, "Internal Server Error"), "Failed to create DataModel 'X'")
-        assert failure["error"] == "Failed to create DataModel 'X': Internal Server Error (HTTP 500)"
+        assert failure["error"] == "Failed to create DataModel 'X': unrecognized error body (HTTP 500)"
+        assert failure["raw_body"] == "Internal Server Error"
         assert failure["status_code"] == 500
+
+    def test_recognized_body_has_no_raw_body_key(self):
+        failure = _extract_error_message(FakeResponse(403, {"detail": "Access denied"}), "x")
+        assert "raw_body" not in failure
 
     def test_long_raw_body_is_truncated(self):
         failure = _extract_error_message(_NonJsonResponse(500, "x" * 1000), "context")
-        assert "x" * 300 + "…" in failure["error"]
-        assert "x" * 301 not in failure["error"]
+        assert failure["raw_body"] == "x" * 300 + "…"
+        assert "xxx" not in failure["error"]
 
-    def test_secrets_in_error_body_are_redacted(self):
+    def test_secrets_in_unrecognized_body_are_redacted_in_raw_body(self):
         response = FakeResponse(400, {"code": 1, "password": "hunter2", "token": "sekret-token"})
         failure = _extract_error_message(response, "Failed to create user")
+        assert "hunter2" not in failure["raw_body"]
+        assert "sekret-token" not in failure["raw_body"]
+        assert "***REDACTED***" in failure["raw_body"]
         assert "hunter2" not in failure["error"]
-        assert "sekret-token" not in failure["error"]
-        assert "***REDACTED***" in failure["error"]
 
 
 # ---------------------------------------------------------------------------
