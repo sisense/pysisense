@@ -85,7 +85,7 @@ class TestCreateUserValidateEarly:
 
     def test_non_dict_rejected(self):
         result = self._access_mgmt().create_user("not-a-dict")
-        assert result == {"error": "user_data must be a dictionary."}
+        assert result == {"ok": False, "error": "user_data must be a dictionary."}
 
 
 # ---------------------------------------------------------------------------

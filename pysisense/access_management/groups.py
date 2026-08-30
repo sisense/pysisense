@@ -44,11 +44,11 @@ class GroupsMixin:
             response_data = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse group response JSON.")
-            return {"error": f"Failed to parse group response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse group response JSON: {str(e)}"}
 
         if not response_data:
             self.logger.warning(f"No group found with name '{name}'")
-            return {"error": f"No group found with name '{name}'"}
+            return {"ok": False, "error": f"No group found with name '{name}'"}
 
         group = response_data[0]
         group_id = group.get("_id")
@@ -56,7 +56,7 @@ class GroupsMixin:
 
         if not group_id or not group_name:
             self.logger.error(f"Incomplete group data for name '{name}'")
-            return {"error": f"Group '{name}' found but missing expected fields"}
+            return {"ok": False, "error": f"Group '{name}' found but missing expected fields"}
 
         self.logger.debug(f"Group '{name}' found. ID: {group_id}")
         return {"GROUP_ID": group_id, "GROUP_NAME": group_name, "defaultRole": group.get("defaultRole", "")}
@@ -95,7 +95,7 @@ class GroupsMixin:
             groups = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse groups response JSON.")
-            return {"error": f"Failed to parse groups response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse groups response JSON: {str(e)}"}
 
         self.logger.debug(f"Retrieved {len(groups or [])} group(s).")
         return groups or []
@@ -124,7 +124,7 @@ class GroupsMixin:
 
         if response is None:
             self.logger.error("No response received while creating groups in bulk.")
-            return {"error": "No response received while creating groups in bulk."}
+            return {"ok": False, "error": "No response received while creating groups in bulk."}
 
         if response.status_code != 201:
             try:
@@ -132,13 +132,13 @@ class GroupsMixin:
             except Exception:
                 error_message = response.text or "Unknown error"
             self.logger.error(f"Failed to create groups in bulk. Error: {error_message}")
-            return {"error": f"Failed to create groups in bulk. {error_message}"}
+            return {"ok": False, "error": f"Failed to create groups in bulk. {error_message}"}
 
         try:
             created_groups = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse bulk group creation response JSON.")
-            return {"error": f"Failed to parse bulk group creation response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse bulk group creation response JSON: {str(e)}"}
 
         self.logger.info(f"Successfully created {len(created_groups or [])} group(s).")
         return created_groups or []
@@ -217,7 +217,7 @@ class GroupsMixin:
             if not groups:
                 error_msg = f"Group '{group_name}' not found."
                 self.logger.error(error_msg)
-                return {"error": error_msg}
+                return {"ok": False, "error": error_msg}
 
         users = self._get_users_raw()
         if isinstance(users, dict):

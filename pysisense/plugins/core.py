@@ -35,7 +35,7 @@ class PluginsCoreMixin:
             if response is None or response.status_code != 200:
                 status = response.status_code if response is not None else "no response"
                 self.logger.error(f"Failed to fetch plugins at skip={skip} — status {status}")
-                return [{"error": f"Failed to fetch plugins (status {status})"}]
+                return [{"ok": False, "error": f"Failed to fetch plugins (status {status})"}]
 
             data = response.json()
             page = data.get("plugins", [])
@@ -77,7 +77,7 @@ class PluginsCoreMixin:
         if match is None:
             msg = f"Plugin '{plugin}' not found"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         self.logger.info(f"Found plugin '{plugin}' — folderName={match.get('folderName')}")
         return match
@@ -217,7 +217,7 @@ class PluginsCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"PATCH /api/v1/plugins failed — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
         return {"success": True}
 
     def _set_single_plugin_state(self, plugin: str, enabled: bool) -> dict[str, Any]:
@@ -230,7 +230,7 @@ class PluginsCoreMixin:
         if match is None:
             msg = f"Plugin '{plugin}' not found"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         folder = match["folderName"]
         if match.get("isEnabled") == enabled:

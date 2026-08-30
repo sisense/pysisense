@@ -39,11 +39,22 @@ class _ClientWithDomain:
 
 
 class TestExtractErrorMessage:
+    def test_every_failure_kind_carries_the_ok_false_marker(self):
+        # The self-identifying failure marker: consumers detect failures via
+        # payload.get("ok") is False, never by matching exact key sets.
+        http_failure = _extract_error_message(FakeResponse(403, {"detail": "denied"}), "x")
+        empty_failure = _extract_error_message(FakeResponse(502, None, text=""), "x")
+        connection_failure = _extract_error_message(None, "x")
+        assert http_failure["ok"] is False
+        assert empty_failure["ok"] is False
+        assert connection_failure["ok"] is False
+
     def test_http_error_with_detail_body(self):
         response = FakeResponse(403, {"detail": "Access denied: admin role required"})
         failure = _extract_error_message(response, "Failed to retrieve dashboards")
         assert failure["error"] == "Failed to retrieve dashboards: Access denied: admin role required (HTTP 403)"
         assert failure["status_code"] == 403
+        assert failure["ok"] is False
 
     def test_body_key_preference_order(self):
         assert "from-detail" in _extract_error_message(FakeResponse(400, {"detail": "from-detail", "message": "from-message"}), "x")["error"]

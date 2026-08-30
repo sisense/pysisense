@@ -538,7 +538,7 @@ class SisenseClient:
         """
         if not self.token:
             self.logger.error("No bearer token is configured on this client.")
-            return {"error": "No bearer token configured."}
+            return {"ok": False, "error": "No bearer token configured."}
 
         try:
             segments = self.token.split(".")
@@ -553,4 +553,4 @@ class SisenseClient:
             return payload
         except Exception as e:
             self.logger.error(f"Failed to decode bearer token: {e}")
-            return {"error": f"Failed to decode bearer token: {e}"}
+            return {"ok": False, "error": f"Failed to decode bearer token: {e}"}

@@ -113,7 +113,7 @@ class CustomCodeCoreMixin:
             failure.
         """
         if not isinstance(notebook_data, dict):
-            return {"error": "notebook_data must be a dictionary."}
+            return {"ok": False, "error": "notebook_data must be a dictionary."}
 
         endpoint = "/api/v1/notebooks"
         extra_headers = _INTERNAL_HEADER if use_internal_header else None
@@ -162,7 +162,7 @@ class CustomCodeCoreMixin:
             failure.
         """
         if not notebook_data:
-            return {"error": "notebook_data must contain at least one field to update."}
+            return {"ok": False, "error": "notebook_data must contain at least one field to update."}
 
         endpoint = f"/api/v1/notebooks/{notebook_id}"
         extra_headers = _INTERNAL_HEADER if use_internal_header else None
@@ -276,7 +276,7 @@ class CustomCodeCoreMixin:
             API response on success, or ``{"error": "..."}`` on failure.
         """
         if not payload:
-            return {"error": "payload must contain at least one field to update."}
+            return {"ok": False, "error": "payload must contain at least one field to update."}
 
         self.logger.debug(f"PATCH {endpoint}")
         response = self.api_client.patch(endpoint, data=payload)

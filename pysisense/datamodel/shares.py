@@ -121,7 +121,7 @@ class SharesMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
 
         datamodel_id = datamodel.get("oid")
         datamodel_type = datamodel.get("type")
@@ -169,12 +169,12 @@ class SharesMixin:
             # Shares module) — do not remove this return without addressing
             # that first; the endpoint below was the pre-existing, unverified
             # EXTRACT code path before the bug that prompted this return.
-            return {"error": "Fixing Bug: Cannot add shares to EXTRACT DataModels. Will be fixed in V2."}
+            return {"ok": False, "error": "Fixing Bug: Cannot add shares to EXTRACT DataModels. Will be fixed in V2."}
         elif datamodel_type.upper() == "LIVE":
             endpoint = f"/api/v1/elasticubes/live/{datamodel_id}/permissions"
         else:
             self.logger.error(f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'.")
-            return {"error": f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'."}
+            return {"ok": False, "error": f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'."}
 
         # Step 7: Send POST request with payload
         self.logger.debug(f"Payload for adding shares to DataModel '{datamodel_name}': {payload}")
@@ -222,7 +222,7 @@ class SharesMixin:
         except Exception:
             msg = f"Invalid JSON returned while fetching permissions for '{datamodel_title}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         shares = payload.get("shares", []) if isinstance(payload, dict) else []
         self.logger.info(f"Retrieved {len(shares)} raw share(s) for EXTRACT datamodel '{datamodel_title}'.")
@@ -262,7 +262,7 @@ class SharesMixin:
         except Exception:
             msg = f"Invalid JSON returned while fetching permissions for '{datamodel_id}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         shares = payload if isinstance(payload, list) else []
         self.logger.info(f"Retrieved {len(shares)} raw share(s) for LIVE datamodel '{datamodel_id}'.")
@@ -296,7 +296,7 @@ class SharesMixin:
         """
         if not isinstance(shares, list):
             self.logger.error("update_datamodel_permissions_extract requires shares to be a list.")
-            return {"error": "shares must be a list of share objects."}
+            return {"ok": False, "error": "shares must be a list of share objects."}
 
         endpoint = f"/api/elasticubes/localhost/{datamodel_title}/permissions"
         self.logger.debug(f"PUT {endpoint} — {len(shares)} share(s)")
@@ -343,7 +343,7 @@ class SharesMixin:
         """
         if not isinstance(shares, list):
             self.logger.error("update_datamodel_permissions_live requires shares to be a list.")
-            return {"error": "shares must be a list of share objects."}
+            return {"ok": False, "error": "shares must be a list of share objects."}
 
         endpoint = f"/api/v1/elasticubes/live/{datamodel_id}/permissions"
         self.logger.debug(f"PATCH {endpoint} — {len(shares)} share(s)")

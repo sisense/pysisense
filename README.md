@@ -181,10 +181,10 @@ Tools that generate schemas by introspecting this package (agents, MCP servers, 
 Failure returns follow one shape across the SDK:
 
 ```python
-{"error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
+{"ok": False, "error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
 ```
 
-Detect failure by the **presence of the `"error"` key** — never by matching an exact key set. The failure dict may gain **additive** keys in minor releases (`status_code` arrived in 1.1.0; some methods add context like `failed_references`), so a consumer checking `keys() == {"error"}` will silently misclassify failures as successes. Renaming or removing `"error"`/`"status_code"` is treated as a breaking change; adding keys is not.
+Detect failure by the explicit **`"ok": False` marker** (`payload.get("ok") is False`) — the forward-compatible check — or by the presence of the `"error"` key. Never match an exact key set. The failure dict may gain **additive** keys in minor releases (`status_code` arrived in 1.1.0; some methods add context like `failed_references`), so a consumer checking `keys() == {"error"}` will silently misclassify failures as successes. Renaming or removing `"error"`/`"status_code"` is treated as a breaking change; adding keys is not.
 
 Two adjacent guarantees:
 

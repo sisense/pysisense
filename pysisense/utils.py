@@ -63,12 +63,16 @@ def _extract_error_message(response, context, api_client=None):
             there is no response
 
     Returns:
-        dict: {"error": str} always; plus {"status_code": int} when an HTTP
-        status is available.
+        dict: {"ok": False, "error": str} always; plus {"status_code": int}
+        when an HTTP status is available. The explicit "ok": False marker is
+        the forward-compatible failure signal — consumers detect failures via
+        payload.get("ok") is False (or the presence of "error"), never by
+        matching an exact key set, since additive keys may arrive in any
+        release.
     """
     if response is None:
         domain = getattr(api_client, "domain", None) or "the Sisense server"
-        return {"error": f"{context}: no response from {domain} — connection failed"}
+        return {"ok": False, "error": f"{context}: no response from {domain} — connection failed"}
 
     status = response.status_code
     reason = None
@@ -95,7 +99,7 @@ def _extract_error_message(response, context, api_client=None):
     elif len(reason) > _MAX_ERROR_REASON_CHARS:
         reason = reason[:_MAX_ERROR_REASON_CHARS] + "…"
 
-    return {"error": f"{context}: {reason} (HTTP {status})", "status_code": status}
+    return {"ok": False, "error": f"{context}: {reason} (HTTP {status})", "status_code": status}
 
 
 def convert_to_dataframe(data, logger=None):

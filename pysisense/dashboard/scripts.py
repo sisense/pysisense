@@ -315,7 +315,7 @@ class ScriptsMixin:
         if not script:
             msg = f"Dashboard '{dashboard_data.get('title') or dashboard_id}' has no dashboard script."
             self.logger.info(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         DASHBOARD_SCRIPT_TEMPLATE = """\
         /*
@@ -368,7 +368,7 @@ class ScriptsMixin:
         widget_data = next((w for w in widgets if w.get("oid") == widget_id), None)
 
         if not widget_data:
-            return {"error": f"Widget with ID '{widget_id}' not found in dashboard '{dashboard_id}'"}
+            return {"ok": False, "error": f"Widget with ID '{widget_id}' not found in dashboard '{dashboard_id}'"}
 
         # Some Sisense versions omit the script (and title) from the export
         # payload's widget objects entirely — fetch the widget directly, which
@@ -383,7 +383,7 @@ class ScriptsMixin:
         if not script:
             msg = f"Widget '{widget_data.get('title') or widget_id}' has no widget script."
             self.logger.info(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         footer = "// Widget Title: {title} \n// Script is for widget type of {widget_type}\n// To view widget URL Path is {url}"
 

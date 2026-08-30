@@ -635,7 +635,7 @@ class TestGetWidgetScript:
 
         result = dash.get_widget_script("dash123", "widget456")
 
-        assert result == {"error": "Widget 'Revenue by Region' has no widget script."}
+        assert result == {"ok": False, "error": "Widget 'Revenue by Region' has no widget script."}
 
     def test_export_omitting_script_field_falls_back_to_direct_widget_fetch(self, monkeypatch):
         # Some Sisense versions omit 'script' (and 'title') from export widgets
@@ -679,7 +679,7 @@ class TestGetDashboardScriptNoScript:
 
         result = dash.get_dashboard_script("dash123")
 
-        assert result == {"error": "Dashboard 'Sales Report' has no dashboard script."}
+        assert result == {"ok": False, "error": "Dashboard 'Sales Report' has no dashboard script."}
 
 
 class TestBeautifyJsCode:

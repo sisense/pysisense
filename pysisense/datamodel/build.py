@@ -34,7 +34,7 @@ class BuildMixin:
         datamodel_type = datamodel_type.lower()
         if datamodel_type not in ("live", "extract"):
             self.logger.error(f"Invalid DataModel type: '{datamodel_type}'. Must be 'live' or 'extract'.")
-            return {"error": "Invalid datamodel_type. Must be 'live' or 'extract'."}
+            return {"ok": False, "error": "Invalid datamodel_type. Must be 'live' or 'extract'."}
 
         # Pre-check by title — a duplicate name otherwise surfaces as a raw
         # HTTP 500 "Internal Server Error" from the API.
@@ -43,7 +43,7 @@ class BuildMixin:
             oid = existing.get("oid") if isinstance(existing, dict) else None
             error_msg = f"DataModel '{datamodel_name}' already exists" + (f" (oid: {oid})." if oid else ".")
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
 
         payload = {"title": datamodel_name, "type": datamodel_type}
 
@@ -91,7 +91,7 @@ class BuildMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found. Aborting dataset creation.")
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
         datamodel_id = datamodel.get("oid")
         self.logger.debug(f"DataModel ID for '{datamodel_name}': {datamodel_id}")
 
@@ -99,7 +99,7 @@ class BuildMixin:
         datamodel_type = datamodel.get("type")
         if not datamodel_type:
             self.logger.error(f"DataModel '{datamodel_name}' does not have a valid type. Aborting dataset creation.")
-            return {"error": f"DataModel '{datamodel_name}' does not have a valid type."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' does not have a valid type."}
         self.logger.debug(f"DataModel Type for '{datamodel_name}': {datamodel_type}")
 
         # Step 2: Get Connection ID
@@ -107,7 +107,7 @@ class BuildMixin:
         connection = self.get_connection(connection_name)
         if "error" in connection or not connection:
             self.logger.error(f"Connection '{connection_name}' not found. Aborting dataset creation.")
-            return {"error": f"Connection '{connection_name}' not found."}
+            return {"ok": False, "error": f"Connection '{connection_name}' not found."}
         connection_id = connection[0].get("oid")
         self.logger.debug(f"Connection ID for '{connection_name}': {connection_id}")
 
@@ -194,7 +194,7 @@ class BuildMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found. Aborting table creation.")
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
         datamodel_id = datamodel.get("oid")
         datamodel_type = datamodel.get("type")
         self.logger.debug(f"DataModel ID for '{datamodel_name}': {datamodel_id}")
@@ -205,7 +205,7 @@ class BuildMixin:
             datasets = datamodel.get("datasets")
             if datasets and len(datasets) > 1:
                 self.logger.warning(f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")
-                return {"error": (f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")}
+                return {"ok": False, "error": (f"Multiple datasets found in DataModel '{datamodel_name}'. Provide a dataset_id to specify which one to use.")}
             dataset_info = datasets[0]
             dataset_id = dataset_info.get("oid")
             if not database_name:
@@ -224,16 +224,16 @@ class BuildMixin:
 
             if not dataset_id:
                 self.logger.error(f"No dataset ID found in DataModel '{datamodel_name}'. Aborting table creation.")
-                return {"error": f"No dataset ID found in DataModel '{datamodel_name}'."}
+                return {"ok": False, "error": f"No dataset ID found in DataModel '{datamodel_name}'."}
             if not database_name:
                 self.logger.error(f"No database name found in DataModel '{datamodel_name}'. Aborting table creation.")
-                return {"error": f"No database name found in DataModel '{datamodel_name}'."}
+                return {"ok": False, "error": f"No database name found in DataModel '{datamodel_name}'."}
             if not schema_name:
                 self.logger.error(f"No schema name found in DataModel '{datamodel_name}'. Aborting table creation.")
-                return {"error": f"No schema name found in DataModel '{datamodel_name}'."}
+                return {"ok": False, "error": f"No schema name found in DataModel '{datamodel_name}'."}
             if not connection_name:
                 self.logger.error(f"No connection name found in DataModel '{datamodel_name}'. Aborting table creation.")
-                return {"error": f"No connection name found in DataModel '{datamodel_name}'."}
+                return {"ok": False, "error": f"No connection name found in DataModel '{datamodel_name}'."}
         else:
             # If dataset_id is provided, fetch metadata
             self.logger.debug(f"Using provided Dataset ID: {dataset_id}")
@@ -254,7 +254,7 @@ class BuildMixin:
                 self.logger.debug(f"Resolved Dataset ID: {dataset_id}, Database Name: {database_name}, Schema Name: {schema_name}, Connection Name: {connection_name}")
             else:
                 self.logger.error(f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'. Status Code: {dataset.status_code}, Error: {dataset.text}")
-                return {"error": f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'"}
+                return {"ok": False, "error": f"Failed to retrieve dataset details for Dataset ID '{dataset_id}'"}
 
         # Step 3: Fetch schema of the table to be created
         # Use provided database and schema if available, otherwise fallback to inferred values
@@ -263,14 +263,14 @@ class BuildMixin:
 
         if not db_name_to_use or not schema_name_to_use:
             self.logger.error(f"Missing database or schema name for table '{table_name}'.")
-            return {"error": f"Missing database or schema name for table '{table_name}'."}
+            return {"ok": False, "error": f"Missing database or schema name for table '{table_name}'."}
 
         self.logger.debug(f"Fetching schema for table '{table_name}' in database '{db_name_to_use}' and schema '{schema_name_to_use}' under connection '{connection_name}'")
         table_schema = self.get_table_schema(connection_name, db_name_to_use, schema_name_to_use, table_name)
 
         if "error" in table_schema:
             self.logger.error(f"Failed to retrieve schema for table '{table_name}'. Aborting table creation.")
-            return {"error": f"Failed to retrieve schema for table '{table_name}'."}
+            return {"ok": False, "error": f"Failed to retrieve schema for table '{table_name}'."}
 
         self.logger.debug(f"Table schema for '{table_name}': {table_schema}")
 
@@ -344,10 +344,10 @@ class BuildMixin:
                             break
                     if not column_name:
                         self.logger.error("Increment mode requires 'column_name' in build_behavior_config.")
-                        return {"error": "Missing 'column_id' for increment mode."}
+                        return {"ok": False, "error": "Missing 'column_id' for increment mode."}
                     if not column_id:
                         self.logger.error(f"Couldn't resolve column id matching. Column '{column_name}' not found in table '{table_name}'.")
-                        return {"error": f"Column '{column_name}' not found in table '{table_name}'"}
+                        return {"ok": False, "error": f"Column '{column_name}' not found in table '{table_name}'"}
                     build_behavior = {"type": "accumulativeSync", "accumulativeConfig": {"column": column_id, "type": "lastStored", "lastDays": None, "keepOnlyDays": None}}
                 else:
                     self.logger.warning(f"Unknown build mode '{mode}'. Defaulting to 'replace'.")
@@ -439,7 +439,7 @@ class BuildMixin:
         # Step 3: Create Tables
         if not tables:
             self.logger.error("No table definitions provided. Aborting setup.")
-            return {"error": "No table definitions provided."}
+            return {"ok": False, "error": "No table definitions provided."}
 
         self.logger.debug(f"Creating {len(tables)} tables in DataModel '{datamodel_name}'...")
 
@@ -517,7 +517,7 @@ class BuildMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found. Aborting deployment.")
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
 
         datamodel_id = datamodel.get("oid")
         datamodel_type = datamodel.get("type")
@@ -532,7 +532,7 @@ class BuildMixin:
             payload = {"datamodelId": datamodel_id, "buildType": "publish"}
         else:
             self.logger.error(f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'.")
-            return {"error": f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'."}
+            return {"ok": False, "error": f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'."}
 
         # Step 3: Send deployment request
         endpoint = "/api/v2/builds"

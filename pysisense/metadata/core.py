@@ -150,7 +150,7 @@ class MetadataCoreMixin:
         """
         if not isinstance(measure, dict):
             self.logger.error("add_datasource_measure requires measure to be a dict.")
-            return {"error": "measure must be a dictionary."}
+            return {"ok": False, "error": "measure must be a dictionary."}
 
         endpoint = "/api/metadata/"
         self.logger.debug(f"POST {endpoint}")
@@ -186,7 +186,7 @@ class MetadataCoreMixin:
         """
         if not isinstance(query_payload, dict):
             self.logger.error("post_metadata_query requires query_payload to be a dict.")
-            return {"error": "query_payload must be a dictionary."}
+            return {"ok": False, "error": "query_payload must be a dictionary."}
 
         endpoint = "/api/metadata"
         self.logger.debug(f"POST {endpoint}")

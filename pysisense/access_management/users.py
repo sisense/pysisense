@@ -42,7 +42,7 @@ class UsersMixin:
             users = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse users response JSON.")
-            return {"error": f"Failed to parse users response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse users response JSON: {str(e)}"}
 
         self.logger.debug(f"Retrieved {len(users or [])} user(s).")
         return users or []
@@ -148,7 +148,7 @@ class UsersMixin:
             users = response.json()
         except Exception as exc:
             self.logger.exception("Error decoding JSON response for user list in get_user_with_role_and_group_names.")
-            return {"error": f"Failed to decode API response: {exc}"}
+            return {"ok": False, "error": f"Failed to decode API response: {exc}"}
 
         for user in users:
             try:
@@ -177,7 +177,7 @@ class UsersMixin:
                 self.logger.exception(f"Error processing user object in get_user_with_role_and_group_names: {exc}")
 
         self.logger.warning(f"User with username '{user_name}' not found in get_user_with_role_and_group_names.")
-        return {"error": f"User '{user_name}' not found."}
+        return {"ok": False, "error": f"User '{user_name}' not found."}
 
     @deprecated("use get_users_all")
     def get_users_with_role_names_and_group_names(self) -> list[dict[str, Any]]:
@@ -213,7 +213,7 @@ class UsersMixin:
             users_raw = response.json()
         except Exception as exc:
             self.logger.exception("Failed to parse users response JSON.")
-            return [{"error": f"Failed to parse users response JSON: {exc}"}]
+            return [{"ok": False, "error": f"Failed to parse users response JSON: {exc}"}]
 
         enriched_users: list[dict[str, Any]] = []
 
@@ -287,7 +287,7 @@ class UsersMixin:
 
         if response is None:
             self.logger.error("No response received while creating users in bulk.")
-            return {"error": "No response received while creating users in bulk."}
+            return {"ok": False, "error": "No response received while creating users in bulk."}
 
         if response.status_code != 201:
             try:
@@ -295,13 +295,13 @@ class UsersMixin:
             except Exception:
                 error_message = response.text or "Unknown error"
             self.logger.error(f"Failed to create users in bulk. Error: {error_message}")
-            return {"error": f"Failed to create users in bulk. {error_message}"}
+            return {"ok": False, "error": f"Failed to create users in bulk. {error_message}"}
 
         try:
             created_users = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse bulk user creation response JSON.")
-            return {"error": f"Failed to parse bulk user creation response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse bulk user creation response JSON: {str(e)}"}
 
         self.logger.info(f"Successfully created {len(created_users or [])} user(s).")
         return created_users or []
@@ -350,7 +350,7 @@ class UsersMixin:
                 )
 
         self.logger.warning("User with email '%s' not found.", user_email)
-        return {"error": f"User '{user_email}' not found."}
+        return {"ok": False, "error": f"User '{user_email}' not found."}
 
     def get_my_user(self) -> dict[str, Any]:
         """Retrieve the currently logged-in user for the API token.
@@ -425,7 +425,7 @@ class UsersMixin:
         """
         if not password:
             self.logger.error("Password change rejected: password must not be empty.")
-            return {"error": "Password must not be empty."}
+            return {"ok": False, "error": "Password must not be empty."}
 
         endpoint = f"/api/users/{user_id}"
         self.logger.debug(f"Changing password for user ID {user_id}")
@@ -433,7 +433,7 @@ class UsersMixin:
 
         if response is None:
             self.logger.error(f"PATCH request to change password for user {user_id} failed: No response received.")
-            return {"error": f"No response received while changing password for user ID '{user_id}'"}
+            return {"ok": False, "error": f"No response received while changing password for user ID '{user_id}'"}
 
         if not response.ok:
             try:
@@ -441,7 +441,7 @@ class UsersMixin:
             except Exception:
                 error_message = "Unknown error"
             self.logger.error(f"Failed to change password for user {user_id}. Error: {error_message}")
-            return {"error": error_message}
+            return {"ok": False, "error": error_message}
 
         try:
             response_data = response.json()
@@ -526,12 +526,12 @@ class UsersMixin:
         # any API call instead of failing mid-flow at role resolution.
         if not isinstance(user_data, dict):
             self.logger.error("create_user requires user_data to be a dict.")
-            return {"error": "user_data must be a dictionary."}
+            return {"ok": False, "error": "user_data must be a dictionary."}
         missing = [field for field in ("email", "role") if not user_data.get(field)]
         if missing:
             error_msg = f"create_user requires {' and '.join(f'{f!r}' for f in missing)} in user_data — got fields: {sorted(user_data.keys()) or 'none'}"
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
 
         # Custom role mapping
         role_alias_mapping = {"VIEWER": "CONSUMER", "DESIGNER": "CONTRIBUTOR"}
@@ -545,7 +545,7 @@ class UsersMixin:
         role_response = self.api_client.get("/api/roles")
         if not role_response or not role_response.ok:
             self.logger.error("Failed to fetch roles from API")
-            return {"error": "Failed to fetch roles from API"}
+            return {"ok": False, "error": "Failed to fetch roles from API"}
 
         roles_mapping = [{"id": role["_id"], "name": role["name"].upper()} for role in role_response.json()]
         self.logger.debug(f"Roles mapping: {roles_mapping}")
@@ -558,7 +558,7 @@ class UsersMixin:
         else:
             error_msg = f"Role '{user_data.get('role')}' not found in roles_mapping"
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
 
         user_data.pop("role", None)
 
@@ -570,7 +570,7 @@ class UsersMixin:
             group_response = self.api_client.get("/api/v1/groups")
             if not group_response or not group_response.ok:
                 self.logger.error("Failed to fetch groups from API")
-                return {"error": "Failed to fetch groups from API"}
+                return {"ok": False, "error": "Failed to fetch groups from API"}
 
             groups_mapping = [{"id": group["_id"], "name": group["name"].upper()} for group in group_response.json()]
             self.logger.debug(f"Groups mapping: {groups_mapping}")
@@ -584,7 +584,7 @@ class UsersMixin:
                 else:
                     error_msg = f"Group '{group_name}' not found in groups_mapping"
                     self.logger.error(error_msg)
-                    return {"error": error_msg}
+                    return {"ok": False, "error": error_msg}
 
             user_data["groups"] = updated_groups
         else:
@@ -606,7 +606,7 @@ class UsersMixin:
                 error_message = "No response body or invalid JSON"
 
             self.logger.error(f"Failed to create user. Error: {error_message}")
-            return {"error": error_message}
+            return {"ok": False, "error": error_message}
 
     def update_user(self, user_email: str, user_data: UpdateUserPayload) -> dict[str, Any]:
         """
@@ -652,7 +652,7 @@ class UsersMixin:
         user = self.get_user(user_email)
         if not user:
             self.logger.error("User with email '%s' not found.", user_email)
-            return {"error": f"User with email '{user_email}' not found."}
+            return {"ok": False, "error": f"User with email '{user_email}' not found."}
 
         role_alias_mapping = {
             "VIEWER": "CONSUMER",
@@ -671,7 +671,7 @@ class UsersMixin:
                     "Failed to fetch roles from API. Status Code: %s",
                     status,
                 )
-                return {"error": "Failed to fetch roles from API."}
+                return {"ok": False, "error": "Failed to fetch roles from API."}
 
             roles_mapping = [{"id": role["_id"], "name": str(role["name"]).upper()} for role in role_response.json()]
             self.logger.debug("Roles mapping: %s", roles_mapping)
@@ -683,7 +683,7 @@ class UsersMixin:
             else:
                 error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
                 self.logger.error(error_msg)
-                return {"error": error_msg}
+                return {"ok": False, "error": error_msg}
 
             user_data.pop("role", None)
 
@@ -704,7 +704,7 @@ class UsersMixin:
                         "Failed to fetch groups from API. Status Code: %s",
                         status,
                     )
-                    return {"error": "Failed to fetch groups from API."}
+                    return {"ok": False, "error": "Failed to fetch groups from API."}
 
                 groups_mapping = [{"id": group["_id"], "name": str(group["name"]).upper()} for group in group_response.json()]
                 self.logger.debug("Groups mapping: %s", groups_mapping)
@@ -718,7 +718,7 @@ class UsersMixin:
                     else:
                         error_msg = f"Group '{group_name}' not found in groups_mapping"
                         self.logger.error(error_msg)
-                        return {"error": error_msg}
+                        return {"ok": False, "error": error_msg}
 
                 user_data["groups"] = updated_groups
 
@@ -766,12 +766,12 @@ class UsersMixin:
             error_msg = f"User '{user_name}' not found. Cannot proceed with deletion."
             self.logger.error(error_msg)
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
         # support both formats just in case
         user_id = user.get("_id") or user.get("USER_ID")
         if not user_id:
             self.logger.error(f"User object for '{user_name}' is missing ID field. Cannot proceed.")
-            return {"error": (f"User '{user_name}' found but no ID field present.")}
+            return {"ok": False, "error": (f"User '{user_name}' found but no ID field present.")}
 
         self.logger.debug(f"User '{user_name}' found. Proceeding to delete user with ID: {user_id}")
 
@@ -800,4 +800,4 @@ class UsersMixin:
                 error_message = "No response body or invalid JSON"
             self.logger.error(f"Failed to delete user '{user_name}' (ID: {user['USER_ID']}). Error: {error_message}")
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
-            return {"error": error_message}
+            return {"ok": False, "error": error_message}

@@ -520,10 +520,13 @@ functions. New top-level SDK classes must be added to `FACADES`.
 
 ### Error-dict shape — stable public API
 
-Failure returns are `{"error": "<human-readable message>", "status_code": <int, when an
-HTTP status exists>}`. Consumers key failure detection on the **presence of** `"error"`
-(never on an exact key set — the dict may gain additive keys in minor releases, e.g.
-`failed_references`) and relay the string to end users. Renaming or removing these keys
+Failure returns are `{"ok": False, "error": "<human-readable message>", "status_code":
+<int, when an HTTP status exists>}`. Every failure dict carries the explicit
+`"ok": False` marker — the self-identifying, forward-compatible failure signal.
+Consumers key failure detection on `payload.get("ok") is False` (or the presence of
+`"error"`; never on an exact key set — the dict may gain additive keys in any release,
+e.g. `failed_references`) and relay the string to end users. Success returns never
+carry `ok` — the marker only marks failures. Renaming or removing these keys
 is a breaking change even with no signature change; adding keys is not, but must be
 called out in the downstream changelog with a "consumers matching exact key sets must
 widen" note. `_extract_error_message` (`pysisense/utils.py`) is the only place that

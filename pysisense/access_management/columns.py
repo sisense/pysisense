@@ -391,14 +391,14 @@ class ColumnsMixin:
         if datamodels is None:
             error_msg = "get_unused_columns_bulk requires at least one data model reference (ID or name)."
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
 
         refs = [datamodels] if isinstance(datamodels, str) else [ref for ref in datamodels if isinstance(ref, str)]
 
         if not refs:
             error_msg = "No valid data model references provided — pass a data model ID or title, or a list of them."
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
 
         self.logger.info(f"Processing specified data models: {refs}")
 
@@ -439,7 +439,7 @@ class ColumnsMixin:
             failure_summary = "; ".join(f"'{f['ref']}': {f['error']}" for f in failed_references) or "no references given"
             error_msg = f"None of the given data model references could be processed — {failure_summary}"
             self.logger.error(error_msg)
-            return {"error": error_msg, "failed_references": failed_references}
+            return {"ok": False, "error": error_msg, "failed_references": failed_references}
 
         if failed_references:
             self.logger.warning(

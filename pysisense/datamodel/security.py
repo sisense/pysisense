@@ -94,20 +94,20 @@ class SecurityMixin:
             if url is None:
                 msg = f"Unsupported datamodel_type '{datamodel_type}' for '{datamodel_name}'."
                 self.logger.error(msg)
-                return {"error": msg}
+                return {"ok": False, "error": msg}
 
             rows, err = self._fetch_datasecurity_rows(url)
             if err:
                 msg = f"{err} ('{datamodel_name}')"
                 self.logger.error(msg)
-                return {"error": msg}
+                return {"ok": False, "error": msg}
             return rows
 
         resolved_name, datasecurity_data = self._fetch_datasecurity(datamodel_name)
         if resolved_name is None:
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
         if datasecurity_data is None:
-            return {"error": f"Failed to fetch raw datasecurity rules for '{resolved_name}'."}
+            return {"ok": False, "error": f"Failed to fetch raw datasecurity rules for '{resolved_name}'."}
         return datasecurity_data
 
     def get_datasecurity(self, datamodel_name: str) -> list[dict[str, Any]]:
@@ -311,12 +311,12 @@ class SecurityMixin:
         """
         if not isinstance(datasecurity, list):
             self.logger.error("update_datasecurity requires datasecurity to be a list.")
-            return {"error": "datasecurity must be a list of rule objects."}
+            return {"ok": False, "error": "datasecurity must be a list of rule objects."}
 
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": datamodel["error"]}
+            return {"ok": False, "error": datamodel["error"]}
 
         title = datamodel.get("title") or datamodel_name
         datamodel_type = datamodel.get("type", "")
@@ -324,7 +324,7 @@ class SecurityMixin:
         if datamodel_type.upper() != "EXTRACT":
             msg = f"update_datasecurity only supports EXTRACT datamodels; '{title}' is type '{datamodel_type}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         # Strip server-managed fields so read-back rules can be re-submitted.
         payload = [{k: v for k, v in rule.items() if k not in _DATASECURITY_SERVER_FIELDS} for rule in datasecurity]
@@ -378,12 +378,12 @@ class SecurityMixin:
         """
         if not isinstance(rules, list):
             self.logger.error("set_live_datasecurity_add_many requires rules to be a list.")
-            return {"error": "rules must be a list of rule objects."}
+            return {"ok": False, "error": "rules must be a list of rule objects."}
 
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": datamodel["error"]}
+            return {"ok": False, "error": datamodel["error"]}
 
         title = datamodel.get("title") or datamodel_name
         datamodel_type = datamodel.get("type", "")
@@ -391,7 +391,7 @@ class SecurityMixin:
         if datamodel_type.upper() != "LIVE":
             msg = f"set_live_datasecurity_add_many only supports LIVE datamodels; '{title}' is type '{datamodel_type}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         # Fill derivable required fields and strip server-managed ones so
         # read-back rules can be re-submitted as-is.
@@ -448,14 +448,14 @@ class SecurityMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": datamodel["error"]}
+            return {"ok": False, "error": datamodel["error"]}
 
         title = datamodel.get("title") or datamodel_name
         base_url = self._build_datasecurity_url(title, datamodel.get("type", ""))
         if base_url is None:
             msg = f"delete_datasecurity does not support datamodel type '{datamodel.get('type')}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         endpoint = f"{base_url}/{table}/{column}"
         self.logger.debug(f"Deleting datasecurity rules for '{title}' — {table}.{column}")
