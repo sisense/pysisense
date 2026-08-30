@@ -3,6 +3,8 @@ AccessManagement Module Documentation
 
 This module provides programmatic access to manage Sisense users, groups, dashboards, permissions, and folder ownership through the `AccessManagement` class.
 
+Every failure return in this module is a dict of the form `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. The shorthand `{"ok": False, "error": "..."}` below always refers to this failure dict.
+
 Class: `AccessManagement`
 -------------------------
 
@@ -20,15 +22,30 @@ Initializes the AccessManagement class.
 
 ### `get_user(self, user_email)`
 
-Retrieves user details by email address and expands the response to include group and role information.
+Retrieves user details by email address and returns the canonical user row, carrying both role vocabularies and both group IDs and names.
 
 **Parameters:**
 
--   `user_email` (str): Email address of the user to be retrieved.
+-   `user_email` (str, **required**): Email address of the user to be retrieved.
 
 **Returns:**
 
--   `dict`: User details on success, or `{'error': 'message'}` on failure or if not found.
+-   `dict`: The canonical user row:
+    - `USER_ID`
+    - `USER_NAME`
+    - `EMAIL`
+    - `FIRST_NAME`
+    - `LAST_NAME`
+    - `IS_ACTIVE`
+    - `ROLE_ID`
+    - `ROLE_NAME` — the **raw** Sisense role value (`consumer`, `super`, `contributor`)
+    - `ROLE_DISPLAY_NAME` — the name the Sisense UI shows (`viewer`, `sysAdmin`, `dashboardDesigner`)
+    - `GROUP_IDS` (list of group IDs)
+    - `GROUP_NAMES` (list of group names)
+
+    `GROUP_IDS`/`GROUP_NAMES` are unfiltered — the `Everyone` group **is** included (the SDK reports what Sisense says; consumers decide what to hide).
+
+    On failure or if the user is not found, returns `{"ok": False, "error": "..."}`.
 
 * * * * *
 
@@ -38,7 +55,7 @@ Retrieves the currently logged-in user for the API token (``GET /api/users/logge
 
 **Returns:**
 
--   `dict`: Logged-in user object on success, or `{'error': 'message'}` on failure.
+-   `dict`: Logged-in user object on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -48,7 +65,7 @@ Retrieves all Sisense roles (``GET /api/roles``). Use to build role name-to-ID m
 
 **Returns:**
 
--   `list`: Role objects on success, or `{'error': 'message'}` on failure.
+-   `list`: Role objects on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -63,16 +80,16 @@ Changes a user's password via ``PATCH /api/users/{user_id}``. Only the ``passwor
 
 **Returns:**
 
--   `dict`: Updated user object on success, or `{'error': 'message'}` on failure.
+-   `dict`: Updated user object on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
 ### `get_user_with_role_and_group_names(self, user_name)`
 
-Retrieves user details by their email (username) and returns both role and
-group **IDs and names** in a single payload. This is useful when you need to
-persist or compare IDs (for API calls or joins) while still having readable
-names.
+> **Deprecated** — use [`get_user`](#get_userself-user_email) instead. This alias is
+> marked deprecated (PEP 702) and its behavior is frozen until removal.
+> `get_user` returns the canonical user row, which already carries both role
+> and group **IDs and names**.
 
 **Parameters:**
 
@@ -80,78 +97,58 @@ names.
 
 **Returns:**
 
--   `dict`: User details including:
-    - `USER_ID`
-    - `USER_NAME`
-    - `FIRST_NAME`
-    - `LAST_NAME`
-    - `EMAIL`
-    - `IS_ACTIVE`
-    - `ROLE_ID`
-    - `ROLE_NAME` (with the same role alias mapping as `get_user`)
-    - `GROUP_IDS` (list of group IDs)
-    - `GROUP_NAMES` (list of group names)  
-    or `{'error': 'message'}` if the user is not found or the API call fails.
-
-**When to use vs `get_user`:**
-
-- Use **`get_user`** when you only need **role name and group names** for a
-  single user and do not care about the underlying IDs.
-- Use **`get_user_with_role_and_group_names`** when you need **both IDs and
-  names** (for example, to feed other APIs that expect IDs, or to export a
-  richer record).
+-   `dict`: User details including `USER_ID`, `USER_NAME`, `FIRST_NAME`,
+    `LAST_NAME`, `EMAIL`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME`, `GROUP_IDS`,
+    and `GROUP_NAMES`, or `{"ok": False, "error": "..."}` if the user is not
+    found or the API call fails.
 
 * * * * *
 
 ### `get_users_all(self)`
 
-Fetches all users along with tenant, group, and role information.
+Fetches all users and returns one canonical user row per user.
 
 **Returns:**
 
--   `list`: List of user dictionaries or list containing one dict with an 'error' key.
+-   `list`: One canonical row per user, each with `USER_ID`, `USER_NAME`,
+    `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`,
+    `ROLE_NAME` (raw Sisense value, e.g. `consumer`), `ROLE_DISPLAY_NAME`
+    (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUP_NAMES` (unfiltered —
+    the `Everyone` group **is** included).
+
+    An empty list means the instance genuinely has zero users. On failure,
+    returns a plain `{"ok": False, "error": "..."}` dict (no longer a
+    list-wrapped `[{"error": ...}]`).
 
 * * * * *
 
 ### `get_users_with_role_names_and_group_names(self)`
 
-Retrieves **all users** from Sisense and enriches them with role and group IDs
-and names. Internally it fetches the users API once with `groups` and `role`
-expanded and resolves each user's role/group IDs and names from those
-expanded objects — a single API call, no separate roles/groups lookups.
+> **Deprecated** — use [`get_users_all`](#get_users_allself) instead. This alias is
+> marked deprecated (PEP 702) and its behavior is frozen until removal.
+> `get_users_all` returns canonical rows that carry both the raw role name
+> (`ROLE_NAME`) and the UI name (`ROLE_DISPLAY_NAME`), plus group IDs and names.
 
 **Returns:**
 
--   `list`: Each entry is a dictionary containing:
-    - `USER_ID`
-    - `USER_NAME`
-    - `FIRST_NAME`
-    - `LAST_NAME`
-    - `EMAIL`
-    - `IS_ACTIVE`
-    - `ROLE_ID`
-    - `ROLE_NAME` — the **raw** Sisense role name (e.g. `"consumer"`), not the
-      public alias. Use `get_user_with_role_and_group_names` for a single
-      user if the aliased name (`"viewer"`) is needed instead.
-    - `GROUP_IDS` (list of group IDs)
-    - `GROUP_NAMES` (list of group names)  
-    or a single-item list with `{'error': 'message'}` if an API call fails.
-
-**When to use vs `get_users_all`:**
-
-- Use **`get_users_all`** when you want a quick list of all users with
-  **role name and group names only**, and do not need role or group IDs.
-- Use **`get_users_with_role_names_and_group_names`** when you need a
-  **richer export** for all users that includes both IDs and names for roles
-  and groups (for reporting, audit, synchronization, or feeding other APIs).
+-   `list`: Each entry is a dictionary containing `USER_ID`, `USER_NAME`,
+    `FIRST_NAME`, `LAST_NAME`, `EMAIL`, `IS_ACTIVE`, `ROLE_ID`,
+    `ROLE_NAME` (the **raw** Sisense role name, e.g. `"consumer"`),
+    `GROUP_IDS`, and `GROUP_NAMES`, or a single-item list with an error dict
+    if an API call fails (frozen deprecated-alias behavior).
 
 ### `get_users_expanded(self)`
 
-Retrieves all users with raw, unmodified role and group objects (``GET /api/v1/users`` with ``groups`` and ``role`` expanded). Unlike `get_users_all` and `get_user_with_role_and_group_names`, role and group names are returned exactly as stored — no display-name aliasing — which is required when resolving role/group mappings across two separate Sisense environments.
+> **Deprecated** — use [`get_users_all`](#get_users_allself) instead. This alias is
+> marked deprecated (PEP 702) and its behavior is frozen until removal.
+> `get_users_all` canonical rows already expose the raw role name in
+> `ROLE_NAME` (no aliasing) alongside `ROLE_DISPLAY_NAME`.
+
+Retrieves all users with raw, unmodified role and group objects (``GET /api/v1/users`` with ``groups`` and ``role`` expanded).
 
 **Returns:**
 
--   `list` | `dict`: The raw list of user objects, or an error message.
+-   `list` | `dict`: The raw list of user objects, or an error dict.
 
 * * * * *
 
@@ -165,13 +162,15 @@ Creates multiple users in a single bulk request. Each entry must already carry a
 
 **Returns:**
 
--   `list` | `dict`: The list of created user objects on success, or an error message.
+-   `list` | `dict`: The list of created user objects on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
 ### `get_group(self, name)`
 
-Retrieves group details by name.
+> **Deprecated** — use [`get_groups`](#get_groupsself-namenone) with the `name=`
+> filter instead. This alias is marked deprecated (PEP 702) and its behavior
+> is frozen until removal.
 
 **Parameters:**
 
@@ -179,17 +178,21 @@ Retrieves group details by name.
 
 **Returns:**
 
--   `dict`: Group details or error message.
+-   `dict`: A dictionary with `GROUP_ID`, `GROUP_NAME`, and `defaultRole`, or an error dict.
 
 * * * * *
 
-### `get_groups(self)`
+### `get_groups(self, name=None)`
 
-Retrieves the full list of groups.
+Retrieves groups — one named group, or all of them. With `name` the API filters server-side (`?name=`) to that group; without it, every group is returned.
+
+**Parameters:**
+
+-   `name` (str, optional): Group name to filter by. Omit for all groups.
 
 **Returns:**
 
--   `list` | `dict`: A list of raw group objects, or an error message.
+-   `list` | `dict`: A list of raw group objects in both modes (each with `_id`, `name`, `defaultRole`, and related fields) — empty when a `name` filter matches nothing. Returns `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -203,7 +206,7 @@ Creates multiple groups in a single bulk request.
 
 **Returns:**
 
--   `list` | `dict`: The list of created group objects on success, or an error message.
+-   `list` | `dict`: The list of created group objects on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -217,7 +220,7 @@ Deletes a group by ID.
 
 **Returns:**
 
--   `dict`: Success or error message.
+-   `dict`: A success message dict, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -231,7 +234,7 @@ Creates a new user by converting group and role names into IDs. Required fields 
 
 **Returns:**
 
--   `dict`: API response or error message.
+-   `dict`: API response on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -247,7 +250,7 @@ Updates a user’s attributes by email address (email-based lookup via get_user)
 
 **Returns:**
 
--   `dict`: API response or a dictionary with an error key if the operation fails.
+-   `dict`: API response on success, or `{"ok": False, "error": "..."}` if the operation fails.
 
 * * * * *
 
@@ -261,27 +264,30 @@ Deletes a user by their email or username.
 
 **Returns:**
 
--   `dict`: Success or error message.
+-   `dict`: A success message dict, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
-### `users_per_group(self, group_name)`
+### `users_per_group(self, group_name=None)`
 
-Returns all usernames for a given group.
+Retrieves group memberships as **flat rows** — one row per (group, user) membership. With `group_name` the rows are that group's members; without it, **every membership** on the instance is returned. `Everyone` memberships are reported like any other — the SDK reports what Sisense says; consumers decide what to hide. There is no synthetic "Admins" bucket.
 
 **Parameters:**
 
--   `group_name` (str): Group name.
+-   `group_name` (str, optional): The name of the group whose members to list. Omit for all memberships. A name that matches no group (e.g. a typo) returns `{"ok": False, "error": "..."}` naming the reference — never a silent empty list.
 
 **Returns:**
 
--   `dict`: Group name and associated usernames or error.
+-   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` (raw Sisense value), and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows). A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
 
 * * * * *
 
 ### `users_per_group_all(self)`
 
-Maps all groups to users, excluding system groups and reassigning admin roles to "Admins".
+> **Deprecated** — use [`users_per_group`](#users_per_groupself-group_namenone) with no
+> argument instead. This alias is marked deprecated (PEP 702) and its behavior
+> (excluding system groups and reassigning admin roles to "Admins") is frozen
+> until removal.
 
 **Returns:**
 
@@ -308,7 +314,7 @@ Changes ownership of folders and optionally dashboards.
 **Returns:**
 
 -   `dict`: `{"total_folders_changed": int, "total_dashboards_changed": int}`
-    on success, `{"error": "..."}` if the executing user or new owner
+    on success, `{"ok": False, "error": "..."}` if the executing user or new owner
     cannot be resolved, or `None` when there are no folders or dashboards
     to change.
 
@@ -330,6 +336,10 @@ Extracts all columns from the datasets and tables of a specified DataModel.
 
 ### `get_unused_columns(self, datamodel_name)`
 
+> **Deprecated** — use [`get_unused_columns_bulk`](#get_unused_columns_bulkdatamodels)
+> instead. This alias is marked deprecated (PEP 702) and its behavior is frozen
+> until removal.
+
 Identifies unused columns in a DataModel by comparing against dashboard usage.
 
 **Parameters:**
@@ -348,12 +358,12 @@ Identifies unused columns in a DataModel by comparing against dashboard usage.
 
 ### `get_unused_columns_bulk(datamodels)`
 
-Runs unused-column analysis for one or more data models and returns a combined result set.
+Runs unused-column analysis for one or more data models and returns a combined per-model outcome.
 
-This is a bulk wrapper around `get_unused_columns()`. It accepts data model
-references (IDs or titles), resolves each one via `Datamodel.resolve_datamodel_reference`,
-runs `get_unused_columns()` for every successfully resolved model, and concatenates
-all rows into a single list.
+It accepts data model references (IDs or titles), resolves each one via
+`Datamodel.resolve_datamodel_reference`, runs the unused-column analysis for
+every successfully resolved model, and returns all rows plus per-reference
+failures in a single dict.
 
 **Parameters:**
 
@@ -367,17 +377,19 @@ all rows into a single list.
 
 **Returns:**
 
-- `list` of `dict`:  
-  A flat list of rows across all processed data models. Each row has the same
-  structure as returned by `get_unused_columns()`.  
+- `dict`:  
+  Always a dict with `"results"` and `"errors"`:
+  - `"results"`: a flat list of column rows across all processed data models.
+    A model that resolves and genuinely has no unused columns contributes no rows.
+  - `"errors"`: a list of `{"ref": ..., "error": ...}` entries, one per
+    reference that could not be resolved or processed — empty when every
+    reference succeeded. Partial success puts the good rows in `"results"`
+    and the per-reference failures in `"errors"`.
 
-  A model that resolves and genuinely has no unused columns contributes no rows.
-
-  When **none** of the given references can be resolved and processed, an
-  `{"error": "...", "failed_references": [{"ref": ..., "error": ...}]}`
-  dictionary is returned instead, naming each reference and why it failed —
-  never a silent empty list. References that fail while others succeed are
-  skipped with a logged warning.
+  When **none** of the given references can be processed (or the input is
+  invalid), the dict additionally carries `"ok": False` and a top-level
+  `"error"` summary naming each reference and why it failed — never a silent
+  empty result. (The old `failed_references` key is gone.)
 
 * * * * *
 
@@ -397,7 +409,7 @@ Fetches all users and groups and builds ID-to-name lookup maps, for resolving sh
 
 **Returns:**
 
--   `dict`: `{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}` on success, or `{"error": "..."}` if either lookup fails.
+-   `dict`: `{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}` on success, or `{"ok": False, "error": "..."}` if either lookup fails.
 
 * * * * *
 
@@ -420,7 +432,7 @@ Schedules a build for a DataModel. Supports both:
 
 **Returns:**
 
-- `dict`: API response confirming schedule creation or error details.
+- `dict`: API response confirming schedule creation, or `{"ok": False, "error": "..."}` on failure.
 
 
 * * * * *
@@ -431,7 +443,7 @@ Retrieves the user profile for the currently authenticated API token. Sends `GET
 
 **Returns:**
 
--   `dict`: The logged-in user object from the API (includes `_id`, `email`, `userName`, `role`, and related fields), or `{"error": "..."}` on failure.
+-   `dict`: The logged-in user object from the API (includes `_id`, `email`, `userName`, `role`, and related fields), or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -441,7 +453,7 @@ Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Retur
 
 **Returns:**
 
--   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"error": "..."}` on failure.
+-   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"ok": False, "error": "..."}` on failure.
 
 **Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.
 
@@ -456,4 +468,4 @@ Retrieves the full list of tenants. Only meaningful on multi-tenant deployments.
 
 **Returns:**
 
--   `list` | `dict`: A list of raw tenant objects, or an error message (for example, on a single-tenant deployment where the tenants endpoint is unavailable).
+-   `list` | `dict`: A list of raw tenant objects, or `{"ok": False, "error": "..."}` on failure (for example, on a single-tenant deployment where the tenants endpoint is unavailable).

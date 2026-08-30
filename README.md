@@ -184,7 +184,9 @@ Failure returns follow one shape across the SDK:
 {"ok": False, "error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
 ```
 
-Detect failure by the explicit **`"ok": False` marker** (`payload.get("ok") is False`) — the forward-compatible check — or by the presence of the `"error"` key. Never match an exact key set. The failure dict may gain **additive** keys in minor releases (`status_code` arrived in 1.1.0; some methods add context like `failed_references`), so a consumer checking `keys() == {"error"}` will silently misclassify failures as successes. Renaming or removing `"error"`/`"status_code"` is treated as a breaking change; adding keys is not.
+Detect failure by the explicit **`"ok": False` marker** (`payload.get("ok") is False`) — the forward-compatible check — or by the presence of the `"error"` key. Never match an exact key set. The failure dict may gain **additive** keys in minor releases (`status_code` arrived in 1.1.0; some methods add context keys), so a consumer checking `keys() == {"error"}` will silently misclassify failures as successes. Renaming or removing `"error"`/`"status_code"` is treated as a breaking change; adding keys is not.
+
+Since 2.0, `"error"` is always a **clean sentence**: either the recognised Sisense reason (from the body's `detail`/`message`/`title`/`error` key) or an honest label like `"unrecognized error body"`. When the body could not be recognized, the redacted, 300-char-truncated dump travels separately in an additive **`"raw_body"`** key, so consumers with different trust boundaries can relay or drop it independently of the sentence.
 
 Two adjacent guarantees:
 
@@ -193,17 +195,10 @@ Two adjacent guarantees:
 
 Connection-level failures carry `"error"` without `"status_code"` (no HTTP status exists; the absence is itself signal).
 
-**Documented failure-shape exceptions** — the following methods do *not* return the error dict on failure; consumers must handle their shapes explicitly:
+**All live methods follow the contract.** The pre-2.0 failure-shape exceptions (`[]`, `"Error: ..."` strings, `None`, list-wrapped error dicts) were converged onto the error dict in 2.0 — an empty list from a read method now always means a genuinely empty result, never a swallowed failure. Two footnotes:
 
-| Failure shape | Methods |
-|---|---|
-| String return (`"Error: ..."` / message text) | `add_dashboard_shares`, `add_dashboard_script`, `add_widget_script` |
-| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares`, `get_datasecurity`, `get_datasecurity_detail` |
-| `None` | `create_connections` |
-| List-wrapped error dict `[{"error": ..., "status_code": ...}]` | `get_users_all`, `get_users_with_role_names_and_group_names` |
-| Own consistent error handler | all `ReportManager` methods |
-
-> **Planned for 2.0:** converging these exception shapes onto the error-dict contract — `[]`-on-403 makes permission denials invisible to consumers, but changing it is breaking, so it waits for a major version. Also under consideration for 2.0: splitting the recognised Sisense sentence (`"error"`) from the unrecognised-body fallback (a separate `"raw_body"` key), so consumers with different trust boundaries can handle each independently.
+- **Deprecated aliases are fossils:** methods carrying `__deprecated__` (e.g. `get_user_with_role_and_group_names`, `users_per_group_all`, `get_unused_columns`) keep their old, frozen shapes — including old failure shapes — until removal. Skip them via the `__deprecated__` marker.
+- **Write methods return dicts on success too:** `add_dashboard_script` / `add_widget_script` return `{"success": True, "message": ...}`; `add_dashboard_shares` returns `{"success": True, "message": ..., "new_shares": n, "updated_shares": n}`; `get_unused_columns_bulk` always returns `{"results": [...], "errors": [{"ref", "error"}]}` (with `"ok": False` + top-level `"error"` added when nothing could be processed).
 
 ### Payload contracts
 

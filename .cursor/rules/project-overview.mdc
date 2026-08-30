@@ -70,9 +70,9 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 |---|---|---|
 | `blox/` | `core.py` | `get_blox_actions` (OS-routed), `save_blox_action`, `delete_blox_action` |
 | | `widgets.py` | `get_blox_widget_style`, `update_blox_widget_style` |
-| `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_users_expanded`, `create_users_bulk`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
-| | `groups.py` | `get_group`, `get_groups`, `create_groups_bulk`, `delete_group`, `users_per_group`, `users_per_group_all` |
-| | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
+| `access_management/` | `users.py` | `get_user` (canonical row), `get_my_user`, `get_roles`, `change_user_password`, `get_users_all` (canonical rows), `create_users_bulk`, `create_user`, `update_user`, `delete_user`; deprecated: `get_user_with_role_and_group_names`→get_user, `get_users_with_role_names_and_group_names`→get_users_all, `get_users_expanded`→get_users_all |
+| | `groups.py` | `get_groups` (optional `name=` filter), `create_groups_bulk`, `delete_group`, `users_per_group` (flat membership rows, optional `group_name=`); deprecated: `get_group`→get_groups, `users_per_group_all`→users_per_group |
+| | `columns.py` | `get_datamodel_columns`, `get_unused_columns_bulk` (returns `{"results", "errors"}`); deprecated: `get_unused_columns`→get_unused_columns_bulk |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `get_user_email_and_group_name_maps`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
