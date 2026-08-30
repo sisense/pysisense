@@ -23,7 +23,7 @@ class SharesMixin:
         users_detail = []
         if users_response and users_response.status_code == 200:
             users_data = users_response.json()
-            users_detail = [{"id": user["_id"], "email": user.get("email", "Unknown Email")} for user in users_data]
+            users_detail = [{"id": user["_id"], "email": user.get("email", "Unknown Email"), "active": user.get("active")} for user in users_data]
         else:
             self.logger.warning("Could not fetch users for share resolution.")
 
@@ -114,7 +114,22 @@ class SharesMixin:
         Returns
         -------
         dict[str, Any]
-            API response on success, or ``{"error": "..."}`` on failure.
+            API response on success, or the standard
+            ``{"ok": False, "error": "...", ...}`` dict on failure (including
+            when none of the given shares can be resolved to an existing user
+            or group — no changes are written in that case).
+
+        Notes
+        -----
+        Both model types key share entries by ``partyId``, but use different
+        endpoints and verbs: EXTRACT permissions are written via
+        ``PUT /api/elasticubes/localhost/{title}/permissions`` (by title),
+        LIVE via ``PATCH /api/v1/elasticubes/live/{oid}/permissions`` (by
+        oid). A share for a party that already has one updates that party's
+        permission instead of duplicating the entry (EXTRACT path). Shares
+        for inactive users are skipped with a warning — Sisense accepts the
+        write but silently drops such entries, so submitting them would
+        report success for a share that never lands.
         """
         self.logger.debug(f"[START] Adding shares to DataModel '{datamodel_name}'")
 
@@ -126,14 +141,12 @@ class SharesMixin:
 
         datamodel_id = datamodel.get("oid")
         datamodel_type = datamodel.get("type")
+        datamodel_title = datamodel.get("title", datamodel_name)
 
-        # Step 2: Get existing shares
-        existing_shares = datamodel.get("shares", [])
-
-        # Step 3: Fetch users and groups for share resolution
+        # Step 2: Fetch users and groups for share resolution
         users_detail, groups_detail = self._fetch_users_and_groups_detail_lists()
 
-        # Step 4: Prepare new shares with normalized permission
+        # Step 3: Prepare new shares with normalized permission
         reverse_permission_map = {"edit": "w", "read": "a", "use": "r"}
         new_shares = []
 
@@ -145,10 +158,15 @@ class SharesMixin:
 
             if share_type == "user":
                 user = next((u for u in users_detail if u["email"] == name), None)
-                if user:
-                    new_shares.append({"partyId": user["id"], "type": "user", "permission": permission_short})
-                else:
+                if user is None:
                     self.logger.warning(f"User '{name}' not found. Skipping share addition.")
+                elif user.get("active") is False:
+                    # Live-verified: Sisense silently drops permission entries
+                    # for inactive users (HTTP 200, entry never lands) — skip
+                    # loudly instead of letting the write pretend it worked.
+                    self.logger.warning(f"User '{name}' is inactive — Sisense ignores shares for inactive users. Skipping share addition.")
+                else:
+                    new_shares.append({"partyId": user["id"], "type": "user", "permission": permission_short})
             elif share_type == "group":
                 group = next((g for g in groups_detail if g["name"] == name), None)
                 if group:
@@ -158,26 +176,49 @@ class SharesMixin:
             else:
                 self.logger.warning(f"Invalid share type '{share_type}' for '{name}'. Skipping share addition.")
 
-        # Step 5: Combine existing and new shares
-        self.logger.debug(f"Existing shares: {existing_shares}")
-        self.logger.debug(f"New shares: {new_shares}")
-        payload = existing_shares + new_shares
+        if not new_shares:
+            # Writing the existing shares back unchanged would read as success
+            # while adding nothing — fail loudly instead.
+            error_msg = f"None of the given shares could be resolved for DataModel '{datamodel_name}' — no changes made."
+            self.logger.error(error_msg)
+            return {"ok": False, "error": error_msg}
 
-        # Step 6: Determine API endpoint
+        # Step 4: Route by model type — both endpoints key entries by
+        # "partyId", but EXTRACT is a PUT by title and LIVE a PATCH by oid.
+        self.logger.debug(f"New shares: {new_shares} (type={datamodel_type})")
+
         if datamodel_type.upper() == "EXTRACT":
-            # NOTE: share writes for EXTRACT models are intentionally disabled
-            # pending a fix (see micael_similar_methods_fixes.md, DataModel
-            # Shares module) — do not remove this return without addressing
-            # that first; the endpoint below was the pre-existing, unverified
-            # EXTRACT code path before the bug that prompted this return.
-            return {"ok": False, "error": "Fixing Bug: Cannot add shares to EXTRACT DataModels. Will be fixed in V2."}
+            existing_raw = self.get_datamodel_permissions_extract(datamodel_title)
+            if isinstance(existing_raw, dict):
+                return existing_raw
+
+            combined = list(existing_raw)
+            for share in new_shares:
+                party_id = share["partyId"]
+                existing_entry = next((e for e in combined if e.get("partyId") == party_id), None)
+                if existing_entry is not None:
+                    self.logger.debug(f"Party '{party_id}' already has a share — updating its permission to '{share['permission']}'.")
+                    existing_entry["permission"] = share["permission"]
+                else:
+                    combined.append(share)
+
+            result = self.update_datamodel_permissions_extract(datamodel_title, combined)
+            if result.get("ok") is False or "error" in result:
+                return result
+            self.logger.info(f"Shares added successfully to DataModel '{datamodel_name}'")
+            return result
+
         elif datamodel_type.upper() == "LIVE":
             endpoint = f"/api/v1/elasticubes/live/{datamodel_id}/permissions"
         else:
             self.logger.error(f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'.")
             return {"ok": False, "error": f"Unsupported DataModel type '{datamodel_type}' for '{datamodel_name}'."}
 
-        # Step 7: Send POST request with payload
+        # Step 5 (LIVE): merge with the schema's existing shares and PATCH
+        existing_shares = datamodel.get("shares", [])
+        self.logger.debug(f"Existing shares: {existing_shares}")
+        payload = existing_shares + new_shares
+
         self.logger.debug(f"Payload for adding shares to DataModel '{datamodel_name}': {payload}")
         response = self.api_client.patch(endpoint, data=payload)
         if response and response.status_code == 200:

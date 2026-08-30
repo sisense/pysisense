@@ -524,9 +524,9 @@ class TestAddDatamodelShares:
         result = dm.add_datamodel_shares("LiveModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
         assert result == {"success": True}
 
-    def test_returns_error_for_extract_model_without_crashing(self):
-        # EXTRACT share writes are intentionally disabled — see
-        # micael_similar_methods_fixes.md, DataModel Shares module.
+    def test_returns_error_when_no_share_resolves(self):
+        # Nothing resolvable must fail loudly, not write existing shares back
+        # unchanged and report success.
         dm = _make_dm(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
@@ -535,7 +535,94 @@ class TestAddDatamodelShares:
             },
         )
         result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
-        assert "error" in result
+        assert result["ok"] is False
+        assert "could be resolved" in result["error"]
+
+    def test_adds_shares_to_extract_model_via_put_by_title(self):
+        # Live-verified (2026-08 sandbox): the EXTRACT permissions endpoint
+        # keys entries by "partyId" (same as LIVE) — a "party"-keyed entry is
+        # silently dropped by the PUT. New entries merge with the existing
+        # raw share list.
+        put_payloads = []
+
+        class _RecordingClient(FakeApiClient):
+            def put(self, url, data=None, **kwargs):
+                put_payloads.append((url, data))
+                return super().put(url, data=data, **kwargs)
+
+        client = _RecordingClient(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"shares": [{"partyId": "u0", "type": "user", "permission": "r"}]}),
+            },
+            put_responses={"/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"success": True})},
+            logger=FakeLogger(),
+        )
+        dm = DataModel(api_client=client)
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result == {"success": True}
+
+        url, payload = put_payloads[0]
+        assert url == "/api/elasticubes/localhost/SalesModel/permissions"
+        assert payload == [
+            {"partyId": "u0", "type": "user", "permission": "r"},
+            {"partyId": "u1", "type": "user", "permission": "w"},
+        ]
+
+    def test_extract_share_for_existing_party_updates_permission_in_place(self):
+        put_payloads = []
+
+        class _RecordingClient(FakeApiClient):
+            def put(self, url, data=None, **kwargs):
+                put_payloads.append((url, data))
+                return super().put(url, data=data, **kwargs)
+
+        client = _RecordingClient(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                "/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"shares": [{"partyId": "u1", "type": "user", "permission": "r"}]}),
+            },
+            put_responses={"/api/elasticubes/localhost/SalesModel/permissions": FakeResponse(200, {"success": True})},
+            logger=FakeLogger(),
+        )
+        dm = DataModel(api_client=client)
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result == {"success": True}
+
+        _, payload = put_payloads[0]
+        assert payload == [{"partyId": "u1", "type": "user", "permission": "w"}]
+
+    def test_share_for_inactive_user_is_skipped_not_submitted(self):
+        # Live-verified: Sisense accepts the write but silently drops entries
+        # for inactive users — the SDK must not submit them and pretend the
+        # share landed. With only an inactive candidate, nothing resolves.
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com", "active": False}]),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+        )
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result["ok"] is False
+        assert "could be resolved" in result["error"]
+
+    def test_extract_returns_error_when_permissions_fetch_fails(self):
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT),
+                "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "alice@example.com"}]),
+                "/api/v1/groups": FakeResponse(200, []),
+                # No /permissions endpoint → None → connection-failure dict
+            },
+        )
+        result = dm.add_datamodel_shares("SalesModel", [{"name": "alice@example.com", "type": "user", "permission": "EDIT"}])
+        assert result["ok"] is False
+        assert "connection failed" in result["error"]
 
 
 # ---------------------------------------------------------------------------
