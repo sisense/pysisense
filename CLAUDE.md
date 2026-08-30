@@ -104,7 +104,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference`, `get_elasticubes`, `load_datamodel`, `delete_datamodel`, `export_datamodel_schema`, `import_datamodel_schema` |
-| | `connections.py` | `get_connection`, `get_connections_all` (`get_connections` kept as deprecated alias), `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `connections.py` | `get_connection`, `get_connections_all`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |

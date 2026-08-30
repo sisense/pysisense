@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from typing_extensions import deprecated
-
 from ..payloads import (
     AthenaConnectionParams,
     BigQueryConnectionParams,
@@ -79,22 +77,6 @@ class ConnectionsMixin:
         count = len(connections) if isinstance(connections, list) else 0
         self.logger.info(f"Successfully retrieved {count} connections.")
         return connections
-
-    @deprecated("use get_connections_all")
-    def get_connections(self) -> list[dict[str, Any]] | dict[str, Any]:
-        """Retrieve all connections.
-
-        Deprecated alias for :meth:`get_connections_all`, kept for backward
-        compatibility. Prefer ``get_connections_all``, which makes the
-        all-vs-single distinction from ``get_connection`` explicit.
-
-        Returns
-        -------
-        list[dict[str, Any]] | dict[str, Any]
-            List of connection objects on success, or ``{"error": "..."}`` on
-            failure.
-        """
-        return self.get_connections_all()
 
     def update_connection(self, connection_id: str, connection_data: ConnectionUpdatePayload) -> dict[str, Any]:
         """Update an existing connection.

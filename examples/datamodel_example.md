@@ -70,7 +70,7 @@ response = datamodel.get_connections_all()
 print(json.dumps(response, indent=4))
 ```
 
-`get_connections()` still works as a deprecated alias with identical behavior.
+The former `get_connections()` alias was removed in 2.0 — use `get_connections_all`.
 
 ---
 

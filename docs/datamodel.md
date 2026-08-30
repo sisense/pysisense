@@ -72,7 +72,7 @@ Retrieves a Connection by its name.
 
 Lists all connections via `GET /api/v2/connections`.
 
-`get_connections()` is kept as a deprecated alias with identical behavior — prefer `get_connections_all`, which makes the all-vs-single distinction from `get_connection` explicit.
+The former `get_connections()` alias (deprecated in 1.1.0) was removed in 2.0 — use `get_connections_all`, which makes the all-vs-single distinction from `get_connection` explicit.
 
 #### Returns:
 
