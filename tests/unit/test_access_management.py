@@ -378,6 +378,20 @@ class TestGetGroups:
         result = am.get_groups()
         assert "error" in result
 
+    def test_name_filter_returns_matching_group(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [_GROUPS[0]])})
+        result = am.get_groups(name=_GROUPS[0]["name"])
+        assert result == [_GROUPS[0]]
+
+    def test_name_filter_with_unknown_name_returns_error_dict(self):
+        # The ?name= filter is an exact-match dereference (live-verified) —
+        # same honesty rule as get_user(email): a typo'd name fails loudly
+        # naming the reference, it never reads as an empty listing.
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [])})
+        result = am.get_groups(name="NoSuchGroup")
+        assert result["ok"] is False
+        assert "NoSuchGroup" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # create_groups_bulk
