@@ -342,48 +342,53 @@ class ColumnsMixin:
 
     def get_unused_columns_bulk(
         self,
-        datamodels: str | list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+        datamodels: str | list[str],
+    ) -> list[dict[str, Any]] | dict[str, Any]:
         """
         Run unused-column analysis for one or more data models and return a
         combined result set.
 
         Parameters
         ----------
-        datamodels : str or list of str, optional
-            One or more data model references to analyze. Each reference can be:
+        datamodels : str or list of str
+            One or more data model references to analyze. **Required.** Each
+            reference can be:
               - a data model ID, or
               - a data model title (name).
-            At least one data model reference is required. At runtime this
-            parameter is tolerant of a single string and will normalize it to a
-            one-element list.
+            At runtime this parameter is tolerant of a single string and will
+            normalize it to a one-element list.
 
         Returns
         -------
-        list of dict
+        list of dict | dict
             A flat list of rows across all processed data models. Each row has
-            the same structure as returned by get_unused_columns().
-            If no data models are successfully processed, an empty list is
-            returned and details are available in the logs.
+            the same structure as returned by get_unused_columns(). A model
+            that resolves and genuinely has no unused columns contributes no
+            rows. When **none** of the given references can be resolved and
+            processed, an ``{"error": "...", "failed_references": [...]}``
+            dictionary is returned instead, naming each reference and why it
+            failed. References that fail while others succeed are skipped with
+            a logged warning.
         """
         self.logger.info("Starting bulk unused-column analysis for data models.")
         self.logger.debug(f"Input datamodels parameter: {datamodels}")
 
         if datamodels is None:
-            error_msg = "At least one data model reference (ID or name) is required."
+            error_msg = "get_unused_columns_bulk requires at least one data model reference (ID or name)."
             self.logger.error(error_msg)
-            return []
+            return {"error": error_msg}
 
         refs = [datamodels] if isinstance(datamodels, str) else [ref for ref in datamodels if isinstance(ref, str)]
 
         if not refs:
-            error_msg = "No valid data model references provided."
+            error_msg = "No valid data model references provided — pass a data model ID or title, or a list of them."
             self.logger.error(error_msg)
-            return []
+            return {"error": error_msg}
 
         self.logger.info(f"Processing specified data models: {refs}")
 
         all_results: list[dict[str, Any]] = []
+        failed_references: list[dict[str, Any]] = []
         processed_count = 0
 
         for ref in refs:
@@ -392,11 +397,13 @@ class ColumnsMixin:
 
             if not resolved.get("success"):
                 self.logger.warning(f"Skipping data model reference '{ref}': {resolved.get('error')}")
+                failed_references.append({"ref": ref, "error": resolved.get("error", "Could not resolve data model reference.")})
                 continue
 
             datamodel_title = resolved.get("datamodel_title")
             if not datamodel_title:
                 self.logger.warning(f"Resolved data model reference '{ref}' has no title. Skipping.")
+                failed_references.append({"ref": ref, "error": "Resolved data model has no title."})
                 continue
 
             try:
@@ -405,14 +412,26 @@ class ColumnsMixin:
             except ValueError as exc:
                 # get_unused_columns raises ValueError when no columns found
                 self.logger.warning(f"Skipping data model '{datamodel_title}' due to error: {exc}")
+                failed_references.append({"ref": ref, "error": str(exc)})
                 continue
 
             all_results.extend(rows)
             processed_count += 1
 
         if processed_count == 0:
-            self.logger.warning("No data models were successfully processed in get_unused_columns_bulk.")
-            return []
+            # A silent [] here would read as "no unused columns" to consumers
+            # that count rows — fail loudly, naming each reference and reason.
+            failure_summary = "; ".join(f"'{f['ref']}': {f['error']}" for f in failed_references) or "no references given"
+            error_msg = f"None of the given data model references could be processed — {failure_summary}"
+            self.logger.error(error_msg)
+            return {"error": error_msg, "failed_references": failed_references}
+
+        if failed_references:
+            self.logger.warning(
+                "get_unused_columns_bulk skipped %d unresolvable reference(s): %s",
+                len(failed_references),
+                [f["ref"] for f in failed_references],
+            )
 
         self.logger.info(
             "Completed unused-column analysis for %d data model(s). Total result rows: %d",

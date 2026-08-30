@@ -20,8 +20,9 @@ class AccessManagement(
 
     Covers user lifecycle (create, update, deactivate), group membership,
     role assignment, folder and dashboard ownership transfer, column-level
-    security restrictions, tenant lookup, and administrative reporting on
-    dashboard shares and scheduled builds.
+    security restrictions, unused-column analysis across data models, tenant
+    lookup, and administrative reporting on dashboard shares and scheduled
+    builds.
 
     Modules
     -------

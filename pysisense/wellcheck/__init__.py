@@ -15,11 +15,7 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
     pivot field density, tabber/accordion/jump-to-dashboard usage) and data
     models (custom table SQL, island tables, RLS column datatypes, import
     queries, many-to-many relationships). Results are returned as structured
-    row lists suitable for export or further analysis. Unused-column analysis
-    is not a check of this class — it lives on
-    ``AccessManagement.get_unused_columns_bulk``; ``run_full_wellcheck`` can
-    include its rows in the aggregate when an ``AccessManagement`` instance is
-    configured.
+    row lists suitable for export or further analysis.
 
     Modules
     -------
@@ -218,7 +214,11 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
             if access_mgmt is None:
                 self.logger.warning("WellCheck.access_mgmt is not configured. Unused-columns analysis will be skipped in run_full_wellcheck.")
             else:
-                unused_columns = access_mgmt.get_unused_columns_bulk(datamodels=datamodel_refs)
+                unused_result = access_mgmt.get_unused_columns_bulk(datamodels=datamodel_refs)
+                if isinstance(unused_result, dict) and "error" in unused_result:
+                    self.logger.warning(f"Unused-columns analysis failed: {unused_result['error']}")
+                else:
+                    unused_columns = unused_result
                 self.logger.info(
                     "Completed unused-columns analysis for %d data model reference(s). Total result rows: %d",
                     len(datamodel_refs),

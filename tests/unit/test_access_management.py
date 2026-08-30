@@ -741,19 +741,29 @@ class TestGetUnusedColumns:
 
 
 class TestGetUnusedColumnsBulk:
-    def test_returns_empty_list_when_datamodels_is_none(self):
+    def test_datamodels_is_a_required_parameter(self):
+        # No default — schema generators must see it as required, so a bare
+        # call cannot silently return "no unused columns".
+        import inspect
+
+        sig = inspect.signature(type(_make_am()).get_unused_columns_bulk)
+        assert sig.parameters["datamodels"].default is inspect.Parameter.empty
+        with pytest.raises(TypeError):
+            _make_am().get_unused_columns_bulk()
+
+    def test_explicit_none_returns_error_dict(self):
         am = _make_am()
         result = am.get_unused_columns_bulk(None)
-        assert result == []
+        assert "error" in result
 
-    def test_returns_empty_list_for_empty_list_input(self):
+    def test_empty_list_input_returns_error_dict(self):
         am = _make_am()
         result = am.get_unused_columns_bulk([])
-        assert result == []
+        assert "error" in result
 
-    def test_skips_model_when_resolve_fails(self):
-        # datamodel.resolve_datamodel_reference will call GET /api/v2/datamodels/{ref}/schema
-        # and then GET /api/v2/datamodels/schema with params — both return 404
+    def test_unresolvable_reference_fails_loudly_not_silently(self):
+        # A typo'd model name must NOT return [] (which reads as "no unused
+        # columns") — it must return the error contract naming the reference.
         am = _make_am(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(404, {}),
@@ -761,7 +771,9 @@ class TestGetUnusedColumnsBulk:
             }
         )
         result = am.get_unused_columns_bulk("NoSuchModel")
-        assert result == []
+        assert "error" in result
+        assert "NoSuchModel" in result["error"]
+        assert result["failed_references"][0]["ref"] == "NoSuchModel"
 
 
 # ---------------------------------------------------------------------------
