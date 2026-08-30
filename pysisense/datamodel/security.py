@@ -125,8 +125,10 @@ class SecurityMixin:
         -------
         list[dict[str, Any]]
             List of dicts, each with ``"datamodel_name"``, ``"table_name"``,
-            ``"column_name"``, and ``"data_type"``. If no rules exist, a single row
-            is returned with empty values and the data model name.
+            ``"column_name"``, and ``"data_type"``. Returns an empty list when
+            the model has no rules, cannot be resolved, or the rules cannot be
+            fetched (failure details are logged) — the row count always equals
+            the number of secured columns.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
@@ -134,7 +136,7 @@ class SecurityMixin:
         if datamodel_name is None:
             return []
         if datasecurity_data is None:
-            return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
+            return []
 
         # Step 4: Parse datasecurity
         datasecurity_info = []
@@ -152,7 +154,7 @@ class SecurityMixin:
 
         if not datasecurity_info:
             self.logger.info(f"No datasecurity rules found for DataModel '{datamodel_name}'")
-            return [{"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": ""}]
+            return []
 
         self.logger.info(f"Resolved {len(datasecurity_info)} datasecurity entries for DataModel '{datamodel_name}'")
         return datasecurity_info
@@ -181,8 +183,10 @@ class SecurityMixin:
             List of dicts representing datasecurity rules in flat, share-resolved
             format, each with ``"datamodel_name"``, ``"table_name"``,
             ``"column_name"``, ``"data_type"``, ``"value"``, ``"exclusionary"``,
-            ``"share_type"``, ``"share_name"``, and ``"rule_description"``. Returns a
-            single default row when no rules exist or on failure.
+            ``"share_type"``, ``"share_name"``, and ``"rule_description"``. Returns
+            an empty list when the model has no rules, cannot be resolved, or the
+            rules cannot be fetched (failure details are logged) — the row count
+            always equals the number of rule/share combinations.
         """
         self.logger.debug(f"[START] Resolving datasecurity info for DataModel '{datamodel_name}'")
 
@@ -190,18 +194,14 @@ class SecurityMixin:
         if datamodel_name is None:
             return []
         if datasecurity_data is None:
-            return [
-                {"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": "", "value": "", "exclusionary": "", "share_type": "", "share_name": "", "rule_description": ""}
-            ]
+            return []
 
         # Step 4: Parse datasecurity rules
         detailed_rows = []
 
         if not datasecurity_data:
-            self.logger.info(f"No datasecurity rules found for DataModel '{datamodel_name}'. Returning default row.")
-            return [
-                {"datamodel_name": datamodel_name, "table_name": "", "column_name": "", "data_type": "", "value": "", "exclusionary": "", "share_type": "", "share_name": "", "rule_description": ""}
-            ]
+            self.logger.info(f"No datasecurity rules found for DataModel '{datamodel_name}'.")
+            return []
 
         for rule in datasecurity_data:
             table_name = rule.get("table", "Unknown Table")

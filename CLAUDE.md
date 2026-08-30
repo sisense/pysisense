@@ -522,15 +522,26 @@ functions. New top-level SDK classes must be added to `FACADES`.
 
 Failure returns are `{"error": "<human-readable message>", "status_code": <int, when an
 HTTP status exists>}`. Consumers key failure detection on the **presence of** `"error"`
-and relay the string to end users. Renaming or restructuring these keys is a breaking
-change even with no signature change. `_extract_error_message` (`pysisense/utils.py`)
-is the only place that builds this dict — never hand-roll it.
+(never on an exact key set — the dict may gain additive keys in minor releases, e.g.
+`failed_references`) and relay the string to end users. Renaming or removing these keys
+is a breaking change even with no signature change; adding keys is not, but must be
+called out in the downstream changelog with a "consumers matching exact key sets must
+widen" note. `_extract_error_message` (`pysisense/utils.py`) is the only place that
+builds this dict — never hand-roll it. Redaction happens **before** message
+construction and is part of the contract — the error string is the one channel some
+consumers pass across privacy boundaries.
+
+The resolver envelopes (`resolve_dashboard_reference` / `resolve_datamodel_reference`:
+`{"success", "status_code", "<entity>_id", "<entity>_title", "error"}`) are their own
+stable shape, detected via `success` — never fold them into the generic error dict.
 
 Documented failure-shape exceptions (string returns, `[]`, `None`, list-wrapped error
 dicts, report_manager's own handler) are listed in the README's "Stable Contracts for
 Programmatic Consumers" section. Do not add new exceptions. **2.0 wishlist:** converge
 the exception shapes onto the error-dict contract (`[]`-on-403 hides permission denials
-from consumers) — breaking, so it waits for a major version.
+from consumers), and consider splitting the recognised Sisense sentence (`error`) from
+the unrecognised-body fallback (`raw_body`) so consumers with different trust
+boundaries can handle each independently — both breaking, so they wait for a major.
 
 ### Release ritual — downstream-generators changelog block
 
@@ -574,9 +585,13 @@ datamodel.deploy_datamodel(name)
 
 `"Athena"`, `"RedShift"`, `"BigQuery"`, `"DataBricks"` (case-insensitive)
 
-### `get_datasecurity` edge case
+### Datasecurity readers — empty means empty
 
-If no RLS rules exist, returns a single entry with empty values — never an empty list.
+`get_datasecurity`, `get_datasecurity_detail`, and `get_datasecurity_raw` all return
+``[]`` when a model has no RLS rules — never a placeholder row. Row counts must always
+equal real rule counts: programmatic consumers count rows, so a fabricated blank entry
+reads as "one rule". The same rule applies SDK-wide — never substitute a placeholder
+row for an empty result.
 
 ### Share permissions
 

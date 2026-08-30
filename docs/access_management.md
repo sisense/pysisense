@@ -346,7 +346,7 @@ Identifies unused columns in a DataModel by comparing against dashboard usage.
 
 * * * * *
 
-### `get_unused_columns_bulk(datamodels=None)`
+### `get_unused_columns_bulk(datamodels)`
 
 Runs unused-column analysis for one or more data models and returns a combined result set.
 
@@ -357,13 +357,13 @@ all rows into a single list.
 
 **Parameters:**
 
-- `datamodels` (str or list of str, optional):  
+- `datamodels` (str or list of str, **required**):  
   One or more data model references to analyze. Each reference can be:
   - A data model ID, or  
   - A data model title (name).  
 
-  At least one data model reference is required. At runtime this parameter is
-  tolerant of a single string and will normalize it to a one-element list.
+  At runtime this parameter is tolerant of a single string and will normalize
+  it to a one-element list.
 
 **Returns:**
 
@@ -371,8 +371,13 @@ all rows into a single list.
   A flat list of rows across all processed data models. Each row has the same
   structure as returned by `get_unused_columns()`.  
 
-  If no data models are successfully processed, an empty list is returned and
-  details are available in the logs.
+  A model that resolves and genuinely has no unused columns contributes no rows.
+
+  When **none** of the given references can be resolved and processed, an
+  `{"error": "...", "failed_references": [{"ref": ..., "error": ...}]}`
+  dictionary is returned instead, naming each reference and why it failed —
+  never a silent empty list. References that fail while others succeed are
+  skipped with a logged warning.
 
 * * * * *
 

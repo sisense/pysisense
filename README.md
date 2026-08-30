@@ -184,19 +184,26 @@ Failure returns follow one shape across the SDK:
 {"error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
 ```
 
-Detect failure by the **presence of the `"error"` key**; the message is safe to relay to end users (secrets are redacted). Connection-level failures carry `"error"` without `"status_code"`. Renaming or restructuring these keys is treated as a breaking change.
+Detect failure by the **presence of the `"error"` key** — never by matching an exact key set. The failure dict may gain **additive** keys in minor releases (`status_code` arrived in 1.1.0; some methods add context like `failed_references`), so a consumer checking `keys() == {"error"}` will silently misclassify failures as successes. Renaming or removing `"error"`/`"status_code"` is treated as a breaking change; adding keys is not.
+
+Two adjacent guarantees:
+
+- **Redaction is part of the contract, not a courtesy:** credential-shaped values are stripped by `redact_secrets()` *before* the message is built, so the `"error"` string is safe to relay verbatim across trust boundaries (e.g. privacy modes where the failure reason is the only data that reaches a model).
+- **Resolver envelopes are their own stable shape:** `resolve_dashboard_reference` and `resolve_datamodel_reference` return `{"success", "status_code", "<entity>_id", "<entity>_title", "error"}` on both success and failure. Detect their outcome via `success`, not via error-key matching — they carry payload keys alongside `"error"`, and they will **not** be folded into the generic error dict.
+
+Connection-level failures carry `"error"` without `"status_code"` (no HTTP status exists; the absence is itself signal).
 
 **Documented failure-shape exceptions** — the following methods do *not* return the error dict on failure; consumers must handle their shapes explicitly:
 
 | Failure shape | Methods |
 |---|---|
 | String return (`"Error: ..."` / message text) | `add_dashboard_shares`, `add_dashboard_script`, `add_widget_script` |
-| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares` |
+| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares`, `get_datasecurity`, `get_datasecurity_detail` |
 | `None` | `create_connections` |
 | List-wrapped error dict `[{"error": ..., "status_code": ...}]` | `get_users_all`, `get_users_with_role_names_and_group_names` |
 | Own consistent error handler | all `ReportManager` methods |
 
-> **Planned for 2.0:** converging these exception shapes onto the error-dict contract — `[]`-on-403 makes permission denials invisible to consumers, but changing it is breaking, so it waits for a major version.
+> **Planned for 2.0:** converging these exception shapes onto the error-dict contract — `[]`-on-403 makes permission denials invisible to consumers, but changing it is breaking, so it waits for a major version. Also under consideration for 2.0: splitting the recognised Sisense sentence (`"error"`) from the unrecognised-body fallback (a separate `"raw_body"` key), so consumers with different trust boundaries can handle each independently.
 
 ### Payload contracts
 

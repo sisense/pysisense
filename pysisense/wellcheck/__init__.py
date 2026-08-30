@@ -14,8 +14,8 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
     Runs structural and best-practice checks across dashboards (widget counts,
     pivot field density, tabber/accordion/jump-to-dashboard usage) and data
     models (custom table SQL, island tables, RLS column datatypes, import
-    queries, many-to-many relationships, unused columns). Results are returned
-    as structured row lists suitable for export or further analysis.
+    queries, many-to-many relationships). Results are returned as structured
+    row lists suitable for export or further analysis.
 
     Modules
     -------
@@ -65,7 +65,11 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
 
         This method is a convenience wrapper that orchestrates multiple
         dashboard-level and data-model-level checks and returns a structured
-        report that groups their results.
+        report that groups their results. It additionally delegates
+        unused-column analysis to ``AccessManagement.get_unused_columns_bulk``
+        when an ``AccessManagement`` instance is configured on this WellCheck
+        (the default constructor configures one); otherwise the
+        ``unused_columns`` section is an empty list and a warning is logged.
 
         Parameters
         ----------
@@ -210,7 +214,11 @@ class WellCheck(DashboardChecksMixin, DatamodelChecksMixin):
             if access_mgmt is None:
                 self.logger.warning("WellCheck.access_mgmt is not configured. Unused-columns analysis will be skipped in run_full_wellcheck.")
             else:
-                unused_columns = access_mgmt.get_unused_columns_bulk(datamodels=datamodel_refs)
+                unused_result = access_mgmt.get_unused_columns_bulk(datamodels=datamodel_refs)
+                if isinstance(unused_result, dict) and "error" in unused_result:
+                    self.logger.warning(f"Unused-columns analysis failed: {unused_result['error']}")
+                else:
+                    unused_columns = unused_result
                 self.logger.info(
                     "Completed unused-columns analysis for %d data model reference(s). Total result rows: %d",
                     len(datamodel_refs),
