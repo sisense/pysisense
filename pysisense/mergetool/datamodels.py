@@ -245,11 +245,11 @@ class DatamodelsMergeMixin:
             src_access = AccessManagement(api_client=self.source_client)
             tgt_access = AccessManagement(api_client=self.target_client)
 
-            src_users_result = src_access.get_users_expanded()
+            src_users_result = src_access._get_users_raw()
             src_users: list[dict[str, Any]] = [] if isinstance(src_users_result, dict) and "error" in src_users_result else src_users_result
             user_id_to_email = {u["_id"]: u["email"] for u in src_users if u.get("_id") and u.get("email")}
 
-            tgt_users_result = tgt_access.get_users_expanded()
+            tgt_users_result = tgt_access._get_users_raw()
             tgt_users: list[dict[str, Any]] = [] if isinstance(tgt_users_result, dict) and "error" in tgt_users_result else tgt_users_result
             email_to_target_id = {u["email"]: u["_id"] for u in tgt_users if u.get("email") and u.get("_id")}
 

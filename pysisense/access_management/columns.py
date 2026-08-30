@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from typing_extensions import deprecated
+
 
 class ColumnsMixin:
     def get_datamodel_columns(self, datamodel_name: str) -> list[dict[str, Any]]:
@@ -122,13 +124,15 @@ class ColumnsMixin:
 
         return all_columns
 
+    @deprecated("use get_unused_columns_bulk")
     def get_unused_columns(self, datamodel_name: str) -> list[dict[str, Any]]:
-        """Identify unused columns in a DataModel by comparing all columns against dashboard usage.
+        """Identify unused columns in a single DataModel.
 
-        Compares every available column against the columns referenced in the
-        dashboards associated with the DataModel. Coverage includes dashboard
-        filters (dashboard-level, widget, and dependent filters) and widget
-        panels (row, values, column panels, and measured filters).
+        Deprecated alias kept for backward compatibility (behavior frozen,
+        including the ``ValueError`` below) — prefer
+        :meth:`get_unused_columns_bulk`, which accepts a single reference or a
+        list, resolves IDs as well as titles, and returns errors instead of
+        raising.
 
         Parameters
         ----------
@@ -147,6 +151,17 @@ class ColumnsMixin:
         ValueError
             If no columns are found for the given DataModel (for example, if it
             does not exist or is not accessible).
+        """
+        return self._unused_columns_for_model(datamodel_name)
+
+    def _unused_columns_for_model(self, datamodel_name: str) -> list[dict[str, Any]]:
+        """Identify unused columns in a DataModel by comparing all columns against dashboard usage.
+
+        Compares every available column against the columns referenced in the
+        dashboards associated with the DataModel. Coverage includes dashboard
+        filters (dashboard-level, widget, and dependent filters) and widget
+        panels (row, values, column panels, and measured filters). Raises
+        ``ValueError`` when no columns are found for the model.
         """
         self.logger.info(f"Starting analysis for unused columns in DataModel: {datamodel_name}")
 
@@ -408,9 +423,9 @@ class ColumnsMixin:
 
             try:
                 self.logger.info(f"Running unused-column analysis for data model '{datamodel_title}'")
-                rows = self.get_unused_columns(datamodel_title)
+                rows = self._unused_columns_for_model(datamodel_title)
             except ValueError as exc:
-                # get_unused_columns raises ValueError when no columns found
+                # _unused_columns_for_model raises ValueError when no columns found
                 self.logger.warning(f"Skipping data model '{datamodel_title}' due to error: {exc}")
                 failed_references.append({"ref": ref, "error": str(exc)})
                 continue

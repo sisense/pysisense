@@ -101,18 +101,18 @@ class SharesMixin:
         # Resolve user IDs
         for user in users:
             user_info = self.access_mgmt.get_user(user["name"])
-            if user_info is None:
+            if not isinstance(user_info, dict) or "error" in user_info:
                 self.logger.error(f"User '{user['name']}' not found. Skipping.")
                 continue  # Skip this user
             user["shareId"] = user_info["USER_ID"]
 
         # Resolve group IDs
         for group in groups:
-            group_info = self.access_mgmt.get_group(group["name"])
-            if group_info is None:
+            matches = self.access_mgmt.get_groups(name=group["name"])
+            if not isinstance(matches, list) or not matches:
                 self.logger.error(f"Group '{group['name']}' not found. Skipping.")
                 continue  # Skip this group
-            group["shareId"] = group_info["GROUP_ID"]
+            group["shareId"] = matches[0].get("_id")
 
         # Remove 'name' key after resolving IDs
         for user in users:

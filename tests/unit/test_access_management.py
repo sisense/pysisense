@@ -91,6 +91,8 @@ class TestAccessManagementInit:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUserWithRoleAndGroupNames:
     def test_returns_user_dict_with_role_and_group_names(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -115,6 +117,8 @@ class TestGetUserWithRoleAndGroupNames:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUsersWithRoleNamesAndGroupNames:
     def test_returns_enriched_user_list(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -158,12 +162,16 @@ class TestGetUsersWithRoleNamesAndGroupNames:
 
 
 class TestGetUser:
-    def test_returns_user_dict_on_success(self):
+    def test_returns_canonical_user_row_on_success(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_user("jdoe@example.com")
         assert result["USER_ID"] == "user123"
         assert result["EMAIL"] == "jdoe@example.com"
-        assert result["ROLE_NAME"] == "viewer"
+        # ROLE_NAME carries the raw Sisense value; the UI name lives in ROLE_DISPLAY_NAME.
+        assert result["ROLE_NAME"] == "consumer"
+        assert result["ROLE_DISPLAY_NAME"] == "viewer"
+        assert result["GROUP_IDS"] == ["grp_engineers"]
+        assert result["GROUP_NAMES"] == ["Engineers"]
 
     def test_returns_error_when_email_not_found(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -190,7 +198,8 @@ class TestGetUser:
         user["groups"] = [{"_id": "g9"}]  # no "name" key
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_user("jdoe@example.com")
-        assert result["GROUPS"] == [""]
+        assert result["GROUP_IDS"] == ["g9"]
+        assert result["GROUP_NAMES"] == [""]
 
 
 # ---------------------------------------------------------------------------
@@ -230,14 +239,19 @@ class TestChangeUserPassword:
 
 
 class TestGetUsersAll:
-    def test_returns_list_of_user_dicts(self):
+    def test_returns_canonical_user_rows(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_users_all()
         assert isinstance(result, list)
         assert result[0]["USER_ID"] == "user123"
-        assert result[0]["ROLE_NAME"] == "viewer"
+        assert result[0]["ROLE_NAME"] == "consumer"
+        assert result[0]["ROLE_DISPLAY_NAME"] == "viewer"
+        assert result[0]["GROUP_NAMES"] == ["Engineers"]
 
-    def test_removes_everyone_group_when_multiple_groups_present(self):
+    def test_everyone_group_is_reported_not_filtered(self):
+        # The SDK reports what Sisense says; consumers decide what to hide.
+        # A silently filtered membership is invisible downstream ("is Joe in
+        # Everyone?" would be answered wrongly).
         user = dict(_USER_EXPANDED)
         user["groups"] = [
             {"_id": "g1", "name": "Everyone"},
@@ -245,32 +259,29 @@ class TestGetUsersAll:
         ]
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_users_all()
-        assert "Everyone" not in result[0]["GROUPS"]
-        assert "Engineers" in result[0]["GROUPS"]
+        assert result[0]["GROUP_NAMES"] == ["Everyone", "Engineers"]
 
-    def test_returns_error_list_on_api_failure(self):
+    def test_returns_error_dict_on_api_failure(self):
         am = _make_am(get_responses={})
         result = am.get_users_all()
-        assert "error" in result[0]
+        assert isinstance(result, dict)
+        assert "error" in result
 
-    def test_skips_user_with_role_missing_name_same_as_before_the_shared_helper_swap(self):
-        # Regression: get_users_all used to build ROLE_NAME via a bare-bracket
-        # `user["role"]["name"]` lookup, which raised (and silently skipped the
-        # user) when "name" was absent. Swapping to the shared, tolerant
-        # `_map_user_role_and_groups` helper must not start including these
-        # malformed records instead of skipping them.
-        user = dict(_USER_EXPANDED)
-        user["role"] = {"_id": "role_consumer"}  # no "name"
-        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
-        result = am.get_users_all()
-        assert result == [{"error": "No users found"}]
-
-    def test_skips_user_with_no_role_at_all(self):
+    def test_user_without_role_is_included_with_empty_role_fields(self):
+        # Canonical rows report every user Sisense returns; a missing role is
+        # a normal state surfaced as empty role fields, not a dropped record.
         user = dict(_USER_EXPANDED)
         user.pop("role")
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_users_all()
-        assert result == [{"error": "No users found"}]
+        assert len(result) == 1
+        assert result[0]["ROLE_ID"] == ""
+        assert result[0]["ROLE_NAME"] == ""
+        assert result[0]["ROLE_DISPLAY_NAME"] == ""
+
+    def test_zero_users_is_an_empty_list_not_an_error(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
+        assert am.get_users_all() == []
 
 
 # ---------------------------------------------------------------------------
@@ -278,15 +289,19 @@ class TestGetUsersAll:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUsersExpanded:
-    def test_returns_raw_user_list_on_success(self):
+    def test_deprecated_alias_returns_raw_user_list(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
-        result = am.get_users_expanded()
+        with pytest.warns(DeprecationWarning, match="use get_users_all"):
+            result = am.get_users_expanded()
         assert result == [_USER_EXPANDED]
 
-    def test_returns_empty_list_when_no_users(self):
+    def test_deprecated_alias_returns_empty_list_when_no_users(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
-        result = am.get_users_expanded()
+        with pytest.warns(DeprecationWarning):
+            result = am.get_users_expanded()
         assert result == []
 
     def test_returns_error_on_api_failure(self):
@@ -322,6 +337,8 @@ class TestCreateUsersBulk:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetGroup:
     def test_returns_group_dict_on_success(self):
         am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [_GROUPS[0]])})
@@ -520,22 +537,56 @@ class TestDeleteUser:
 
 
 class TestUsersPerGroup:
-    def test_returns_users_in_group(self):
-        users_in_group = [_USER_EXPANDED]
+    def test_returns_flat_membership_rows_for_one_group(self):
         am = _make_am(
             get_responses={
                 "/api/v1/groups": FakeResponse(200, [_GROUPS[0]]),
-                "/api/v1/users": FakeResponse(200, users_in_group),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
             }
         )
         result = am.users_per_group("Engineers")
         assert isinstance(result, list)
-        assert result[0]["_id"] == "user123"
+        assert result == [
+            {
+                "GROUP_ID": "grp_engineers",
+                "GROUP_NAME": "Engineers",
+                "USER_ID": "user123",
+                "USER_NAME": "jdoe",
+                "EMAIL": "jdoe@example.com",
+                "FIRST_NAME": "John",
+                "LAST_NAME": "Doe",
+                "IS_ACTIVE": True,
+                "ROLE_ID": "role_consumer",
+                "ROLE_NAME": "consumer",
+                "ROLE_DISPLAY_NAME": "viewer",
+            }
+        ]
+
+    def test_no_argument_returns_every_membership_flat(self):
+        # One row per (group, user) — counts equal real membership counts.
+        user_two_groups = dict(_USER_EXPANDED)
+        user_two_groups["groups"] = [
+            {"_id": "g1", "name": "Everyone"},
+            {"_id": "grp_engineers", "name": "Engineers"},
+        ]
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user_two_groups])})
+        result = am.users_per_group()
+        assert [(r["GROUP_NAME"], r["USER_NAME"]) for r in result] == [("Everyone", "jdoe"), ("Engineers", "jdoe")]
 
     def test_returns_error_when_group_not_found(self):
+        # A typo'd group name must fail loudly — never a silent empty list.
         am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [])})
         result = am.users_per_group("Nonexistent")
-        assert "error" in result
+        assert "Nonexistent" in result["error"]
+
+    def test_group_with_no_members_returns_empty_list(self):
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g7", "name": "EmptyGroup"}]),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert am.users_per_group("EmptyGroup") == []
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +594,8 @@ class TestUsersPerGroup:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestUsersPerGroupAll:
     def test_returns_list_with_group_and_usernames(self):
         am = _make_am(
@@ -711,6 +764,8 @@ class TestGetDatamodelColumns:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUnusedColumns:
     def test_raises_value_error_when_no_columns_found(self):
         # Model not found → get_datamodel_columns returns []
