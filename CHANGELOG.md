@@ -4,7 +4,15 @@ All notable changes to `pysisense` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/) — breaking changes land only in a major release.
 
-## [2.0.0] — unreleased
+## [2.0.0] — 2026-08-31
+
+**A focused release, not a rewrite.** The major version is here because some changes are
+incompatible, not because the SDK was rebuilt — it is the signal that stops `pip install -U`
+from upgrading anyone into them unasked. Pinning `pysisense>=1,<2` keeps you on 1.x.
+
+Most code needs no changes: the canonical user row deliberately keeps its 1.x field names
+**and meanings** (`ROLE_NAME`, `GROUPS`), and both are joined by new fields rather than
+replaced. The upgrade list below is short.
 
 Upgrading? Read the **[upgrade guide](docs/upgrading.md)** — it maps every change
 old-to-new and starts with a symptom → cause → fix table.
