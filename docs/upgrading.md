@@ -227,6 +227,19 @@ These still work in 2.0 and emit a `DeprecationWarning`. Their behavior is **fro
 
 **Removed in 2.0:** `get_connections` (deprecated in 1.1.0) — use `get_connections_all`.
 
+**Made private in 2.0:** `get_user_email_and_group_name_maps` is now
+`_get_user_email_and_group_name_maps`. It only ever existed to serve
+`get_all_dashboard_shares` and `Dashboard.get_dashboard_share`, returning raw ID-to-name
+lookup maps rather than answering a question anyone asks. If you were calling it, build the
+maps yourself:
+
+```python
+users = access_mgmt.get_users_all()
+groups = access_mgmt.get_groups()
+users_by_id = {u["USER_ID"]: u["EMAIL"] for u in users}
+groups_by_id = {g["_id"]: g["name"] for g in groups}
+```
+
 Programmatic consumers can skip deprecated methods via the PEP 702 marker:
 
 ```python

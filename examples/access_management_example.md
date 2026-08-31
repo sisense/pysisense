@@ -470,15 +470,18 @@ print(df)
 
 ## Example 11b: Resolve User/Group IDs to Names
 
-Build lookup maps for resolving share entries (which reference users and groups only by ID) into readable emails and group names.
+Share entries reference users and groups only by ID. Build your own lookup maps from the
+public readers when you need readable emails and group names.
 
 ```python
-maps = access_mgmt.get_user_email_and_group_name_maps()
-if "error" not in maps:
-    print(maps["users_by_id"].get("613b0200bb44e7001b4fc907"))  # -> an email, or None if not found
-    print(maps["groups_by_id"].get("613b0200bb44e7001b4fc905"))  # -> a group name, or None if not found
-else:
-    print(f"Failed to build maps: {maps['error']}")
+users = access_mgmt.get_users_all()
+groups = access_mgmt.get_groups()
+
+if isinstance(users, list) and isinstance(groups, list):
+    users_by_id = {u["USER_ID"]: u["EMAIL"] for u in users}
+    groups_by_id = {g["_id"]: g["name"] for g in groups}
+    print(users_by_id.get("613b0200bb44e7001b4fc907"))  # -> an email, or None if not found
+    print(groups_by_id.get("613b0200bb44e7001b4fc905"))  # -> a group name, or None if not found
 ```
 
 ---

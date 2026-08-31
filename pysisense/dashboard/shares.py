@@ -257,7 +257,7 @@ class SharesMixin:
             return []
 
         # Step 2: Fetch user/group ID-to-name lookup maps
-        maps = self.access_mgmt.get_user_email_and_group_name_maps()
+        maps = self.access_mgmt._get_user_email_and_group_name_maps()
         if "error" in maps:
             self.logger.error(f"Failed to fetch users or groups: {maps['error']}")
             return maps

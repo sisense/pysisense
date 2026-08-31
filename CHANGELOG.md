@@ -56,6 +56,10 @@ so role comparisons and group reads keep working. What needs action:
 - **`get_groups(name=...)`** with an unknown name returns an error dict naming it, instead of
   an empty list. The unfiltered call still returns `[]` when the server has no groups.
 - **Removed** `get_connections` (deprecated in 1.1.0) — use `get_connections_all`.
+- **`get_user_email_and_group_name_maps` is now private** (`_get_user_email_and_group_name_maps`).
+  It existed only to serve `get_all_dashboard_shares` and `Dashboard.get_dashboard_share`,
+  returning raw ID-to-name lookup maps rather than answering a question anyone asks. Build the
+  maps from `get_users_all()` and `get_groups()` if you were using it.
 
 ### Deprecated
 

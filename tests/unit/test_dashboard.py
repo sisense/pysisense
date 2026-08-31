@@ -428,7 +428,7 @@ class TestGetDashboardShare:
 
     def test_resolves_user_and_group_shares_via_shared_access_mgmt_helper(self):
         # Regression: get_dashboard_share now resolves shares via
-        # AccessManagement.get_user_email_and_group_name_maps() (self.access_mgmt)
+        # AccessManagement._get_user_email_and_group_name_maps() (self.access_mgmt)
         # instead of its own direct /api/v1/users + /api/v1/groups fetch —
         # confirms the shared helper produces the same resolved/unresolved
         # distinction as before, across the class boundary.

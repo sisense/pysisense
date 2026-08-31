@@ -6,13 +6,14 @@ from ..utils import _extract_error_message
 
 
 class AdminMixin:
-    def get_user_email_and_group_name_maps(self) -> dict[str, Any]:
+    def _get_user_email_and_group_name_maps(self) -> dict[str, Any]:
         """Fetch all users and groups and build ID-to-name lookup maps.
 
-        Used for resolving share entries (dashboard or data model), which
-        reference users and groups only by ID, into readable emails and
+        Internal helper: resolves share entries (dashboard or data model),
+        which reference users and groups only by ID, into readable emails and
         group names. Shared by ``get_all_dashboard_shares`` here and by
-        ``Dashboard.get_dashboard_share`` (via ``self.access_mgmt``).
+        ``Dashboard.get_dashboard_share`` (via ``self.access_mgmt``). Use
+        ``get_users_all`` and ``get_groups`` for the public equivalents.
 
         Returns
         -------
@@ -102,7 +103,7 @@ class AdminMixin:
 
         # Step 2: Fetch user/group ID-to-name lookup maps
         self.logger.info("Fetching users and groups.")
-        maps = self.get_user_email_and_group_name_maps()
+        maps = self._get_user_email_and_group_name_maps()
         if "error" in maps:
             return []
 
