@@ -23,6 +23,7 @@ Every symptom below depends on it, so establish this before anything else:
 
 ```python
 import pysisense
+
 print(pysisense.__version__)
 ```
 
@@ -69,7 +70,7 @@ In 2.0 **every** failure return carries an explicit `"ok": False` marker:
 ```python
 result = access_mgmt.get_users_all()
 if isinstance(result, dict) and result.get("ok") is False:
-    print(result["error"])          # human-readable, safe to relay
+    print(result["error"])  # human-readable, safe to relay
 else:
     for row in result:
         ...
@@ -90,12 +91,13 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
 {
     "USER_ID": "6a5f...c9",
     "USER_NAME": "jane@example.com",
-    "FIRST_NAME": "Jane", "LAST_NAME": "Doe",
+    "FIRST_NAME": "Jane",
+    "LAST_NAME": "Doe",
     "EMAIL": "jane@example.com",
     "IS_ACTIVE": True,
     "ROLE_ID": "6a5f...53",
-    "ROLE_NAME": "sysAdmin",        # display name
-    "GROUPS": ["Admins"],           # names only; "Everyone" stripped
+    "ROLE_NAME": "sysAdmin",  # display name
+    "GROUPS": ["Admins"],  # names only; "Everyone" stripped
 }
 ```
 
@@ -106,14 +108,15 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
     "USER_ID": "6a5f...c9",
     "USER_NAME": "jane@example.com",
     "EMAIL": "jane@example.com",
-    "FIRST_NAME": "Jane", "LAST_NAME": "Doe",
+    "FIRST_NAME": "Jane",
+    "LAST_NAME": "Doe",
     "IS_ACTIVE": True,
     "ROLE_ID": "6a5f...53",
-    "ROLE_NAME": "sysAdmin",                 # unchanged from 1.x (UI name)
-    "ROLE_DISPLAY_NAME": "sysAdmin",         # same value, unambiguous name
-    "ROLE_RAW_NAME": "super",                # new: Sisense's own value
-    "GROUP_IDS": ["6a5f...c7", "6a5f...60"], # new
-    "GROUPS": ["Admins", "Everyone"],        # same key as 1.x; now unfiltered
+    "ROLE_NAME": "sysAdmin",  # unchanged from 1.x (UI name)
+    "ROLE_DISPLAY_NAME": "sysAdmin",  # same value, unambiguous name
+    "ROLE_RAW_NAME": "super",  # new: Sisense's own value
+    "GROUP_IDS": ["6a5f...c7", "6a5f...60"],  # new
+    "GROUPS": ["Admins", "Everyone"],  # same key as 1.x; now unfiltered
 }
 ```
 
@@ -156,11 +159,18 @@ rejected.
 
 ```python
 {
-    "GROUP_ID": "...", "GROUP_NAME": "Admins",
-    "USER_ID": "...", "USER_NAME": "...", "EMAIL": "...",
-    "FIRST_NAME": "...", "LAST_NAME": "...", "IS_ACTIVE": True,
-    "ROLE_ID": "...", "ROLE_NAME": "sysAdmin",
-    "ROLE_DISPLAY_NAME": "sysAdmin", "ROLE_RAW_NAME": "super",
+    "GROUP_ID": "...",
+    "GROUP_NAME": "Admins",
+    "USER_ID": "...",
+    "USER_NAME": "...",
+    "EMAIL": "...",
+    "FIRST_NAME": "...",
+    "LAST_NAME": "...",
+    "IS_ACTIVE": True,
+    "ROLE_ID": "...",
+    "ROLE_NAME": "sysAdmin",
+    "ROLE_DISPLAY_NAME": "sysAdmin",
+    "ROLE_RAW_NAME": "super",
 }
 ```
 
