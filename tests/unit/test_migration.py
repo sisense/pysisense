@@ -305,3 +305,77 @@ class TestExportDashboardAuthAwareFallback:
         assert data is None
         assert "HTTP 403" in reason and "HTTP 404" in reason
         assert "dashboard not found" in reason
+
+
+# ---------------------------------------------------------------------------
+# migrate_all_users — sysadmin exclusion
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateAllUsersSkipsSysadmins:
+    """Sysadmins must never be migrated into a target environment.
+
+    The check reads the RAW Sisense role object from
+    ``GET /api/v1/users?expand=groups,role`` (``user["role"]["name"] == "super"``),
+    NOT the canonical user row built by ``_user_row``. Those are separate code
+    paths, and this test pins that: a canonical row carries ``ROLE_NAME`` /
+    ``ROLE_RAW_NAME`` and no ``role`` key at all, so a change to the canonical
+    row's role vocabulary must not reach this logic.
+    """
+
+    _TENANTS = [{"_id": "tenant_system", "name": "system"}]
+    _ROLES = [{"_id": "role_super", "name": "super"}, {"_id": "role_consumer", "name": "consumer"}]
+
+    def _users(self):
+        return [
+            {
+                "email": "admin@example.com",
+                "firstName": "Ada",
+                "tenantId": "tenant_system",
+                "role": {"_id": "role_super", "name": "super"},
+                "groups": [],
+            },
+            {
+                "email": "viewer@example.com",
+                "firstName": "Vic",
+                "tenantId": "tenant_system",
+                "role": {"_id": "role_consumer", "name": "consumer"},
+                "groups": [],
+            },
+        ]
+
+    def _run(self):
+        posted = {}
+
+        class _CapturingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                posted["payload"] = data
+                return super().post(url, data=data, **kwargs)
+
+        src = FakeApiClient(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, self._users()),
+                "/api/v1/tenants": FakeResponse(200, self._TENANTS),
+            },
+            logger=FakeLogger(),
+        )
+        tgt = _CapturingClient(
+            get_responses={
+                "/api/roles": FakeResponse(200, self._ROLES),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+            post_responses={"/api/v1/users/bulk": FakeResponse(200, [{"_id": "u1"}])},
+            logger=FakeLogger(),
+        )
+        result = Migration(source_client=src, target_client=tgt).migrate_all_users()
+        return result, posted.get("payload") or []
+
+    def test_super_role_user_is_excluded_from_the_bulk_payload(self):
+        _, payload = self._run()
+        emails = [u.get("email") for u in payload]
+        assert "admin@example.com" not in emails, "a sysadmin must never be migrated"
+        assert "viewer@example.com" in emails
+
+    def test_skip_is_reported_in_the_summary(self):
+        result, _ = self._run()
+        assert result.get("skipped_super_count") == 1
