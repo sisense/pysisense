@@ -137,3 +137,45 @@ def test_role_resolution_accepts_both_vocabularies_and_keeps_roles_distinct() ->
     unknown = am._resolve_role_id("definitely-not-a-role-xyz")
     assert isinstance(unknown, dict) and unknown["ok"] is False
     assert "Available roles" in unknown["error"], "the error must tell the caller what it can retry with"
+
+
+@pytest.mark.integration
+def test_users_per_group_matches_sisense_own_membership() -> None:
+    """Membership must match what Sisense itself reports per group.
+
+    Regression for the "Admins shows 0" defect: users_per_group used to derive
+    membership from each user's own `groups` field, but Sisense resolves its
+    auto-generated groups (Admins, All users in system) on the GROUP side only.
+    Their members never appear user-side, so the SDK reported 0 while the
+    Sisense UI showed the real count.
+
+    This compares every group against `GET /api/v1/groups?expand=users`, which
+    is the source the UI reads, rather than hardcoding tenant-specific numbers.
+    """
+    am = AccessManagement(api_client=_make_client())
+
+    response = am.api_client.get("/api/v1/groups", params={"expand": "users"})
+    if response is None or not response.ok:
+        pytest.skip("Could not fetch expanded groups.")
+    expected = {g["name"]: len(g.get("users") or []) for g in response.json() if g.get("name")}
+    if not expected:
+        pytest.skip("No groups on this instance.")
+
+    rows = am.users_per_group()
+    assert isinstance(rows, list), f"expected rows, got: {rows}"
+
+    actual: dict[str, int] = {}
+    for row in rows:
+        actual[row["GROUP_NAME"]] = actual.get(row["GROUP_NAME"], 0) + 1
+
+    for name, count in expected.items():
+        assert actual.get(name, 0) == count, f"group '{name}': SDK reported {actual.get(name, 0)}, Sisense reports {count}"
+
+    assert len(rows) == sum(expected.values()), "total rows must equal total memberships"
+
+    # The auto-generated groups are the ones that regressed; assert them by
+    # name when present, so a user-side regression fails loudly here.
+    for system_group in ("Admins", "All users in system"):
+        if expected.get(system_group):
+            named = am.users_per_group(system_group)
+            assert len(named) == expected[system_group], f"'{system_group}' filtered lookup disagrees with Sisense"

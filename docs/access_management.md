@@ -281,16 +281,20 @@ Retrieves group memberships as **flat rows** — one row per (group, user) membe
 
 **Returns:**
 
--   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows), and `ROLE_RAW_NAME` (the raw Sisense value). A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
+-   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows), and `ROLE_RAW_NAME` (the raw Sisense value). Membership is read from the group side (`GET /api/v1/groups?expand=users`), the same source the Sisense UI shows, so the auto-generated `Admins` and `All users in system` groups report their real members. A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
 
 * * * * *
 
 ### `users_per_group_all(self)`
 
 > **Deprecated** — use [`users_per_group`](#users_per_groupself-group_namenone) with no
-> argument instead. This alias is marked deprecated (PEP 702) and its behavior
-> (excluding system groups and reassigning admin roles to "Admins") is frozen
+> argument instead. This alias is marked deprecated (PEP 702) and its behavior is frozen
 > until removal.
+>
+> It derives its `"Admins"` entry from users' **roles** (`sysAdmin`/`dataAdmin`/`admin`)
+> rather than from group membership, and excludes `Everyone` and `All users in system`.
+> `users_per_group()` reads real group-side membership for every group, including the
+> auto-generated ones, so it matches the counts shown in the Sisense UI.
 
 **Returns:**
 
