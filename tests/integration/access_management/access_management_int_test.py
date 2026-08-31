@@ -24,14 +24,13 @@ def test_get_users_all_returns_list() -> None:
     assert len(result) > 0, "Expected at least one user."
 
     first = result[0]
-    # Canonical user row: uppercase keys, both role vocabularies, group IDs
-    # and names split. ("GROUPS" was the pre-2.0 key — see docs/migration-2.0.md.)
+    # Canonical user row: uppercase keys, both role vocabularies, and GROUPS
+    # (names, kept from 1.x) alongside the new GROUP_IDS.
     assert "EMAIL" in first
     assert "ROLE_NAME" in first
     assert "ROLE_DISPLAY_NAME" in first
     assert "GROUP_IDS" in first
-    assert "GROUP_NAMES" in first
-    assert "GROUPS" not in first
+    assert "GROUPS" in first
 
 
 @pytest.mark.integration

@@ -171,7 +171,7 @@ class TestGetUser:
         assert result["ROLE_NAME"] == "consumer"
         assert result["ROLE_DISPLAY_NAME"] == "viewer"
         assert result["GROUP_IDS"] == ["grp_engineers"]
-        assert result["GROUP_NAMES"] == ["Engineers"]
+        assert result["GROUPS"] == ["Engineers"]
 
     def test_returns_error_when_email_not_found(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -199,7 +199,7 @@ class TestGetUser:
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_user("jdoe@example.com")
         assert result["GROUP_IDS"] == ["g9"]
-        assert result["GROUP_NAMES"] == [""]
+        assert result["GROUPS"] == [""]
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +246,7 @@ class TestGetUsersAll:
         assert result[0]["USER_ID"] == "user123"
         assert result[0]["ROLE_NAME"] == "consumer"
         assert result[0]["ROLE_DISPLAY_NAME"] == "viewer"
-        assert result[0]["GROUP_NAMES"] == ["Engineers"]
+        assert result[0]["GROUPS"] == ["Engineers"]
 
     def test_everyone_group_is_reported_not_filtered(self):
         # The SDK reports what Sisense says; consumers decide what to hide.
@@ -259,7 +259,7 @@ class TestGetUsersAll:
         ]
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_users_all()
-        assert result[0]["GROUP_NAMES"] == ["Everyone", "Engineers"]
+        assert result[0]["GROUPS"] == ["Everyone", "Engineers"]
 
     def test_returns_error_dict_on_api_failure(self):
         am = _make_am(get_responses={})

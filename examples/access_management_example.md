@@ -29,7 +29,7 @@ access_mgmt = AccessManagement(api_client=api_client)
 
 ## Example 1: Get User Information by Email
 
-Retrieve information for a specific user by their email (required). Returns the canonical user row: `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` (raw Sisense value, e.g. `consumer`), `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUP_NAMES` (unfiltered — the `Everyone` group is included). On failure returns `{"ok": False, "error": "..."}`.
+Retrieve information for a specific user by their email (required). Returns the canonical user row: `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` (raw Sisense value, e.g. `consumer`), `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUPS` (group names, unfiltered — the `Everyone` group is included). On failure returns `{"ok": False, "error": "..."}`.
 
 ```python
 user_email = "john.doe@example.com"
@@ -108,7 +108,7 @@ api_client.export_to_csv(response, file_name="user_with_role_and_groups.csv")
 
 ## Example 2: Get All Users
 
-Fetch all users in the system. Returns a list of canonical user rows (same shape as `get_user`, including `ROLE_NAME`, `ROLE_DISPLAY_NAME`, `GROUP_IDS`, and `GROUP_NAMES`). An empty list means the instance genuinely has zero users; on failure a plain `{"ok": False, "error": "..."}` dict is returned (not a list).
+Fetch all users in the system. Returns a list of canonical user rows (same shape as `get_user`, including `ROLE_NAME`, `ROLE_DISPLAY_NAME`, `GROUP_IDS`, and `GROUPS`). An empty list means the instance genuinely has zero users; on failure a plain `{"ok": False, "error": "..."}` dict is returned (not a list).
 
 ```python
 response = access_mgmt.get_users_all()

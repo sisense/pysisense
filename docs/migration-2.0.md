@@ -24,15 +24,23 @@ pip show pysisense | grep Version
 
 ---
 
+## The short version
+
+`GROUPS` is untouched — it still holds group names, and it is now accompanied by a new
+`GROUP_IDS`. The only value change there is that `Everyone` is no longer stripped out.
+
+**The one change that can break logic is `ROLE_NAME`**, which now carries the raw Sisense
+value instead of the display name. It fails *silently* — a comparison against `"sysAdmin"`
+simply matches nothing. If you change one thing when upgrading, change that.
+
 ## Symptom → cause → fix
 
 Start here if something is already broken.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `KeyError: 'GROUPS'` on a user row | On 2.x. `GROUPS` was split into two fields. | Use `user["GROUP_NAMES"]` (names) or `user["GROUP_IDS"]` (IDs). |
 | Filtering `ROLE_NAME == "sysAdmin"` (or `"viewer"`, `"dashboardDesigner"`) matches **zero** users, no error | On 2.x. `ROLE_NAME` now holds the **raw** Sisense value. **This fails silently.** | Compare against `"super"` / `"consumer"` / `"contributor"`, or switch the comparison to `ROLE_DISPLAY_NAME`. |
-| `"Everyone"` suddenly appears in a user's groups | On 2.x. `get_users_all()` no longer strips it. | Filter it out yourself if you don't want it. |
+| `"Everyone"` suddenly appears in `user["GROUPS"]` | On 2.x. `get_users_all()` no longer strips it. The key and its meaning are unchanged — only this one value was added. | Filter it out yourself if you don't want it. |
 | `Role 'sysAdmin' not found in roles_mapping` from `create_user`/`update_user` | On 1.x. Writes only accepted `viewer`/`designer` plus raw names. | Upgrade to 2.0 (accepts both vocabularies), or pass the raw name `"super"`. |
 | `TypeError` iterating `get_unused_columns_bulk(...)`, or rows are missing | On 2.x. It returns a dict, not a list. | Read `result["results"]`; per-model failures are in `result["errors"]`. |
 | `AttributeError: 'DataModel' object has no attribute 'get_connections'` | On 2.x. The alias was removed. | Use `get_connections_all()`. |
@@ -92,16 +100,16 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
     "ROLE_ID": "6a5f...53",
     "ROLE_NAME": "super",                    # RAW Sisense value
     "ROLE_DISPLAY_NAME": "sysAdmin",         # what the UI shows
-    "GROUP_IDS": ["6a5f...c7", "6a5f...60"],
-    "GROUP_NAMES": ["Admins", "Everyone"],   # unfiltered
+    "GROUP_IDS": ["6a5f...c7", "6a5f...60"], # new
+    "GROUPS": ["Admins", "Everyone"],        # same key as 1.x; now unfiltered
 }
 ```
 
 | 1.1.0 | 2.0.0 |
 |---|---|
 | `ROLE_NAME` = display name | `ROLE_NAME` = raw value; display moved to `ROLE_DISPLAY_NAME` |
-| `GROUPS` = group names | `GROUP_NAMES` = names, `GROUP_IDS` = IDs |
-| `Everyone` stripped by `get_users_all` | `Everyone` always reported |
+| `GROUPS` = group names | `GROUPS` = group names (unchanged), plus the new `GROUP_IDS` |
+| `Everyone` stripped by `get_users_all` | `Everyone` always reported in `GROUPS` |
 | `get_user` and `get_users_all` disagreed on both fields | one shape, both methods |
 | Failure: `[{"error": ...}]` (list-wrapped) | Failure: plain `{"ok": False, "error": ...}` |
 

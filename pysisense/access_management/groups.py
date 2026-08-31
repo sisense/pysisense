@@ -233,7 +233,7 @@ class GroupsMixin:
         memberships: list[dict[str, Any]] = []
         for user in users:
             row = self._user_row(user)
-            for gid, gname in zip(row["GROUP_IDS"], row["GROUP_NAMES"], strict=False):
+            for gid, gname in zip(row["GROUP_IDS"], row["GROUPS"], strict=False):
                 if group_name is not None and gname != group_name:
                     continue
                 memberships.append(
@@ -307,7 +307,7 @@ class GroupsMixin:
         # canonical rows now include Everyone, so the old exclusion filter is
         # applied here to keep this deprecated alias's behavior unchanged).
         for user in all_users:
-            for group in user.get("GROUP_NAMES", []):
+            for group in user.get("GROUPS", []):
                 if group in EXCLUDED_GROUPS:
                     continue
                 if group not in groups_dict:

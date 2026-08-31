@@ -152,7 +152,7 @@ class UsersMixin:
         ``USER_ID``, ``USER_NAME``, ``EMAIL``, ``FIRST_NAME``, ``LAST_NAME``,
         ``IS_ACTIVE``, ``ROLE_ID``, ``ROLE_NAME`` (raw Sisense value),
         ``ROLE_DISPLAY_NAME`` (the name the Sisense UI shows), ``GROUP_IDS``,
-        ``GROUP_NAMES`` (unfiltered — includes ``Everyone``).
+        ``GROUPS`` (group names, unfiltered — includes ``Everyone``).
         """
         role_obj = user.get("role") or {}
         role_name_raw = role_obj.get("name") or ""
@@ -168,7 +168,7 @@ class UsersMixin:
             "ROLE_NAME": role_name_raw,
             "ROLE_DISPLAY_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
             "GROUP_IDS": [g.get("_id", "") for g in groups_obj],
-            "GROUP_NAMES": [g.get("name", "") for g in groups_obj],
+            "GROUPS": [g.get("name", "") for g in groups_obj],
         }
 
     def _map_user_role_and_groups(self, user: dict[str, Any], apply_role_alias: bool = True) -> tuple[str | None, str | None, list[str], list[str]]:
@@ -346,7 +346,7 @@ class UsersMixin:
 
         Deprecated alias kept for backward compatibility (behavior frozen) —
         prefer :meth:`get_users_all`: its canonical rows carry the raw
-        ``ROLE_NAME``, ``GROUP_IDS``, and unfiltered ``GROUP_NAMES`` that
+        ``ROLE_NAME``, ``GROUP_IDS``, and unfiltered ``GROUPS`` that
         previously required this method.
 
         Returns
@@ -412,8 +412,8 @@ class UsersMixin:
         record matching the provided email address.
 
         Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
-        is now ``ROLE_DISPLAY_NAME``) and ``GROUPS`` was replaced by
-        ``GROUP_IDS`` and ``GROUP_NAMES``. See ``docs/migration-2.0.md``.
+        is now ``ROLE_DISPLAY_NAME``); ``GROUPS`` still holds the group names
+        and is joined by the new ``GROUP_IDS``. See ``docs/migration-2.0.md``.
 
         Parameters
         ----------
@@ -429,7 +429,7 @@ class UsersMixin:
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
             ``ROLE_NAME`` (the raw Sisense value, e.g. ``"consumer"``),
             ``ROLE_DISPLAY_NAME`` (the name the Sisense UI shows, e.g.
-            ``"viewer"``), ``GROUP_IDS``, and ``GROUP_NAMES`` (unfiltered —
+            ``"viewer"``), ``GROUP_IDS``, and ``GROUPS`` (unfiltered —
             includes ``Everyone``). Returns ``{"error": "..."}`` when the user
             is not found or the API call fails.
         """
@@ -563,9 +563,9 @@ class UsersMixin:
         UI-facing name in ``ROLE_DISPLAY_NAME``.
 
         Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
-        is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` was replaced by ``GROUP_IDS``
-        and ``GROUP_NAMES``, and ``Everyone`` is no longer filtered out. See
-        ``docs/migration-2.0.md``.
+        is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` is joined by the new
+        ``GROUP_IDS``, and ``Everyone`` is no longer filtered out of
+        ``GROUPS``. See ``docs/migration-2.0.md``.
 
         Returns
         -------
@@ -573,7 +573,7 @@ class UsersMixin:
             One row per user, each with ``USER_ID``, ``USER_NAME``, ``EMAIL``,
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
             ``ROLE_NAME`` (raw, e.g. ``"consumer"``), ``ROLE_DISPLAY_NAME``
-            (UI name, e.g. ``"viewer"``), ``GROUP_IDS``, and ``GROUP_NAMES``
+            (UI name, e.g. ``"viewer"``), ``GROUP_IDS``, and ``GROUPS``
             (unfiltered). Returns ``{"error": "..."}`` on failure.
         """
         self.logger.debug("Getting all users")
