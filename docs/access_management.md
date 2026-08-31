@@ -410,16 +410,6 @@ Retrieves all dashboard share settings, including user and group shares.
 
 * * * * *
 
-### `get_user_email_and_group_name_maps(self)`
-
-Fetches all users and groups and builds ID-to-name lookup maps, for resolving share entries (which reference users and groups only by ID) into readable emails and group names. Used internally by `get_all_dashboard_shares` and by `Dashboard.get_dashboard_share`.
-
-**Returns:**
-
--   `dict`: `{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}` on success, or `{"ok": False, "error": "..."}` if either lookup fails.
-
-* * * * *
-
 ### `create_schedule_build(self, datamodel_name, build_type="ACCUMULATE", *, days=None, hour=None, minute=None, interval_days=None, interval_hours=None, interval_minutes=None)`
 
 Schedules a build for a DataModel. Supports both:

@@ -1153,7 +1153,7 @@ class TestGetAllDashboardShares:
         ]
 
     def test_distinguishes_empty_string_email_from_unresolved_share(self):
-        # Regression: the refactor to get_user_email_and_group_name_maps() must
+        # Regression: the refactor to _get_user_email_and_group_name_maps() must
         # use "shareId in map" membership checks, not truthiness of the
         # resolved value — a user whose email is genuinely "" must still be
         # resolved (name: ""), not treated the same as an unresolvable shareId.
@@ -1187,7 +1187,7 @@ class TestGetAllDashboardShares:
 
 
 # ---------------------------------------------------------------------------
-# get_user_email_and_group_name_maps
+# _get_user_email_and_group_name_maps
 # ---------------------------------------------------------------------------
 
 
@@ -1199,17 +1199,17 @@ class TestGetUserEmailAndGroupNameMaps:
                 "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
             }
         )
-        result = am.get_user_email_and_group_name_maps()
+        result = am._get_user_email_and_group_name_maps()
         assert result == {"users_by_id": {"u1": "alice@example.com"}, "groups_by_id": {"g1": "Engineers"}}
 
     def test_returns_error_when_users_api_fails(self):
         am = _make_am()
-        result = am.get_user_email_and_group_name_maps()
+        result = am._get_user_email_and_group_name_maps()
         assert "error" in result
 
     def test_returns_error_when_groups_api_fails(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "a@b.com"}])})
-        result = am.get_user_email_and_group_name_maps()
+        result = am._get_user_email_and_group_name_maps()
         assert "error" in result
 
 
