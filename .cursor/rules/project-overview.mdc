@@ -137,3 +137,13 @@ Use a YAML config file or environment variables. See the API initialization rule
 - Commits: `commitizen` (conventional commits)
 - Versioning: `python-semantic-release`
 - Pre-commit hooks: ruff + commitizen
+
+## Version differences
+
+This file documents the current code; a user's project may pin an older release. Check
+`pysisense.__version__` first, then `docs/upgrading.md` (canonical old-to-new mapping,
+opens with a symptom -> cause -> fix table) and `CHANGELOG.md`. Note the 2.0 user row keeps 1.x's `ROLE_NAME`
+and `GROUPS` keys and meanings deliberately (the raw role value is the new
+`ROLE_RAW_NAME`); the one changed value is `Everyone` no longer being filtered from
+`GROUPS`.
+Every breaking change goes into `CHANGELOG.md` and the upgrade guide in the same PR.

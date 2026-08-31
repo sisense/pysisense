@@ -388,11 +388,14 @@ if isinstance(dashboards, str):
 
 ### Role name mapping
 
-Canonical user rows carry both vocabularies: `ROLE_NAME` is the **raw** Sisense value
-and `ROLE_DISPLAY_NAME` is the name the Sisense UI shows. The alias table lives once,
-as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
+Canonical user rows carry both vocabularies. `ROLE_NAME` and `ROLE_DISPLAY_NAME` both
+hold the name the Sisense UI shows; `ROLE_RAW_NAME` holds the raw Sisense value.
+`ROLE_NAME` deliberately keeps its 1.x meaning so that role comparisons written against
+1.x keep working — that break would have been silent. Prefer `ROLE_DISPLAY_NAME` or
+`ROLE_RAW_NAME` in new code, since each says which vocabulary it holds. The alias table
+lives once, as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
 
-| `ROLE_NAME` (raw Sisense) | `ROLE_DISPLAY_NAME` (UI) |
+| `ROLE_RAW_NAME` (raw Sisense) | `ROLE_NAME` = `ROLE_DISPLAY_NAME` (UI) |
 |---|---|
 | `consumer` | `viewer` |
 | `super` | `sysAdmin` |
@@ -555,6 +558,25 @@ into `error` (clean sentence) + `raw_body` (redacted dump). Do not add new
 failure-shape exceptions. Deprecated aliases are fossils: their old shapes (including
 old failure shapes) stay frozen until removal. Remaining for a future major: removing
 the six aliases deprecated in 2.0.
+
+### Version differences — never assume the installed version matches this repo
+
+This file documents the **current** code. A user's project may pin an older release, so the
+shapes here are not universally true. When behavior depends on the version:
+
+1. Establish it — `pysisense.__version__`, or `pip show pysisense`.
+2. Consult `docs/upgrading.md`, the canonical old-to-new mapping. It opens with a
+   symptom → cause → fix table, so a reported error (`KeyError: 'GROUPS'`, a role filter
+   silently matching nothing) can be diagnosed straight to a version cause.
+3. `CHANGELOG.md` carries the full per-release entry.
+
+The 2.0 user row keeps 1.x's `ROLE_NAME` and `GROUPS` keys and meanings deliberately, so
+the upgrade is additive there; the one value that changed is `Everyone` no longer being
+filtered out of `GROUPS`.
+
+Every breaking change must be added to `CHANGELOG.md` **and** the upgrade guide in the
+same PR — a shape change recorded only in a commit message is invisible to both users and
+to any assistant helping them.
 
 ### Release ritual — downstream-generators changelog block
 

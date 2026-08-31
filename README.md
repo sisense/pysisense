@@ -35,6 +35,28 @@ For local development, install in editable mode:
 pip install -e .
 ```
 
+### ⬆️ Upgrading from 1.x to 2.0
+
+**2.0 contains breaking changes.** `pysisense` follows semantic versioning, so pinning
+`pysisense>=1,<2` keeps you on 1.x until you choose to move.
+
+📖 **[Full upgrade guide](./docs/upgrading.md)** — every change mapped old-to-new, with
+a symptom → cause → fix table. Complete detail in the [changelog](./CHANGELOG.md).
+
+The user row is **additive** — `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings,
+so role comparisons and group reads keep working. New fields (`ROLE_DISPLAY_NAME`,
+`ROLE_RAW_NAME`, `GROUP_IDS`) sit alongside them. What needs action:
+
+1. **`GROUPS` now includes `Everyone`**, which `get_users_all()` used to strip out. The key
+   and its meaning are unchanged; only this value was added.
+2. **Detect failures with `result.get("ok") is False`** — every failure dict now carries that
+   marker, and methods that used to fail with `[]`, `None` or an `"Error: ..."` string now
+   return the standard error dict. An empty list always means a genuinely empty result.
+3. **`get_unused_columns_bulk` returns a dict**, not a list — read `result["results"]`.
+4. **`get_connections` was removed** — use `get_connections_all`.
+
+Check what you are running with `python -c "import pysisense; print(pysisense.__version__)"`.
+
 ### Alternative Package Names
 
 If you search for `pysisense` and find a different package, or if you mistyped the package name, PyPI has redirect stub packages registered:

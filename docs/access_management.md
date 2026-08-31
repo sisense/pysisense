@@ -5,6 +5,8 @@ This module provides programmatic access to manage Sisense users, groups, dashbo
 
 Every failure return in this module is a dict of the form `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. The shorthand `{"ok": False, "error": "..."}` below always refers to this failure dict.
 
+> **Coming from 1.x?** The canonical user row is **additive**: `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings, joined by the new `ROLE_DISPLAY_NAME` (same value as `ROLE_NAME`, unambiguously named), `ROLE_RAW_NAME` (the raw Sisense role value) and `GROUP_IDS`. The one changed value is that `GROUPS` now includes `Everyone`, which `get_users_all()` used to strip. See the [upgrade guide](upgrading.md).
+
 Class: `AccessManagement`
 -------------------------
 
@@ -38,12 +40,13 @@ Retrieves user details by email address and returns the canonical user row, carr
     - `LAST_NAME`
     - `IS_ACTIVE`
     - `ROLE_ID`
-    - `ROLE_NAME` — the **raw** Sisense role value (`consumer`, `super`, `contributor`)
-    - `ROLE_DISPLAY_NAME` — the name the Sisense UI shows (`viewer`, `sysAdmin`, `dashboardDesigner`)
+    - `ROLE_NAME` — the name the Sisense UI shows (`viewer`, `sysAdmin`, `dashboardDesigner`); unchanged from 1.x
+    - `ROLE_DISPLAY_NAME` — the same value, under a name that states which vocabulary it is
+    - `ROLE_RAW_NAME` — the **raw** Sisense role value (`consumer`, `super`, `contributor`)
     - `GROUP_IDS` (list of group IDs)
-    - `GROUP_NAMES` (list of group names)
+    - `GROUPS` (list of group names)
 
-    `GROUP_IDS`/`GROUP_NAMES` are unfiltered — the `Everyone` group **is** included (the SDK reports what Sisense says; consumers decide what to hide).
+    `GROUP_IDS`/`GROUPS` are unfiltered — the `Everyone` group **is** included (the SDK reports what Sisense says; consumers decide what to hide).
 
     On failure or if the user is not found, returns `{"ok": False, "error": "..."}`.
 
@@ -112,8 +115,8 @@ Fetches all users and returns one canonical user row per user.
 
 -   `list`: One canonical row per user, each with `USER_ID`, `USER_NAME`,
     `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`,
-    `ROLE_NAME` (raw Sisense value, e.g. `consumer`), `ROLE_DISPLAY_NAME`
-    (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUP_NAMES` (unfiltered —
+    `ROLE_NAME` and `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `ROLE_RAW_NAME` (raw value, e.g. `consumer`)
+    (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUPS` (unfiltered —
     the `Everyone` group **is** included).
 
     An empty list means the instance genuinely has zero users. On failure,
@@ -278,7 +281,7 @@ Retrieves group memberships as **flat rows** — one row per (group, user) membe
 
 **Returns:**
 
--   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` (raw Sisense value), and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows). A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
+-   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows), and `ROLE_RAW_NAME` (the raw Sisense value). A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
 
 * * * * *
 
@@ -456,6 +459,8 @@ Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Retur
 -   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"ok": False, "error": "..."}` on failure.
 
 **Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.
+
+`create_user` and `update_user` accept **either** vocabulary for `role`, matched ignoring case, spaces and punctuation — `"super"`, `"sysAdmin"`, `"sys admin"` and `"System Administrator"` all resolve to the same role, so a value read from `ROLE_DISPLAY_NAME` can be written straight back. Roles the instance defines itself (`dataDesigner`, `dataAdmin`, `admin`, `tenantAdmin`, `custom_*`) are matched by their own name and always win over an alias: `"admin"` resolves to a real `admin` role rather than to `super`, and `"data designer"` resolves to `dataDesigner`, never to `contributor`. An unmatched name returns a failure dict listing the roles the instance actually has. (In 1.x, `sysAdmin` and `dashboardDesigner` were rejected.)
 
 * * * * *
 
