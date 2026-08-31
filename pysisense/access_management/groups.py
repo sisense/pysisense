@@ -206,6 +206,13 @@ class GroupsMixin:
         ``get_users_all`` rather than describing group structure. Naming
         either one still returns its members.
 
+        The rule across the SDK: **targeted questions give complete answers;
+        only the all-groups view filters.** So ``users_per_group("Everyone")``
+        and ``get_user(email)["GROUPS"]`` both report every group a user is
+        in, while ``users_per_group()`` omits the two universal ones. Do not
+        derive one person's groups from the all-groups view — it will be
+        missing those two. Use :meth:`get_user` for that.
+
         Membership is read from the **group** side
         (``GET /api/v1/groups?expand=users``), which is the same source the
         Sisense UI shows. Sisense resolves the auto-generated groups
