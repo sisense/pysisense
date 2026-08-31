@@ -29,6 +29,7 @@ def test_get_users_all_returns_list() -> None:
     assert "EMAIL" in first
     assert "ROLE_NAME" in first
     assert "ROLE_DISPLAY_NAME" in first
+    assert "ROLE_RAW_NAME" in first
     assert "GROUP_IDS" in first
     assert "GROUPS" in first
 

@@ -388,11 +388,14 @@ if isinstance(dashboards, str):
 
 ### Role name mapping
 
-Canonical user rows carry both vocabularies: `ROLE_NAME` is the **raw** Sisense value
-and `ROLE_DISPLAY_NAME` is the name the Sisense UI shows. The alias table lives once,
-as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
+Canonical user rows carry both vocabularies. `ROLE_NAME` and `ROLE_DISPLAY_NAME` both
+hold the name the Sisense UI shows; `ROLE_RAW_NAME` holds the raw Sisense value.
+`ROLE_NAME` deliberately keeps its 1.x meaning so that role comparisons written against
+1.x keep working — that break would have been silent. Prefer `ROLE_DISPLAY_NAME` or
+`ROLE_RAW_NAME` in new code, since each says which vocabulary it holds. The alias table
+lives once, as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
 
-| `ROLE_NAME` (raw Sisense) | `ROLE_DISPLAY_NAME` (UI) |
+| `ROLE_RAW_NAME` (raw Sisense) | `ROLE_NAME` = `ROLE_DISPLAY_NAME` (UI) |
 |---|---|
 | `consumer` | `viewer` |
 | `super` | `sysAdmin` |
@@ -567,9 +570,9 @@ shapes here are not universally true. When behavior depends on the version:
    silently matching nothing) can be diagnosed straight to a version cause.
 3. `CHANGELOG.md` carries the full per-release entry.
 
-Two 2.0 changes fail **silently** on 1.x-era code and are the ones worth recognising by
-symptom: `ROLE_NAME` switched from the display name to the raw Sisense value, and
-`get_users_all()` stopped filtering `Everyone` out of group lists.
+The 2.0 user row keeps 1.x's `ROLE_NAME` and `GROUPS` keys and meanings deliberately, so
+the upgrade is additive there; the one value that changed is `Everyone` no longer being
+filtered out of `GROUPS`.
 
 Every breaking change must be added to `CHANGELOG.md` **and** the migration guide in the
 same PR — a shape change recorded only in a commit message is invisible to both users and

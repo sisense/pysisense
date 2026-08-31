@@ -11,22 +11,22 @@ old-to-new and starts with a symptom → cause → fix table.
 
 ### What you must change
 
-1. **`ROLE_NAME` now holds the raw Sisense value** (`super` / `consumer` / `contributor`).
-   The UI name moved to the new `ROLE_DISPLAY_NAME` (`sysAdmin` / `viewer` /
-   `dashboardDesigner`). **This one fails silently** — `ROLE_NAME == "sysAdmin"` now matches
-   zero users instead of raising.
-2. **`GROUPS` now includes `Everyone`**, which `get_users_all()` used to strip out. The key
-   itself is unchanged and still holds group names; the new `GROUP_IDS` sits alongside it.
-3. **Detect failures with `result.get("ok") is False`**, never by matching an exact key set.
-4. **`get_unused_columns_bulk` returns a dict**, not a list — read `result["results"]`.
-5. **`get_connections` was removed** — use `get_connections_all`.
+The user row is **additive** — `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings,
+so role comparisons and group reads keep working. What needs action:
+
+1. **`GROUPS` now includes `Everyone`**, which `get_users_all()` used to strip out. The key
+   and its meaning are unchanged; only this value was added.
+2. **Detect failures with `result.get("ok") is False`**, never by matching an exact key set.
+3. **`get_unused_columns_bulk` returns a dict**, not a list — read `result["results"]`.
+4. **`get_connections` was removed** — use `get_connections_all`.
 
 ### Breaking
 
 - **Canonical user row** — `get_user()` and `get_users_all()` now return one shared shape:
   `USER_ID, USER_NAME, EMAIL, FIRST_NAME, LAST_NAME, IS_ACTIVE, ROLE_ID, ROLE_NAME,
-  ROLE_DISPLAY_NAME, GROUP_IDS, GROUPS`. In 1.x the two methods disagreed with each other on
-  both the role vocabulary and the group fields.
+  ROLE_DISPLAY_NAME, ROLE_RAW_NAME, GROUP_IDS, GROUPS`. In 1.x the two methods disagreed
+  with each other on both the role vocabulary and the group fields; `ROLE_NAME` and
+  `GROUPS` now mean the same thing in both.
 - `Everyone` is no longer filtered out of group memberships. The SDK reports what Sisense
   stores; consumers decide what to hide.
 - `get_users_all()` returns a plain error dict on failure instead of a list-wrapped
@@ -61,8 +61,10 @@ Still functional, behavior frozen at the 1.x shape, marked with PEP 702 `__depre
 
 ### Added
 
-- `ROLE_DISPLAY_NAME` and `GROUP_IDS` on every canonical user row (`GROUPS` keeps its 1.x
-  meaning — the group names).
+- `ROLE_DISPLAY_NAME`, `ROLE_RAW_NAME` and `GROUP_IDS` on every canonical user row.
+  `ROLE_NAME` and `GROUPS` keep their 1.x meanings (the UI role name and the group names);
+  `ROLE_DISPLAY_NAME` restates `ROLE_NAME` unambiguously and `ROLE_RAW_NAME` carries the
+  raw Sisense role value.
 - `get_groups(name=...)` — exact-match server-side group lookup.
 - **`create_user` / `update_user` accept both role vocabularies** — raw (`super`), UI
   (`sysAdmin`), or a human phrasing (`sys admin`, `System Administrator`), matched ignoring

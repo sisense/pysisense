@@ -9,9 +9,9 @@ from ..payloads import CreateUserPayload, UpdateUserPayload
 from ..utils import _extract_error_message
 
 # Raw Sisense role name -> the display name shown in the Sisense UI.
-# Single source of truth: canonical user rows carry BOTH (ROLE_NAME raw,
-# ROLE_DISPLAY_NAME aliased) so no consumer has to guess which vocabulary
-# a field contains.
+# Single source of truth: canonical user rows carry BOTH vocabularies
+# (ROLE_NAME/ROLE_DISPLAY_NAME aliased, ROLE_RAW_NAME raw) so no consumer has
+# to guess which vocabulary a field contains.
 _ROLE_DISPLAY_ALIASES = {
     "consumer": "viewer",
     "super": "sysAdmin",
@@ -150,9 +150,10 @@ class UsersMixin:
 
         Canonical row shape (shared by ``get_user`` and ``get_users_all``):
         ``USER_ID``, ``USER_NAME``, ``EMAIL``, ``FIRST_NAME``, ``LAST_NAME``,
-        ``IS_ACTIVE``, ``ROLE_ID``, ``ROLE_NAME`` (raw Sisense value),
-        ``ROLE_DISPLAY_NAME`` (the name the Sisense UI shows), ``GROUP_IDS``,
-        ``GROUPS`` (group names, unfiltered — includes ``Everyone``).
+        ``IS_ACTIVE``, ``ROLE_ID``, ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME``
+        (both the name the Sisense UI shows), ``ROLE_RAW_NAME`` (the raw
+        Sisense value), ``GROUP_IDS``, ``GROUPS`` (group names, unfiltered —
+        includes ``Everyone``).
         """
         role_obj = user.get("role") or {}
         role_name_raw = role_obj.get("name") or ""
@@ -165,8 +166,13 @@ class UsersMixin:
             "LAST_NAME": user.get("lastName", ""),
             "IS_ACTIVE": user.get("active", False),
             "ROLE_ID": role_obj.get("_id", ""),
-            "ROLE_NAME": role_name_raw,
+            # ROLE_NAME keeps its 1.x meaning (the name the UI shows) so that
+            # role comparisons written against 1.x keep working — that break
+            # would have been silent. ROLE_DISPLAY_NAME says the same thing
+            # unambiguously; ROLE_RAW_NAME carries Sisense's own value.
+            "ROLE_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
             "ROLE_DISPLAY_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
+            "ROLE_RAW_NAME": role_name_raw,
             "GROUP_IDS": [g.get("_id", "") for g in groups_obj],
             "GROUPS": [g.get("name", "") for g in groups_obj],
         }

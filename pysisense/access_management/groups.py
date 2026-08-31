@@ -211,9 +211,10 @@ class GroupsMixin:
             One row per (group, user) membership, each with ``GROUP_ID``,
             ``GROUP_NAME``, ``USER_ID``, ``USER_NAME``, ``EMAIL``,
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
-            ``ROLE_NAME`` (raw Sisense value), and ``ROLE_DISPLAY_NAME`` (the
-            name the Sisense UI shows). A group with no members contributes no
-            rows, so the row count always equals the real membership count.
+            ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME`` (both the name the Sisense
+            UI shows), and ``ROLE_RAW_NAME`` (the raw Sisense value). A group
+            with no members contributes no rows, so the row count always equals
+            the real membership count.
             Returns ``{"error": "..."}`` on failure or unknown ``group_name``.
         """
         self.logger.debug(f"Starting 'users_per_group' method (group_name={group_name!r}).")
@@ -249,6 +250,7 @@ class GroupsMixin:
                         "ROLE_ID": row["ROLE_ID"],
                         "ROLE_NAME": row["ROLE_NAME"],
                         "ROLE_DISPLAY_NAME": row["ROLE_DISPLAY_NAME"],
+                        "ROLE_RAW_NAME": row["ROLE_RAW_NAME"],
                     }
                 )
 

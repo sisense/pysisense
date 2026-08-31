@@ -86,9 +86,9 @@ if isinstance(dashboards, str):
 
 ## Role name mapping
 
-Canonical user rows carry both vocabularies: `ROLE_NAME` is the **raw** Sisense value and `ROLE_DISPLAY_NAME` is the name the Sisense UI shows. The alias table lives once, as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
+Canonical user rows carry both vocabularies. `ROLE_NAME` and `ROLE_DISPLAY_NAME` both hold the name the Sisense UI shows (`ROLE_NAME` keeps its 1.x meaning so 1.x role comparisons keep working); `ROLE_RAW_NAME` holds the raw Sisense value. Prefer the explicit names in new code. The alias table lives once, as `_ROLE_DISPLAY_ALIASES` in `access_management/users.py` — never duplicate it.
 
-| `ROLE_NAME` (raw Sisense) | `ROLE_DISPLAY_NAME` (UI) |
+| `ROLE_RAW_NAME` (raw Sisense) | `ROLE_NAME` = `ROLE_DISPLAY_NAME` (UI) |
 |---|---|
 | `consumer` | `viewer` |
 | `super` | `sysAdmin` |

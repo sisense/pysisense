@@ -29,7 +29,7 @@ access_mgmt = AccessManagement(api_client=api_client)
 
 ## Example 1: Get User Information by Email
 
-Retrieve information for a specific user by their email (required). Returns the canonical user row: `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` (raw Sisense value, e.g. `consumer`), `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUPS` (group names, unfiltered — the `Everyone` group is included). On failure returns `{"ok": False, "error": "..."}`.
+Retrieve information for a specific user by their email (required). Returns the canonical user row: `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `ROLE_RAW_NAME` (raw Sisense value, e.g. `consumer`), `GROUP_IDS`, and `GROUPS` (group names, unfiltered — the `Everyone` group is included). On failure returns `{"ok": False, "error": "..."}`.
 
 ```python
 user_email = "john.doe@example.com"
@@ -108,7 +108,7 @@ api_client.export_to_csv(response, file_name="user_with_role_and_groups.csv")
 
 ## Example 2: Get All Users
 
-Fetch all users in the system. Returns a list of canonical user rows (same shape as `get_user`, including `ROLE_NAME`, `ROLE_DISPLAY_NAME`, `GROUP_IDS`, and `GROUPS`). An empty list means the instance genuinely has zero users; on failure a plain `{"ok": False, "error": "..."}` dict is returned (not a list).
+Fetch all users in the system. Returns a list of canonical user rows (same shape as `get_user`, including `ROLE_NAME`, `ROLE_DISPLAY_NAME`, `ROLE_RAW_NAME`, `GROUP_IDS`, and `GROUPS`). An empty list means the instance genuinely has zero users; on failure a plain `{"ok": False, "error": "..."}` dict is returned (not a list).
 
 ```python
 response = access_mgmt.get_users_all()
@@ -247,7 +247,7 @@ else:
 
 ## Example 6: Get All Users in a Specific Group
 
-List all members of a given group as flat membership rows — one row per (group, user), each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME`, and `ROLE_DISPLAY_NAME`. An unknown or typo'd group name returns `{"ok": False, "error": "..."}` naming the reference — never a silent empty list.
+List all members of a given group as flat membership rows — one row per (group, user), each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME`, `ROLE_DISPLAY_NAME`, and `ROLE_RAW_NAME`. An unknown or typo'd group name returns `{"ok": False, "error": "..."}` naming the reference — never a silent empty list.
 
 ```python
 group_name = "Sales Team"
@@ -287,7 +287,7 @@ else:
 
 ## Example 6a: Get All Users with Raw Role Names
 
-The canonical rows returned by `get_users_all()` carry the raw Sisense role value in `ROLE_NAME` (e.g. `consumer`) alongside the UI name in `ROLE_DISPLAY_NAME` (e.g. `viewer`) — no separate call needed for raw names. (`get_users_expanded` is a deprecated alias — use `get_users_all`.)
+The canonical rows returned by `get_users_all()` carry both vocabularies: the UI name in `ROLE_NAME`/`ROLE_DISPLAY_NAME` (e.g. `viewer`) and the raw Sisense value in `ROLE_RAW_NAME` (e.g. `consumer`) — no separate call needed for raw names. (`get_users_expanded` is a deprecated alias — use `get_users_all`.)
 
 ```python
 response = access_mgmt.get_users_all()
@@ -295,7 +295,7 @@ response = access_mgmt.get_users_all()
 if isinstance(response, list):
     print(f"Found {len(response)} user(s).")
     for user in response[:5]:
-        print(f"{user['EMAIL']}: raw role = {user['ROLE_NAME']}, UI role = {user['ROLE_DISPLAY_NAME']}")
+        print(f"{user['EMAIL']}: raw role = {user['ROLE_RAW_NAME']}, UI role = {user['ROLE_DISPLAY_NAME']}")
     df = api_client.to_dataframe(response)
     print(df)
 else:

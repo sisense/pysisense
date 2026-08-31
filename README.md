@@ -43,19 +43,17 @@ pip install -e .
 📖 **[Full migration guide](./docs/migration-2.0.md)** — every change mapped old-to-new, with
 a symptom → cause → fix table. Complete detail in the [changelog](./CHANGELOG.md).
 
-The main ones:
+The user row is **additive** — `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings,
+so role comparisons and group reads keep working. New fields (`ROLE_DISPLAY_NAME`,
+`ROLE_RAW_NAME`, `GROUP_IDS`) sit alongside them. What needs action:
 
-1. **`ROLE_NAME` now holds the raw Sisense value** (`super` / `consumer` / `contributor`).
-   The UI name moved to the new **`ROLE_DISPLAY_NAME`** (`sysAdmin` / `viewer` /
-   `dashboardDesigner`). **This one fails silently** — `ROLE_NAME == "sysAdmin"` matches zero
-   users instead of raising.
-2. **`GROUPS` now includes `Everyone`**, which `get_users_all()` used to strip out. The key
-   still holds group names as before, and the new `GROUP_IDS` sits alongside it.
-3. **Detect failures with `result.get("ok") is False`** — every failure dict now carries that
+1. **`GROUPS` now includes `Everyone`**, which `get_users_all()` used to strip out. The key
+   and its meaning are unchanged; only this value was added.
+2. **Detect failures with `result.get("ok") is False`** — every failure dict now carries that
    marker, and methods that used to fail with `[]`, `None` or an `"Error: ..."` string now
    return the standard error dict. An empty list always means a genuinely empty result.
-4. **`get_unused_columns_bulk` returns a dict**, not a list — read `result["results"]`.
-5. **`get_connections` was removed** — use `get_connections_all`.
+3. **`get_unused_columns_bulk` returns a dict**, not a list — read `result["results"]`.
+4. **`get_connections` was removed** — use `get_connections_all`.
 
 Check what you are running with `python -c "import pysisense; print(pysisense.__version__)"`.
 

@@ -5,7 +5,7 @@ This module provides programmatic access to manage Sisense users, groups, dashbo
 
 Every failure return in this module is a dict of the form `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. The shorthand `{"ok": False, "error": "..."}` below always refers to this failure dict.
 
-> **Coming from 1.x?** `ROLE_NAME` now holds the raw Sisense value (the UI name moved to the new `ROLE_DISPLAY_NAME`), and `GROUPS` — still the group names — is joined by the new `GROUP_IDS`. `GROUPS` now includes `Everyone`, which `get_users_all()` used to strip. See the [migration guide](migration-2.0.md).
+> **Coming from 1.x?** The canonical user row is **additive**: `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings, joined by the new `ROLE_DISPLAY_NAME` (same value as `ROLE_NAME`, unambiguously named), `ROLE_RAW_NAME` (the raw Sisense role value) and `GROUP_IDS`. The one changed value is that `GROUPS` now includes `Everyone`, which `get_users_all()` used to strip. See the [migration guide](migration-2.0.md).
 
 Class: `AccessManagement`
 -------------------------
@@ -40,8 +40,9 @@ Retrieves user details by email address and returns the canonical user row, carr
     - `LAST_NAME`
     - `IS_ACTIVE`
     - `ROLE_ID`
-    - `ROLE_NAME` — the **raw** Sisense role value (`consumer`, `super`, `contributor`)
-    - `ROLE_DISPLAY_NAME` — the name the Sisense UI shows (`viewer`, `sysAdmin`, `dashboardDesigner`)
+    - `ROLE_NAME` — the name the Sisense UI shows (`viewer`, `sysAdmin`, `dashboardDesigner`); unchanged from 1.x
+    - `ROLE_DISPLAY_NAME` — the same value, under a name that states which vocabulary it is
+    - `ROLE_RAW_NAME` — the **raw** Sisense role value (`consumer`, `super`, `contributor`)
     - `GROUP_IDS` (list of group IDs)
     - `GROUPS` (list of group names)
 
@@ -114,7 +115,7 @@ Fetches all users and returns one canonical user row per user.
 
 -   `list`: One canonical row per user, each with `USER_ID`, `USER_NAME`,
     `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`,
-    `ROLE_NAME` (raw Sisense value, e.g. `consumer`), `ROLE_DISPLAY_NAME`
+    `ROLE_NAME` and `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `ROLE_RAW_NAME` (raw value, e.g. `consumer`)
     (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUPS` (unfiltered —
     the `Everyone` group **is** included).
 
@@ -280,7 +281,7 @@ Retrieves group memberships as **flat rows** — one row per (group, user) membe
 
 **Returns:**
 
--   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` (raw Sisense value), and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows). A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
+-   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows), and `ROLE_RAW_NAME` (the raw Sisense value). A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
 
 * * * * *
 

@@ -26,12 +26,16 @@ pip show pysisense | grep Version
 
 ## The short version
 
-`GROUPS` is untouched — it still holds group names, and it is now accompanied by a new
-`GROUP_IDS`. The only value change there is that `Everyone` is no longer stripped out.
+**The user row is additive.** `ROLE_NAME` and `GROUPS` keep the names *and the meanings*
+they had in 1.x, so `user["ROLE_NAME"] == "sysAdmin"` and `user["GROUPS"]` keep working.
+Two new fields sit alongside them: `ROLE_RAW_NAME` (Sisense's own role value) and
+`GROUP_IDS` (the group IDs).
 
-**The one change that can break logic is `ROLE_NAME`**, which now carries the raw Sisense
-value instead of the display name. It fails *silently* — a comparison against `"sysAdmin"`
-simply matches nothing. If you change one thing when upgrading, change that.
+The one changed value is that `Everyone` is no longer stripped from `GROUPS` — it appears
+where it used to be hidden. Nothing else in the row silently changes meaning.
+
+The changes that *do* need action are outside the user row: failure shapes, the bulk
+outcome shape, and one removed method. They all fail loudly.
 
 ## Symptom → cause → fix
 
@@ -39,7 +43,6 @@ Start here if something is already broken.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Filtering `ROLE_NAME == "sysAdmin"` (or `"viewer"`, `"dashboardDesigner"`) matches **zero** users, no error | On 2.x. `ROLE_NAME` now holds the **raw** Sisense value. **This fails silently.** | Compare against `"super"` / `"consumer"` / `"contributor"`, or switch the comparison to `ROLE_DISPLAY_NAME`. |
 | `"Everyone"` suddenly appears in `user["GROUPS"]` | On 2.x. `get_users_all()` no longer strips it. The key and its meaning are unchanged — only this one value was added. | Filter it out yourself if you don't want it. |
 | `Role 'sysAdmin' not found in roles_mapping` from `create_user`/`update_user` | On 1.x. Writes only accepted `viewer`/`designer` plus raw names. | Upgrade to 2.0 (accepts both vocabularies), or pass the raw name `"super"`. |
 | `TypeError` iterating `get_unused_columns_bulk(...)`, or rows are missing | On 2.x. It returns a dict, not a list. | Read `result["results"]`; per-model failures are in `result["errors"]`. |
@@ -98,8 +101,9 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
     "FIRST_NAME": "Jane", "LAST_NAME": "Doe",
     "IS_ACTIVE": True,
     "ROLE_ID": "6a5f...53",
-    "ROLE_NAME": "super",                    # RAW Sisense value
-    "ROLE_DISPLAY_NAME": "sysAdmin",         # what the UI shows
+    "ROLE_NAME": "sysAdmin",                 # unchanged from 1.x (UI name)
+    "ROLE_DISPLAY_NAME": "sysAdmin",         # same value, unambiguous name
+    "ROLE_RAW_NAME": "super",                # new: Sisense's own value
     "GROUP_IDS": ["6a5f...c7", "6a5f...60"], # new
     "GROUPS": ["Admins", "Everyone"],        # same key as 1.x; now unfiltered
 }
@@ -107,7 +111,7 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
 
 | 1.1.0 | 2.0.0 |
 |---|---|
-| `ROLE_NAME` = display name | `ROLE_NAME` = raw value; display moved to `ROLE_DISPLAY_NAME` |
+| `ROLE_NAME` = display name | `ROLE_NAME` = display name (unchanged), plus `ROLE_DISPLAY_NAME` (same value, explicit) and the new `ROLE_RAW_NAME` (raw value) |
 | `GROUPS` = group names | `GROUPS` = group names (unchanged), plus the new `GROUP_IDS` |
 | `Everyone` stripped by `get_users_all` | `Everyone` always reported in `GROUPS` |
 | `get_user` and `get_users_all` disagreed on both fields | one shape, both methods |
@@ -115,11 +119,15 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
 
 Role vocabulary in full:
 
-| `ROLE_NAME` (raw) | `ROLE_DISPLAY_NAME` (UI) |
+| `ROLE_RAW_NAME` (raw Sisense) | `ROLE_NAME` = `ROLE_DISPLAY_NAME` (UI) |
 |---|---|
 | `consumer` | `viewer` |
 | `super` | `sysAdmin` |
 | `contributor` | `dashboardDesigner` |
+
+`ROLE_NAME` deliberately keeps its 1.x meaning so existing role comparisons keep working.
+In new code prefer `ROLE_DISPLAY_NAME` or `ROLE_RAW_NAME`, which each state which
+vocabulary they hold.
 
 An instance may define further roles (`dataDesigner`, `dataAdmin`, `admin`, `tenantAdmin`,
 `custom_*`); those appear unchanged in both fields.
@@ -143,7 +151,8 @@ rejected.
     "GROUP_ID": "...", "GROUP_NAME": "Admins",
     "USER_ID": "...", "USER_NAME": "...", "EMAIL": "...",
     "FIRST_NAME": "...", "LAST_NAME": "...", "IS_ACTIVE": True,
-    "ROLE_ID": "...", "ROLE_NAME": "super", "ROLE_DISPLAY_NAME": "sysAdmin",
+    "ROLE_ID": "...", "ROLE_NAME": "sysAdmin",
+    "ROLE_DISPLAY_NAME": "sysAdmin", "ROLE_RAW_NAME": "super",
 }
 ```
 

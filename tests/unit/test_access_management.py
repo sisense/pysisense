@@ -167,9 +167,11 @@ class TestGetUser:
         result = am.get_user("jdoe@example.com")
         assert result["USER_ID"] == "user123"
         assert result["EMAIL"] == "jdoe@example.com"
-        # ROLE_NAME carries the raw Sisense value; the UI name lives in ROLE_DISPLAY_NAME.
-        assert result["ROLE_NAME"] == "consumer"
+        # ROLE_NAME keeps its 1.x meaning (the UI name), so role comparisons
+        # written against 1.x keep working; the raw value is ROLE_RAW_NAME.
+        assert result["ROLE_NAME"] == "viewer"
         assert result["ROLE_DISPLAY_NAME"] == "viewer"
+        assert result["ROLE_RAW_NAME"] == "consumer"
         assert result["GROUP_IDS"] == ["grp_engineers"]
         assert result["GROUPS"] == ["Engineers"]
 
@@ -244,9 +246,21 @@ class TestGetUsersAll:
         result = am.get_users_all()
         assert isinstance(result, list)
         assert result[0]["USER_ID"] == "user123"
-        assert result[0]["ROLE_NAME"] == "consumer"
+        assert result[0]["ROLE_NAME"] == "viewer"
         assert result[0]["ROLE_DISPLAY_NAME"] == "viewer"
+        assert result[0]["ROLE_RAW_NAME"] == "consumer"
         assert result[0]["GROUPS"] == ["Engineers"]
+
+    def test_one_x_role_comparisons_still_work(self):
+        # The reason ROLE_NAME holds the UI name: a 1.x comparison like
+        # `user["ROLE_NAME"] == "sysAdmin"` would otherwise match nothing and
+        # fail SILENTLY, quietly turning an admin check into "not an admin".
+        admin = dict(_USER_EXPANDED)
+        admin["role"] = {"_id": "role_super", "name": "super"}
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [admin])})
+        rows = am.get_users_all()
+        assert [u for u in rows if u["ROLE_NAME"] == "sysAdmin"], "1.x role filter must still match"
+        assert rows[0]["ROLE_RAW_NAME"] == "super"
 
     def test_everyone_group_is_reported_not_filtered(self):
         # The SDK reports what Sisense says; consumers decide what to hide.
@@ -696,8 +710,9 @@ class TestUsersPerGroup:
                 "LAST_NAME": "Doe",
                 "IS_ACTIVE": True,
                 "ROLE_ID": "role_consumer",
-                "ROLE_NAME": "consumer",
+                "ROLE_NAME": "viewer",
                 "ROLE_DISPLAY_NAME": "viewer",
+                "ROLE_RAW_NAME": "consumer",
             }
         ]
 
