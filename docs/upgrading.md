@@ -181,6 +181,10 @@ rejected.
   count.
 - Membership is read from the group side, matching what the Sisense UI shows — including
   the auto-generated `Admins` and `All users in system` groups (see below).
+- **The rule for the universal groups:** targeted questions give complete answers; only the
+  all-groups view filters. `get_user(email)["GROUPS"]` and `users_per_group("Everyone")` both
+  report every group a user is in. `users_per_group()` omits `Everyone` and
+  `All users in system` — so do not derive one person's groups from it.
 - `Everyone` and `All users in system` are omitted from the all-groups view by default —
   Sisense puts every user in both, so they duplicate `get_users_all()` and would be most of
   the output. Name one directly (`users_per_group("Everyone")`) to get its members.

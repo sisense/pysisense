@@ -192,6 +192,16 @@ class UsersMixin:
         (both the name the Sisense UI shows), ``ROLE_RAW_NAME`` (the raw
         Sisense value), ``GROUP_IDS``, ``GROUPS`` (group names, unfiltered —
         includes ``Everyone``).
+
+        ``membership`` is the group-side map from
+        :meth:`_group_membership_map`. When given, the group fields come from
+        it so they agree with ``users_per_group``; without it they fall back to
+        the user record, which omits Sisense's derived system groups.
+
+        The group fields are always the **complete** membership, including
+        ``Everyone`` and ``All users in system``. Only ``users_per_group``'s
+        all-groups view filters those two out, for readability — so use this
+        row, not that view, to answer "which groups is this person in".
         """
         role_obj = user.get("role") or {}
         role_name_raw = role_obj.get("name") or ""

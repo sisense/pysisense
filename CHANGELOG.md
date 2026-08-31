@@ -21,6 +21,12 @@ All notable changes to `pysisense` are documented here. The format follows
 
   Reported by the FES Assistant project.
 
+- **Documented the rule for the universal groups**, which the fix above makes visible:
+  targeted questions give complete answers, only the all-groups view filters.
+  `get_user(email)["GROUPS"]` and `users_per_group("Everyone")` both report every group a
+  user is in; `users_per_group()` omits `Everyone` and `All users in system` for readability.
+  Do not derive one person's groups from the all-groups view — use `get_user`.
+
 ## [2.0.0] — 2026-08-31
 
 **A focused release, not a rewrite.** The major version is here because some changes are
