@@ -125,6 +125,7 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
 | `ROLE_NAME` = display name | `ROLE_NAME` = display name (unchanged), plus `ROLE_DISPLAY_NAME` (same value, explicit) and the new `ROLE_RAW_NAME` (raw value) |
 | `GROUPS` = group names | `GROUPS` = group names (unchanged), plus the new `GROUP_IDS` |
 | `Everyone` stripped by `get_users_all` | `Everyone` always reported in `GROUPS` |
+| `GROUPS` read from the user record | `GROUPS` read from the group side, so Sisense's derived groups (`Admins`, `All users in system`) appear and agree with `users_per_group` (2.0.1) |
 | `get_user` and `get_users_all` disagreed on both fields | one shape, both methods |
 | Failure: `[{"error": ...}]` (list-wrapped) | Failure: plain `{"ok": False, "error": ...}` |
 

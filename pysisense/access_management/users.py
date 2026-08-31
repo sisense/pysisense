@@ -145,7 +145,45 @@ class UsersMixin:
         self.logger.debug(f"Resolved role '{role_name}' to ID '{role_id}'.")
         return role_id
 
-    def _user_row(self, user: dict[str, Any]) -> dict[str, Any]:
+    def _group_membership_map(self) -> dict[str, list[tuple[str, str]]]:
+        """Map each user ID to the groups Sisense reports them in.
+
+        Read from the **group** side (``GET /api/v1/groups?expand=users``),
+        which is the source the Sisense UI shows and the one
+        ``users_per_group`` uses. Sisense resolves its auto-generated groups
+        (``Admins``, ``All users in system``) there and never writes them back
+        into a user's own ``groups`` field, so reading the user record alone
+        under-reports membership.
+
+        Returns
+        -------
+        dict[str, list[tuple[str, str]]]
+            ``{user_id: [(group_id, group_name), ...]}``. Empty when the
+            groups cannot be fetched — callers fall back to the user record
+            rather than losing the rows entirely.
+        """
+        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
+        if response is None or not response.ok:
+            self.logger.warning("Could not fetch group-side membership; falling back to the user record.")
+            return {}
+
+        try:
+            groups = response.json() or []
+        except Exception:
+            self.logger.exception("Failed to parse group memberships response JSON.")
+            return {}
+
+        membership: dict[str, list[tuple[str, str]]] = {}
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            gid, gname = group.get("_id", ""), group.get("name", "")
+            for member in group.get("users") or []:
+                if isinstance(member, dict) and member.get("_id"):
+                    membership.setdefault(member["_id"], []).append((gid, gname))
+        return membership
+
+    def _user_row(self, user: dict[str, Any], membership: dict[str, list[tuple[str, str]]] | None = None) -> dict[str, Any]:
         """Build the canonical user row from one raw expanded user object.
 
         Canonical row shape (shared by ``get_user`` and ``get_users_all``):
@@ -157,7 +195,19 @@ class UsersMixin:
         """
         role_obj = user.get("role") or {}
         role_name_raw = role_obj.get("name") or ""
-        groups_obj = [g for g in (user.get("groups") or []) if isinstance(g, dict)]
+
+        # Prefer group-side membership so this row agrees with
+        # users_per_group; the user record omits Sisense's derived system
+        # groups (Admins, All users in system).
+        if membership is not None and user.get("_id") in membership:
+            pairs = membership[user["_id"]]
+            group_ids = [gid for gid, _ in pairs]
+            group_names = [gname for _, gname in pairs]
+        else:
+            groups_obj = [g for g in (user.get("groups") or []) if isinstance(g, dict)]
+            group_ids = [g.get("_id", "") for g in groups_obj]
+            group_names = [g.get("name", "") for g in groups_obj]
+
         return {
             "USER_ID": user.get("_id", ""),
             "USER_NAME": user.get("userName", ""),
@@ -173,8 +223,8 @@ class UsersMixin:
             "ROLE_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
             "ROLE_DISPLAY_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
             "ROLE_RAW_NAME": role_name_raw,
-            "GROUP_IDS": [g.get("_id", "") for g in groups_obj],
-            "GROUPS": [g.get("name", "") for g in groups_obj],
+            "GROUP_IDS": group_ids,
+            "GROUPS": group_names,
         }
 
     def _map_user_role_and_groups(self, user: dict[str, Any], apply_role_alias: bool = True) -> tuple[str | None, str | None, list[str], list[str]]:
@@ -445,11 +495,12 @@ class UsersMixin:
         if isinstance(users, dict):
             return users
 
+        membership = self._group_membership_map()
         for user in users:
             try:
                 if user.get("email") == user_email:
                     self.logger.info("Found user: %s", user_email)
-                    return self._user_row(user)
+                    return self._user_row(user, membership)
             except Exception as exc:
                 self.logger.exception(
                     "Error processing user object for email %s. Exception: %s",
@@ -588,10 +639,11 @@ class UsersMixin:
         if isinstance(users, dict):
             return users
 
+        membership = self._group_membership_map()
         data_list = []
         for user in users:
             try:
-                data_list.append(self._user_row(user))
+                data_list.append(self._user_row(user, membership))
             except Exception as e:
                 self.logger.exception(f"Error processing user {user.get('email', 'Unknown')}: {str(e)}")
 

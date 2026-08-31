@@ -4,6 +4,23 @@ All notable changes to `pysisense` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/) — breaking changes land only in a major release.
 
+## [2.0.1] — 2026-08-31
+
+### Fixed
+
+- **`get_user` and `get_users_all` now read group membership from the group side**, the same
+  source `users_per_group` and the Sisense UI use. 2.0.0 moved `users_per_group` to that
+  source but left the user readers on the user record, which Sisense does not populate with
+  its derived groups (`Admins`, `All users in system`) — so the two canonical methods
+  disagreed about the same person: `get_user(x)["GROUPS"]` returned `['Everyone']` for a user
+  `users_per_group("Admins")` listed as a member.
+
+  `GROUPS` and `GROUP_IDS` now include those derived memberships, so all three methods agree.
+  Consumers counting entries in `GROUPS` will see larger lists for affected users. If the
+  group fetch fails the fields fall back to the user record rather than coming back empty.
+
+  Reported by the FES Assistant project.
+
 ## [2.0.0] — 2026-08-31
 
 **A focused release, not a rewrite.** The major version is here because some changes are

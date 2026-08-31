@@ -48,6 +48,8 @@ Retrieves user details by email address and returns the canonical user row, carr
 
     `GROUP_IDS`/`GROUPS` are unfiltered — the `Everyone` group **is** included (the SDK reports what Sisense says; consumers decide what to hide).
 
+    Group membership is read from the **group** side (`GET /api/v1/groups?expand=users`), the same source `users_per_group` and the Sisense UI use. Sisense resolves its auto-generated groups (`Admins`, `All users in system`) there and never writes them into a user's own record, so reading the user record alone would under-report membership and disagree with `users_per_group` about the same person. If the group fetch fails, the fields fall back to the user record rather than coming back empty.
+
     On failure or if the user is not found, returns `{"ok": False, "error": "..."}`.
 
 * * * * *
