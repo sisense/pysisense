@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from typing_extensions import deprecated
@@ -15,6 +16,34 @@ _ROLE_DISPLAY_ALIASES = {
     "consumer": "viewer",
     "super": "sysAdmin",
     "contributor": "dashboardDesigner",
+}
+
+
+def _normalize_role_key(value: Any) -> str:
+    """Collapse a role name to a comparison key: uppercase, alphanumerics only.
+
+    Lets ``"sys admin"``, ``"Sys-Admin"`` and ``" sysAdmin "`` all compare equal
+    so callers (and the humans typing at them) are not held to exact casing or
+    spacing.
+    """
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+# Display/human role name -> raw Sisense role name, both normalized. Consulted
+# ONLY after the instance's real roles fail to match, so a real role always
+# wins over an alias. The three canonical entries are derived from
+# _ROLE_DISPLAY_ALIASES (single source of truth); the rest are human phrasings.
+#
+# Deliberately absent: "ADMIN"/"ADMINISTRATOR" (a Sisense instance can have a
+# real `admin` role distinct from `super`, so guessing would silently
+# over-privilege) and "DATADESIGNER" (`dataDesigner` is its own role, NOT a
+# synonym for `contributor`). Both resolve via the real-role lookup, or fail
+# loudly listing the available roles.
+_ROLE_WRITE_ALIASES = {
+    **{_normalize_role_key(display): _normalize_role_key(raw) for raw, display in _ROLE_DISPLAY_ALIASES.items()},
+    _normalize_role_key("systemAdmin"): _normalize_role_key("super"),
+    _normalize_role_key("systemAdministrator"): _normalize_role_key("super"),
+    _normalize_role_key("designer"): _normalize_role_key("contributor"),
 }
 
 
@@ -46,6 +75,75 @@ class UsersMixin:
 
         self.logger.debug(f"Retrieved {len(users or [])} user(s).")
         return users or []
+
+    def _resolve_role_id(self, role_name: Any) -> str | dict[str, Any]:
+        """Resolve a role name to its Sisense role ID, accepting either vocabulary.
+
+        Matching is case-, space- and punctuation-insensitive, and happens in a
+        deliberate order: the instance's **real** roles first, aliases second.
+        That ordering is a safety property — an instance may define ``admin``,
+        ``dataAdmin``, ``dataDesigner``, ``tenantAdmin`` or ``custom_*`` roles,
+        and each must resolve to itself rather than to a same-sounding alias.
+
+        Parameters
+        ----------
+        role_name : Any
+            Role name in either vocabulary — raw (``"super"``), UI display
+            (``"sysAdmin"``), or a human phrasing (``"system admin"``).
+
+        Returns
+        -------
+        str | dict[str, Any]
+            The resolved role ID, or the standard
+            ``{"ok": False, "error": "...", ...}`` dict when the roles cannot be
+            fetched or the name matches nothing (the error names the roles the
+            instance actually has).
+        """
+        response = self.api_client.get("/api/roles")
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve roles", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        try:
+            roles = response.json() or []
+        except Exception as e:
+            self.logger.exception("Failed to parse roles response JSON.")
+            return {"ok": False, "error": f"Failed to parse roles response JSON: {str(e)}"}
+
+        # Build the lookup from what this instance actually defines. displayName
+        # is opportunistic — not every Sisense version returns it.
+        by_key: dict[str, str] = {}
+        available: list[str] = []
+        for role in roles:
+            if not isinstance(role, dict) or not role.get("_id"):
+                continue
+            raw_name = role.get("name")
+            if raw_name:
+                by_key.setdefault(_normalize_role_key(raw_name), role["_id"])
+                available.append(str(raw_name))
+            display = role.get("displayName")
+            if display:
+                by_key.setdefault(_normalize_role_key(display), role["_id"])
+
+        requested = _normalize_role_key(role_name)
+
+        # 1) A real role always wins.
+        role_id = by_key.get(requested)
+
+        # 2) Only then fall back to the display/human alias table.
+        if role_id is None:
+            aliased = _ROLE_WRITE_ALIASES.get(requested)
+            if aliased:
+                role_id = by_key.get(aliased)
+
+        if role_id is None:
+            error_msg = f"Role '{role_name}' not found. Available roles: {', '.join(sorted(available)) or 'none'}."
+            self.logger.error(error_msg)
+            return {"ok": False, "error": error_msg}
+
+        self.logger.debug(f"Resolved role '{role_name}' to ID '{role_id}'.")
+        return role_id
 
     def _user_row(self, user: dict[str, Any]) -> dict[str, Any]:
         """Build the canonical user row from one raw expanded user object.
@@ -491,10 +589,18 @@ class UsersMixin:
 
         Validates that the required fields are present, then resolves the role
         name and group names to their corresponding IDs and sends a POST
-        request to create the user. The ``role`` field is matched
-        case-insensitively (with ``"VIEWER"`` mapped to ``"CONSUMER"`` and
-        ``"DESIGNER"`` to ``"CONTRIBUTOR"``) and replaced with the resolved
-        ``roleId``; group names in ``groups`` are resolved to group IDs.
+        request to create the user. Group names in ``groups`` are resolved to
+        group IDs.
+
+        The ``role`` field accepts either vocabulary — the raw Sisense name
+        (``"consumer"``, ``"super"``, ``"contributor"``) or the name the UI
+        shows (``"viewer"``, ``"sysAdmin"``, ``"dashboardDesigner"``) — and is
+        matched ignoring case, spaces and punctuation, so ``"sys admin"`` and
+        ``"sysAdmin"`` are equivalent. Roles the instance defines beyond these
+        (for example ``dataDesigner``, ``dataAdmin``, ``admin`` or custom
+        roles) are matched by their own name and are never treated as synonyms
+        for a similar-sounding role. An unmatched name returns a failure dict
+        listing the roles the instance actually has.
 
         Parameters
         ----------
@@ -502,7 +608,10 @@ class UsersMixin:
             User details, using canonical Sisense payload field names:
 
             - ``email`` : str — the user's email address. **Required.**
-            - ``role`` : str — role name to assign (resolved to ``roleId``).
+            - ``role`` : str — role name to assign, in either vocabulary
+              (``"viewer"`` or ``"consumer"``, ``"sysAdmin"`` or ``"super"``,
+              ``"dashboardDesigner"``/``"designer"`` or ``"contributor"``, or
+              any other role the instance defines); resolved to ``roleId``.
               **Required.**
             - ``userName`` : str — the user's login name (optional).
             - ``firstName`` : str — the user's first name (optional).
@@ -533,33 +642,12 @@ class UsersMixin:
             self.logger.error(error_msg)
             return {"ok": False, "error": error_msg}
 
-        # Custom role mapping
-        role_alias_mapping = {"VIEWER": "CONSUMER", "DESIGNER": "CONTRIBUTOR"}
+        # Step 1: Resolve roleId from the role name (either vocabulary)
+        resolved_role = self._resolve_role_id(user_data.get("role"))
+        if isinstance(resolved_role, dict):
+            return resolved_role
 
-        # Convert the role name in the user_data to uppercase for
-        # case-insensitive matching
-        user_role = str(user_data.get("role", "")).upper()
-        mapped_role = role_alias_mapping.get(user_role, user_role)
-
-        # Step 1: Fetch roles from the API
-        role_response = self.api_client.get("/api/roles")
-        if not role_response or not role_response.ok:
-            self.logger.error("Failed to fetch roles from API")
-            return {"ok": False, "error": "Failed to fetch roles from API"}
-
-        roles_mapping = [{"id": role["_id"], "name": role["name"].upper()} for role in role_response.json()]
-        self.logger.debug(f"Roles mapping: {roles_mapping}")
-
-        # Step 2: Resolve roleId from role name
-        for role in roles_mapping:
-            if role["name"] == mapped_role:
-                user_data["roleId"] = role["id"]
-                break
-        else:
-            error_msg = f"Role '{user_data.get('role')}' not found in roles_mapping"
-            self.logger.error(error_msg)
-            return {"ok": False, "error": error_msg}
-
+        user_data["roleId"] = resolved_role
         user_data.pop("role", None)
 
         # Step 3: Resolve group IDs from group names (if provided)
@@ -634,7 +722,11 @@ class UsersMixin:
             - lastName : str
                 Update the user's last name.
             - role : str
-                Role name (e.g., "viewer", "designer"). This is resolved to ``roleId`` before
+                Role name in either vocabulary — raw (``"consumer"``, ``"super"``,
+                ``"contributor"``), the UI name (``"viewer"``, ``"sysAdmin"``,
+                ``"dashboardDesigner"``), or any other role the instance defines
+                (``dataDesigner``, ``dataAdmin``, custom roles). Matched ignoring
+                case, spaces and punctuation. This is resolved to ``roleId`` before
                 sending the API request.
             - groups : list[str]
                 List of group names to apply. Group names are resolved to group IDs before
@@ -654,37 +746,13 @@ class UsersMixin:
             self.logger.error("User with email '%s' not found.", user_email)
             return {"ok": False, "error": f"User with email '{user_email}' not found."}
 
-        role_alias_mapping = {
-            "VIEWER": "CONSUMER",
-            "DESIGNER": "CONTRIBUTOR",
-        }
-
-        # Step 1: Resolve role if provided
+        # Step 1: Resolve role if provided (either vocabulary)
         if "role" in user_data:
-            user_role = str(user_data["role"]).upper()
-            mapped_role = role_alias_mapping.get(user_role, user_role)
+            resolved_role = self._resolve_role_id(user_data["role"])
+            if isinstance(resolved_role, dict):
+                return resolved_role
 
-            role_response = self.api_client.get("/api/roles")
-            if not role_response or not role_response.ok:
-                status = role_response.status_code if role_response else "No response"
-                self.logger.error(
-                    "Failed to fetch roles from API. Status Code: %s",
-                    status,
-                )
-                return {"ok": False, "error": "Failed to fetch roles from API."}
-
-            roles_mapping = [{"id": role["_id"], "name": str(role["name"]).upper()} for role in role_response.json()]
-            self.logger.debug("Roles mapping: %s", roles_mapping)
-
-            for role in roles_mapping:
-                if role["name"] == mapped_role:
-                    user_data["roleId"] = role["id"]
-                    break
-            else:
-                error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
-                self.logger.error(error_msg)
-                return {"ok": False, "error": error_msg}
-
+            user_data["roleId"] = resolved_role
             user_data.pop("role", None)
 
         # Step 2: Resolve groups only if explicitly provided

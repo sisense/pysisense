@@ -490,6 +490,101 @@ class TestCreateUser:
         result = am.create_user({"email": "x@x.com", "role": None, "groups": []})
         assert "error" in result
 
+    @pytest.mark.parametrize(
+        ("role", "expected_role_id"),
+        [
+            # Raw Sisense vocabulary
+            ("consumer", "role_consumer"),
+            ("super", "role_super"),
+            ("contributor", "role_contributor"),
+            # UI display vocabulary — what get_user()/get_users_all() hand back
+            # in ROLE_DISPLAY_NAME. Before 2.0 the last two were REJECTED.
+            ("viewer", "role_consumer"),
+            ("sysAdmin", "role_super"),
+            ("dashboardDesigner", "role_contributor"),
+            # Human phrasings: case, spacing and punctuation are ignored
+            ("sys admin", "role_super"),
+            ("System Admin", "role_super"),
+            ("system administrator", "role_super"),
+            ("dashboard designer", "role_contributor"),
+            ("designer", "role_contributor"),
+            ("  viewer  ", "role_consumer"),
+            ("SUPER", "role_super"),
+        ],
+    )
+    def test_accepts_both_role_vocabularies_and_human_spellings(self, role, expected_role_id):
+        captured = {}
+
+        class _CapturingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                captured["payload"] = data
+                return super().post(url, data=data, **kwargs)
+
+        client = _CapturingClient(
+            get_responses={"/api/roles": FakeResponse(200, _ROLES), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+            logger=FakeLogger(),
+        )
+        result = AccessManagement(api_client=client).create_user({"email": "x@x.com", "role": role})
+        assert result.get("_id") == "u1", f"role {role!r} was rejected: {result}"
+        assert captured["payload"]["roleId"] == expected_role_id
+        assert "role" not in captured["payload"]
+
+    @pytest.mark.parametrize(
+        ("role", "expected_role_id"),
+        [
+            # dataDesigner is its OWN role, never a synonym for contributor.
+            ("dataDesigner", "role_data_designer"),
+            ("data designer", "role_data_designer"),
+            # admin is distinct from super — aliasing it would silently
+            # over-privilege the user, so the real role must win.
+            ("admin", "role_admin"),
+            ("dataAdmin", "role_data_admin"),
+            ("custom_analyst", "role_custom_analyst"),
+        ],
+    )
+    def test_real_instance_roles_win_over_the_alias_table(self, role, expected_role_id):
+        captured = {}
+
+        class _CapturingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                captured["payload"] = data
+                return super().post(url, data=data, **kwargs)
+
+        extended_roles = _ROLES + [
+            {"_id": "role_data_designer", "name": "dataDesigner"},
+            {"_id": "role_data_admin", "name": "dataAdmin"},
+            {"_id": "role_admin", "name": "admin"},
+            {"_id": "role_custom_analyst", "name": "custom_analyst"},
+        ]
+        client = _CapturingClient(
+            get_responses={"/api/roles": FakeResponse(200, extended_roles), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+            logger=FakeLogger(),
+        )
+        result = AccessManagement(api_client=client).create_user({"email": "x@x.com", "role": role})
+        assert result.get("_id") == "u1", f"role {role!r} was rejected: {result}"
+        assert captured["payload"]["roleId"] == expected_role_id
+
+    def test_matches_display_name_from_the_roles_payload_when_present(self):
+        # Some Sisense versions return a displayName alongside the raw name;
+        # use it when it is there, without depending on it.
+        roles = [{"_id": "role_super", "name": "super", "displayName": "System Administrator"}]
+        am = _make_am(
+            get_responses={"/api/roles": FakeResponse(200, roles), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+        )
+        assert am.create_user({"email": "x@x.com", "role": "System Administrator"}).get("_id") == "u1"
+
+    def test_unknown_role_error_lists_the_available_roles(self):
+        # The caller (often an assistant) needs to know what it may retry with.
+        am = _make_am(get_responses={"/api/roles": FakeResponse(200, _ROLES)})
+        result = am.create_user({"email": "x@x.com", "role": "wizard"})
+        assert result["ok"] is False
+        assert "wizard" in result["error"]
+        for name in ("consumer", "super", "contributor"):
+            assert name in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # update_user
@@ -523,6 +618,36 @@ class TestUpdateUser:
         )
         result = am.update_user("jdoe@example.com", {"role": "viewer"})
         assert "error" in result
+
+    @pytest.mark.parametrize(
+        ("role", "expected_role_id"),
+        [
+            ("sysAdmin", "role_super"),
+            ("sys admin", "role_super"),
+            ("dashboardDesigner", "role_contributor"),
+            ("viewer", "role_consumer"),
+            ("super", "role_super"),
+        ],
+    )
+    def test_accepts_both_role_vocabularies(self, role, expected_role_id):
+        # update_user shares _resolve_role_id with create_user — the round-trip
+        # that matters is reading ROLE_DISPLAY_NAME and writing it straight back.
+        captured = {}
+
+        class _CapturingClient(FakeApiClient):
+            def patch(self, url, data=None, **kwargs):
+                captured["payload"] = data
+                return super().patch(url, data=data, **kwargs)
+
+        client = _CapturingClient(
+            get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED]), "/api/roles": FakeResponse(200, _ROLES)},
+            patch_responses={"/api/v1/users/": FakeResponse(200, _USER_EXPANDED)},
+            logger=FakeLogger(),
+        )
+        result = AccessManagement(api_client=client).update_user("jdoe@example.com", {"role": role})
+        assert "error" not in result, f"role {role!r} was rejected: {result}"
+        assert captured["payload"]["roleId"] == expected_role_id
+        assert "role" not in captured["payload"]
 
 
 # ---------------------------------------------------------------------------
