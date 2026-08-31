@@ -33,7 +33,13 @@ so role comparisons and group reads keep working. What needs action:
   `[{"error": ...}]`.
 - **`users_per_group(group_name=None)`** returns flat membership rows, one per (group, user).
   `None` returns all memberships. Groups with no members contribute no rows, so the row
-  count equals the real membership count. The synthetic `Admins` bucket is gone.
+  count equals the real membership count. Membership is read from the group side
+  (`GET /api/v1/groups?expand=users`) — the source the Sisense UI shows — so the
+  auto-generated `Admins` and `All users in system` groups report their real members;
+  Sisense does not expose those on the user side. `Everyone` and `All users in system` are
+  omitted from the all-groups view by default (Sisense fills both with every user, so they
+  duplicate `get_users_all`); naming one directly still returns its members. `users_per_group_all()` derived its `Admins` entry from
+  users' roles instead of membership.
 - **Every failure dict carries `"ok": False`** — the self-identifying, forward-compatible
   failure marker.
 - **Failure shapes converged.** `get_data`, `get_dashboard_share`, `get_dashboard_columns`,

@@ -178,7 +178,32 @@ rejected.
   `users_per_group_all()`).
 - Groups with no members contribute no rows, so the row count equals the real membership
   count.
-- The synthetic `Admins` bucket that `users_per_group_all()` fabricated is gone.
+- Membership is read from the group side, matching what the Sisense UI shows — including
+  the auto-generated `Admins` and `All users in system` groups (see below).
+- `Everyone` and `All users in system` are omitted from the all-groups view by default —
+  Sisense puts every user in both, so they duplicate `get_users_all()` and would be most of
+  the output. Name one directly (`users_per_group("Everyone")`) to get its members.
+
+### The auto-generated groups (`Admins`, `All users in system`)
+
+Sisense resolves its three auto-generated groups on the **group** side only — their members
+never appear in an individual user's own `groups` field. `users_per_group()` reads group-side
+membership (`GET /api/v1/groups?expand=users`), so it reports the same counts the Sisense UI
+shows on the Admin → Groups page:
+
+| Group | Sisense UI | `users_per_group(...)` |
+|---|---|---|
+| `Admins` | 34 | 34 |
+| `All users in system` | 67 | 67 |
+| `Everyone` | 67 | 67 |
+
+(Numbers from a live sandbox; yours will differ.)
+
+`users_per_group_all()` reported `Admins` by matching users' **roles**
+(`sysAdmin`/`dataAdmin`/`admin`) rather than membership, which happened to produce the same
+count on most tenants. It excluded `Everyone` and `All users in system` entirely. So moving
+to `users_per_group()` you should see `Admins` agree, and the other two appear where they
+were previously hidden.
 - An unknown group name returns an error dict naming it, rather than an empty list.
 
 `get_groups(name=...)` was added as an exact-match lookup; an unknown name returns an error

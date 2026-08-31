@@ -6,6 +6,12 @@ from typing_extensions import deprecated
 
 from ..utils import _extract_error_message
 
+# Groups Sisense auto-populates with every user on the instance. In the
+# all-groups view they duplicate get_users_all() and drown the real
+# memberships, so they are omitted by default. Asking for one by name still
+# returns it — nothing is unreachable.
+_UNIVERSAL_GROUPS = frozenset({"Everyone", "All users in system"})
+
 
 class GroupsMixin:
     @deprecated("use get_groups")
@@ -195,8 +201,18 @@ class GroupsMixin:
         Returns one flat row per (group, user) membership. With ``group_name``
         the rows are that group's members; without it, every membership on the
         instance is returned (ask ``get_groups`` for the per-group view).
-        ``Everyone`` memberships are reported like any other — the SDK reports
-        what Sisense says; consumers decide what to hide.
+        ``Everyone`` and ``All users in system`` are omitted from the
+        all-groups view: Sisense fills both with every user, so they restate
+        ``get_users_all`` rather than describing group structure. Naming
+        either one still returns its members.
+
+        Membership is read from the **group** side
+        (``GET /api/v1/groups?expand=users``), which is the same source the
+        Sisense UI shows. Sisense resolves the auto-generated groups
+        (``Admins``, ``All users in system``) on the group side only — their
+        members do not appear in any user's own ``groups`` field — so reading
+        from the user side would report them as empty while the UI shows
+        members.
 
         Parameters
         ----------
@@ -204,6 +220,9 @@ class GroupsMixin:
             The name of the group whose members to list. Omit for all
             memberships. A name that matches no group returns
             ``{"error": "..."}`` naming it — never a silent empty list.
+            Naming ``Everyone`` or ``All users in system`` returns their
+            members — an explicit request is always honored, even though the
+            all-groups view omits them.
 
         Returns
         -------
@@ -223,34 +242,66 @@ class GroupsMixin:
         # an empty list would read as "the group has no members". get_groups
         # returns the not-found error dict itself; pass it through.
         if group_name is not None:
-            groups = self.get_groups(name=group_name)
-            if isinstance(groups, dict):
-                return groups
+            named = self.get_groups(name=group_name)
+            if isinstance(named, dict):
+                return named
 
-        users = self._get_users_raw()
-        if isinstance(users, dict):
-            return users
+        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve group memberships", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        try:
+            groups = response.json() or []
+        except Exception as e:
+            self.logger.exception("Failed to parse group memberships response JSON.")
+            return {"ok": False, "error": f"Failed to parse group memberships response JSON: {str(e)}"}
+
+        # The expanded group payload carries each member's identity but only a
+        # raw roleId, so join against the expanded user list for the role
+        # vocabularies. A user missing from that list (or a group listing a
+        # stale member) still yields a row — with blank role fields rather than
+        # being dropped, so counts stay honest.
+        users_by_id: dict[str, dict[str, Any]] = {}
+        raw_users = self._get_users_raw()
+        if isinstance(raw_users, dict):
+            return raw_users
+        for user in raw_users:
+            if isinstance(user, dict) and user.get("_id"):
+                users_by_id[user["_id"]] = self._user_row(user)
 
         memberships: list[dict[str, Any]] = []
-        for user in users:
-            row = self._user_row(user)
-            for gid, gname in zip(row["GROUP_IDS"], row["GROUPS"], strict=False):
-                if group_name is not None and gname != group_name:
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            gname = group.get("name", "")
+            if group_name is not None:
+                if gname != group_name:
                     continue
+            elif gname in _UNIVERSAL_GROUPS:
+                # Sisense fills these with every user, so in the all-groups
+                # view they duplicate get_users_all() and would be most of the
+                # output. Naming one still returns its members.
+                continue
+            for member in group.get("users") or []:
+                if not isinstance(member, dict):
+                    continue
+                row = users_by_id.get(member.get("_id"), {})
                 memberships.append(
                     {
-                        "GROUP_ID": gid,
+                        "GROUP_ID": group.get("_id", ""),
                         "GROUP_NAME": gname,
-                        "USER_ID": row["USER_ID"],
-                        "USER_NAME": row["USER_NAME"],
-                        "EMAIL": row["EMAIL"],
-                        "FIRST_NAME": row["FIRST_NAME"],
-                        "LAST_NAME": row["LAST_NAME"],
-                        "IS_ACTIVE": row["IS_ACTIVE"],
-                        "ROLE_ID": row["ROLE_ID"],
-                        "ROLE_NAME": row["ROLE_NAME"],
-                        "ROLE_DISPLAY_NAME": row["ROLE_DISPLAY_NAME"],
-                        "ROLE_RAW_NAME": row["ROLE_RAW_NAME"],
+                        "USER_ID": member.get("_id", ""),
+                        "USER_NAME": member.get("userName", row.get("USER_NAME", "")),
+                        "EMAIL": member.get("email", row.get("EMAIL", "")),
+                        "FIRST_NAME": member.get("firstName", row.get("FIRST_NAME", "")),
+                        "LAST_NAME": member.get("lastName", row.get("LAST_NAME", "")),
+                        "IS_ACTIVE": member.get("active", row.get("IS_ACTIVE", False)),
+                        "ROLE_ID": member.get("roleId", row.get("ROLE_ID", "")),
+                        "ROLE_NAME": row.get("ROLE_NAME", ""),
+                        "ROLE_DISPLAY_NAME": row.get("ROLE_DISPLAY_NAME", ""),
+                        "ROLE_RAW_NAME": row.get("ROLE_RAW_NAME", ""),
                     }
                 )
 
@@ -267,9 +318,13 @@ class GroupsMixin:
         groups below.
 
         Groups like ``Everyone`` and ``All users in system`` are excluded.
-        Users with roles like ``admin``, ``dataAdmin``, and ``sysAdmin`` are
-        mapped to the existing ``Admins`` group. Groups with no users are also
-        included in the final result.
+        Groups with no users are still included, with an empty user list.
+
+        Its ``"Admins"`` entry is derived from users' **roles**
+        (``sysAdmin``/``dataAdmin``/``admin``) rather than from group
+        membership, and is created even when the instance has no such group.
+        :meth:`users_per_group` instead reads real group-side membership for
+        every group, matching the counts the Sisense UI shows.
 
         Returns
         -------

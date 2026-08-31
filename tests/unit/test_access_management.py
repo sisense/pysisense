@@ -691,9 +691,12 @@ class TestDeleteUser:
 
 class TestUsersPerGroup:
     def test_returns_flat_membership_rows_for_one_group(self):
+        # Membership comes from the GROUP side (?expand=users), which is what
+        # the Sisense UI shows — see test_reports_system_group_membership.
+        group_with_members = {**_GROUPS[0], "users": [_USER_EXPANDED]}
         am = _make_am(
             get_responses={
-                "/api/v1/groups": FakeResponse(200, [_GROUPS[0]]),
+                "/api/v1/groups": FakeResponse(200, [group_with_members]),
                 "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
             }
         )
@@ -718,14 +721,89 @@ class TestUsersPerGroup:
 
     def test_no_argument_returns_every_membership_flat(self):
         # One row per (group, user) — counts equal real membership counts.
-        user_two_groups = dict(_USER_EXPANDED)
-        user_two_groups["groups"] = [
-            {"_id": "g1", "name": "Everyone"},
-            {"_id": "grp_engineers", "name": "Engineers"},
+        groups = [
+            {"_id": "g1", "name": "Finance", "users": [_USER_EXPANDED]},
+            {"_id": "grp_engineers", "name": "Engineers", "users": [_USER_EXPANDED]},
         ]
-        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user_two_groups])})
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
         result = am.users_per_group()
-        assert [(r["GROUP_NAME"], r["USER_NAME"]) for r in result] == [("Everyone", "jdoe"), ("Engineers", "jdoe")]
+        assert [(r["GROUP_NAME"], r["USER_NAME"]) for r in result] == [("Finance", "jdoe"), ("Engineers", "jdoe")]
+
+    def test_reports_system_group_membership_the_ui_shows(self):
+        # Regression for the 'Admins shows 0' defect. Sisense resolves the
+        # auto-generated groups (Admins, All users in system) on the GROUP side
+        # only — their members never appear in a user's own `groups` field. So
+        # reading membership from the user side reported 0 while the UI showed
+        # 34. Live-verified on the sandbox: 34/67/67, matching the UI exactly.
+        admin_user = {**_USER_EXPANDED, "groups": [], "role": {"_id": "role_super", "name": "super"}}
+        groups = [
+            # note: the member is NOT in admin_user["groups"] — that is the point
+            {"_id": "g_adm", "name": "Admins", "admins": True, "users": [admin_user]},
+            {"_id": "g_all", "name": "All users in system", "users": [admin_user]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [admin_user]),
+            }
+        )
+        assert [r["USER_NAME"] for r in am.users_per_group("Admins")] == ["jdoe"]
+        assert [r["USER_NAME"] for r in am.users_per_group("All users in system")] == ["jdoe"]
+        # Admins is not a universal group, so it stays in the survey view;
+        # "All users in system" is, so it is omitted there.
+        assert [r["GROUP_NAME"] for r in am.users_per_group()] == ["Admins"]
+
+    def test_universal_groups_are_omitted_from_the_all_groups_view(self):
+        # Sisense puts every user in Everyone and All users in system, so in the
+        # survey view they duplicate get_users_all() and swamp the real
+        # memberships (192 rows vs 58 on the sandbox).
+        groups = [
+            {"_id": "g_ev", "name": "Everyone", "users": [_USER_EXPANDED]},
+            {"_id": "g_all", "name": "All users in system", "users": [_USER_EXPANDED]},
+            {"_id": "grp_engineers", "name": "Engineers", "users": [_USER_EXPANDED]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert [r["GROUP_NAME"] for r in am.users_per_group()] == ["Engineers"]
+        # ...but each is still reachable by name.
+        assert len(am.users_per_group("Everyone")) == 1
+        assert len(am.users_per_group("All users in system")) == 1
+
+    def test_naming_a_universal_group_always_returns_it(self):
+        # The filter applies to the survey view only. An explicit request is
+        # unambiguous and must be honored, so nothing is unreachable.
+        groups = [{"_id": "g_ev", "name": "Everyone", "users": [_USER_EXPANDED]}]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert [r["USER_NAME"] for r in am.users_per_group("Everyone")] == ["jdoe"]
+
+    def test_member_missing_from_the_user_list_still_yields_a_row(self):
+        # A group can list a member the user endpoint does not return (stale or
+        # filtered). Drop the role detail, never the row — counts stay honest.
+        ghost = {"_id": "u_ghost", "userName": "ghost", "email": "ghost@x.com", "active": True}
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers", "users": [ghost]}]),
+                "/api/v1/users": FakeResponse(200, []),
+            }
+        )
+        rows = am.users_per_group("Engineers")
+        assert len(rows) == 1
+        assert rows[0]["USER_NAME"] == "ghost"
+        assert rows[0]["ROLE_NAME"] == ""
 
     def test_returns_error_when_group_not_found(self):
         # A typo'd group name must fail loudly — never a silent empty list.
@@ -736,7 +814,7 @@ class TestUsersPerGroup:
     def test_group_with_no_members_returns_empty_list(self):
         am = _make_am(
             get_responses={
-                "/api/v1/groups": FakeResponse(200, [{"_id": "g7", "name": "EmptyGroup"}]),
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g7", "name": "EmptyGroup", "users": []}]),
                 "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
             }
         )
