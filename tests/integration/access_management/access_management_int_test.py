@@ -188,3 +188,57 @@ def test_users_per_group_matches_sisense_own_membership() -> None:
         if expected.get(system_group):
             named = am.users_per_group(system_group)
             assert len(named) == expected[system_group], f"'{system_group}' filtered lookup disagrees with Sisense"
+
+
+@pytest.mark.integration
+def test_group_membership_is_consistent_across_canonical_methods() -> None:
+    """Every canonical method must answer "which groups is X in?" identically.
+
+    This is the invariant the 2.0 work exists to protect, and the one that
+    caught us out: 2.0.0 moved users_per_group to group-side membership but
+    left get_user/get_users_all on the user record, so they disagreed about
+    the same person (get_user said ['Everyone'] for a user users_per_group
+    listed under Admins). Unit tests with fakes cannot catch that — only a
+    real tenant, where Sisense's derived groups actually exist, can.
+
+    Checks EVERY user rather than a sample, so a drift affecting one corner of
+    the instance still fails.
+    """
+    am = AccessManagement(api_client=_make_client())
+
+    users = am.get_users_all()
+    if not isinstance(users, list) or not users:
+        pytest.skip(f"No users available: {users}")
+
+    # Build each user's groups from the users_per_group side. The all-groups
+    # view omits the universal groups by design, so ask for those by name and
+    # union them in — that is the documented "targeted answers are complete"
+    # rule, and this asserts the two sides really do reconcile.
+    from_groups: dict[str, set[str]] = {}
+    rows = am.users_per_group()
+    assert isinstance(rows, list), f"users_per_group failed: {rows}"
+    for row in rows:
+        from_groups.setdefault(row["USER_ID"], set()).add(row["GROUP_NAME"])
+
+    for universal in ("Everyone", "All users in system"):
+        named = am.users_per_group(universal)
+        if isinstance(named, dict):
+            continue  # group does not exist on this instance
+        for row in named:
+            from_groups.setdefault(row["USER_ID"], set()).add(row["GROUP_NAME"])
+
+    mismatches = []
+    for user in users:
+        from_user = set(user["GROUPS"])
+        expected = from_groups.get(user["USER_ID"], set())
+        if from_user != expected:
+            mismatches.append(f"{user['EMAIL']}: get_users_all={sorted(from_user)} vs users_per_group={sorted(expected)}")
+
+    assert not mismatches, "canonical methods disagree about group membership:\n  " + "\n  ".join(mismatches[:10])
+
+    # And the single-user reader must agree with the bulk reader.
+    sample = next((u for u in users if u.get("EMAIL")), None)
+    if sample:
+        one = am.get_user(sample["EMAIL"])
+        assert set(one["GROUPS"]) == set(sample["GROUPS"]), "get_user disagrees with get_users_all"
+        assert set(one["GROUP_IDS"]) == set(sample["GROUP_IDS"])

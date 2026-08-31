@@ -125,6 +125,7 @@ keys between releases (`status_code` in 1.1.0, `raw_body` in 2.0).
 | `ROLE_NAME` = display name | `ROLE_NAME` = display name (unchanged), plus `ROLE_DISPLAY_NAME` (same value, explicit) and the new `ROLE_RAW_NAME` (raw value) |
 | `GROUPS` = group names | `GROUPS` = group names (unchanged), plus the new `GROUP_IDS` |
 | `Everyone` stripped by `get_users_all` | `Everyone` always reported in `GROUPS` |
+| `GROUPS` read from the user record | `GROUPS` read from the group side, so Sisense's derived groups (`Admins`, `All users in system`) appear and agree with `users_per_group` (2.0.1) |
 | `get_user` and `get_users_all` disagreed on both fields | one shape, both methods |
 | Failure: `[{"error": ...}]` (list-wrapped) | Failure: plain `{"ok": False, "error": ...}` |
 
@@ -180,6 +181,10 @@ rejected.
   count.
 - Membership is read from the group side, matching what the Sisense UI shows — including
   the auto-generated `Admins` and `All users in system` groups (see below).
+- **The rule for the universal groups:** targeted questions give complete answers; only the
+  all-groups view filters. `get_user(email)["GROUPS"]` and `users_per_group("Everyone")` both
+  report every group a user is in. `users_per_group()` omits `Everyone` and
+  `All users in system` — so do not derive one person's groups from it.
 - `Everyone` and `All users in system` are omitted from the all-groups view by default —
   Sisense puts every user in both, so they duplicate `get_users_all()` and would be most of
   the output. Name one directly (`users_per_group("Everyone")`) to get its members.

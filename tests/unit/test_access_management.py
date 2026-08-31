@@ -175,6 +175,57 @@ class TestGetUser:
         assert result["GROUP_IDS"] == ["grp_engineers"]
         assert result["GROUPS"] == ["Engineers"]
 
+    def test_group_fields_come_from_the_group_side(self):
+        # Sisense resolves Admins / All users in system on the GROUP side and
+        # never writes them into a user's own `groups` field. Reading the user
+        # record alone made get_user disagree with users_per_group about the
+        # same person — see test_agrees_with_users_per_group below.
+        admin = {**_USER_EXPANDED, "groups": [{"_id": "g_ev", "name": "Everyone"}]}
+        groups = [
+            {"_id": "g_ev", "name": "Everyone", "users": [admin]},
+            {"_id": "g_adm", "name": "Admins", "admins": True, "users": [admin]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [admin]),
+                "/api/v1/groups": FakeResponse(200, groups),
+            }
+        )
+        row = am.get_user("jdoe@example.com")
+        assert sorted(row["GROUPS"]) == ["Admins", "Everyone"], "Admins is on the group side only"
+        assert sorted(row["GROUP_IDS"]) == ["g_adm", "g_ev"]
+
+    def test_agrees_with_users_per_group_about_the_same_person(self):
+        # The invariant: two canonical methods must not answer the same
+        # question differently. This is the regression that motivated the fix.
+        admin = {**_USER_EXPANDED, "groups": [{"_id": "g_ev", "name": "Everyone"}]}
+        groups = [
+            {"_id": "g_ev", "name": "Everyone", "users": [admin]},
+            {"_id": "g_adm", "name": "Admins", "admins": True, "users": [admin]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [admin]),
+                "/api/v1/groups": FakeResponse(200, groups),
+            }
+        )
+        from_user = set(am.get_user("jdoe@example.com")["GROUPS"])
+        from_group = {r["GROUP_NAME"] for r in am.users_per_group("Admins") if r["EMAIL"] == "jdoe@example.com"}
+        assert "Admins" in from_user and "Admins" in from_group
+
+    def test_falls_back_to_the_user_record_when_groups_cannot_be_fetched(self):
+        # A failed group fetch must degrade to the user record, not blank the
+        # group fields — an incomplete answer beats losing them entirely.
+        am = _make_am(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+                "/api/v1/groups": FakeResponse(500, {}),
+            }
+        )
+        row = am.get_user("jdoe@example.com")
+        assert row["GROUPS"] == ["Engineers"]
+        assert row["GROUP_IDS"] == ["grp_engineers"]
+
     def test_returns_error_when_email_not_found(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_user("ghost@example.com")
