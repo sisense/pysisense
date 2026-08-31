@@ -1,6 +1,14 @@
-# Upgrading from 1.x to 2.0
+# Upgrading pysisense
 
-This page is the single reference for what changed between `pysisense` **1.1.0** and
+How to move between major versions of the SDK. (Not to be confused with the
+[`Migration` module](migration.md), which moves users, dashboards and data models between
+Sisense *environments* — a different thing entirely.)
+
+---
+
+## From 1.x to 2.0
+
+This section is the single reference for what changed between `pysisense` **1.1.0** and
 **2.0.0**, written to be usable in both directions: whether you are upgrading, or you are
 reading code that still targets 1.x.
 

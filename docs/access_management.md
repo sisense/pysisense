@@ -5,7 +5,7 @@ This module provides programmatic access to manage Sisense users, groups, dashbo
 
 Every failure return in this module is a dict of the form `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. The shorthand `{"ok": False, "error": "..."}` below always refers to this failure dict.
 
-> **Coming from 1.x?** The canonical user row is **additive**: `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings, joined by the new `ROLE_DISPLAY_NAME` (same value as `ROLE_NAME`, unambiguously named), `ROLE_RAW_NAME` (the raw Sisense role value) and `GROUP_IDS`. The one changed value is that `GROUPS` now includes `Everyone`, which `get_users_all()` used to strip. See the [migration guide](migration-2.0.md).
+> **Coming from 1.x?** The canonical user row is **additive**: `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings, joined by the new `ROLE_DISPLAY_NAME` (same value as `ROLE_NAME`, unambiguously named), `ROLE_RAW_NAME` (the raw Sisense role value) and `GROUP_IDS`. The one changed value is that `GROUPS` now includes `Everyone`, which `get_users_all()` used to strip. See the [upgrade guide](upgrading.md).
 
 Class: `AccessManagement`
 -------------------------

@@ -40,7 +40,7 @@ pip install -e .
 **2.0 contains breaking changes.** `pysisense` follows semantic versioning, so pinning
 `pysisense>=1,<2` keeps you on 1.x until you choose to move.
 
-📖 **[Full migration guide](./docs/migration-2.0.md)** — every change mapped old-to-new, with
+📖 **[Full upgrade guide](./docs/upgrading.md)** — every change mapped old-to-new, with
 a symptom → cause → fix table. Complete detail in the [changelog](./CHANGELOG.md).
 
 The user row is **additive** — `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings,

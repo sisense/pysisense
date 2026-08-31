@@ -565,7 +565,7 @@ This file documents the **current** code. A user's project may pin an older rele
 shapes here are not universally true. When behavior depends on the version:
 
 1. Establish it — `pysisense.__version__`, or `pip show pysisense`.
-2. Consult `docs/migration-2.0.md`, the canonical old-to-new mapping. It opens with a
+2. Consult `docs/upgrading.md`, the canonical old-to-new mapping. It opens with a
    symptom → cause → fix table, so a reported error (`KeyError: 'GROUPS'`, a role filter
    silently matching nothing) can be diagnosed straight to a version cause.
 3. `CHANGELOG.md` carries the full per-release entry.
@@ -574,7 +574,7 @@ The 2.0 user row keeps 1.x's `ROLE_NAME` and `GROUPS` keys and meanings delibera
 the upgrade is additive there; the one value that changed is `Everyone` no longer being
 filtered out of `GROUPS`.
 
-Every breaking change must be added to `CHANGELOG.md` **and** the migration guide in the
+Every breaking change must be added to `CHANGELOG.md` **and** the upgrade guide in the
 same PR — a shape change recorded only in a commit message is invisible to both users and
 to any assistant helping them.
 

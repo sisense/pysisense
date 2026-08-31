@@ -419,7 +419,7 @@ class UsersMixin:
 
         Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
         is now ``ROLE_DISPLAY_NAME``); ``GROUPS`` still holds the group names
-        and is joined by the new ``GROUP_IDS``. See ``docs/migration-2.0.md``.
+        and is joined by the new ``GROUP_IDS``. See ``docs/upgrading.md``.
 
         Parameters
         ----------
@@ -571,7 +571,7 @@ class UsersMixin:
         Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
         is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` is joined by the new
         ``GROUP_IDS``, and ``Everyone`` is no longer filtered out of
-        ``GROUPS``. See ``docs/migration-2.0.md``.
+        ``GROUPS``. See ``docs/upgrading.md``.
 
         Returns
         -------

@@ -6,7 +6,7 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [2.0.0] — unreleased
 
-Upgrading? Read the **[migration guide](docs/migration-2.0.md)** — it maps every change
+Upgrading? Read the **[upgrade guide](docs/upgrading.md)** — it maps every change
 old-to-new and starts with a symptom → cause → fix table.
 
 ### What you must change
