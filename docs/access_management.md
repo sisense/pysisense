@@ -5,6 +5,8 @@ This module provides programmatic access to manage Sisense users, groups, dashbo
 
 Every failure return in this module is a dict of the form `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. The shorthand `{"ok": False, "error": "..."}` below always refers to this failure dict.
 
+> **Coming from 1.x?** The user-row fields changed in 2.0 — `ROLE_NAME` now holds the raw Sisense value (the UI name moved to `ROLE_DISPLAY_NAME`) and `GROUPS` became `GROUP_IDS` + `GROUP_NAMES`. See the [migration guide](migration-2.0.md).
+
 Class: `AccessManagement`
 -------------------------
 
@@ -456,6 +458,8 @@ Lists all Sisense roles available on the instance. Sends `GET /api/roles`. Retur
 -   `list[dict]`: List of role objects (each includes at minimum `_id` and `name`), or `{"ok": False, "error": "..."}` on failure.
 
 **Note:** Internal role names (`consumer`, `contributor`, `super`) map to user-facing names (`viewer`, `dashboardDesigner`, `sysAdmin`) per the role name mapping convention.
+
+`create_user` and `update_user` accept **either** vocabulary for `role`, matched ignoring case, spaces and punctuation — `"super"`, `"sysAdmin"`, `"sys admin"` and `"System Administrator"` all resolve to the same role, so a value read from `ROLE_DISPLAY_NAME` can be written straight back. Roles the instance defines itself (`dataDesigner`, `dataAdmin`, `admin`, `tenantAdmin`, `custom_*`) are matched by their own name and always win over an alias: `"admin"` resolves to a real `admin` role rather than to `super`, and `"data designer"` resolves to `dataDesigner`, never to `contributor`. An unmatched name returns a failure dict listing the roles the instance actually has. (In 1.x, `sysAdmin` and `dashboardDesigner` were rejected.)
 
 * * * * *
 

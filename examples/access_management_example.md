@@ -145,7 +145,7 @@ Create a user by specifying their details, including role and groups.
 ```python
 user_data = {
     "email": "john.doe@example.com",  # Required: User's email address
-    "role": "dataDesigner",  # Required: Role name (e.g. "viewer"), resolved to roleId. A missing role is rejected before any API call.
+    "role": "dataDesigner",  # Required: role name in either vocabulary — raw ("super"), UI ("sysAdmin"), a human phrasing ("sys admin"), or any role the instance defines ("dataDesigner"). Resolved to roleId; a missing role is rejected before any API call.
     "firstName": "John",  # Optional: User's first name
     "lastName": "Doe",  # Optional: User's last name
     "groups": ["mig_test", "mig_test_2"],  # Optional: List of group names, can be an empty list if the user is not part of any group

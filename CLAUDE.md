@@ -556,6 +556,25 @@ failure-shape exceptions. Deprecated aliases are fossils: their old shapes (incl
 old failure shapes) stay frozen until removal. Remaining for a future major: removing
 the six aliases deprecated in 2.0.
 
+### Version differences — never assume the installed version matches this repo
+
+This file documents the **current** code. A user's project may pin an older release, so the
+shapes here are not universally true. When behavior depends on the version:
+
+1. Establish it — `pysisense.__version__`, or `pip show pysisense`.
+2. Consult `docs/migration-2.0.md`, the canonical old-to-new mapping. It opens with a
+   symptom → cause → fix table, so a reported error (`KeyError: 'GROUPS'`, a role filter
+   silently matching nothing) can be diagnosed straight to a version cause.
+3. `CHANGELOG.md` carries the full per-release entry.
+
+Two 2.0 changes fail **silently** on 1.x-era code and are the ones worth recognising by
+symptom: `ROLE_NAME` switched from the display name to the raw Sisense value, and
+`get_users_all()` stopped filtering `Everyone` out of group lists.
+
+Every breaking change must be added to `CHANGELOG.md` **and** the migration guide in the
+same PR — a shape change recorded only in a commit message is invisible to both users and
+to any assistant helping them.
+
 ### Release ritual — downstream-generators changelog block
 
 Every release's notes must carry a block listing: methods renamed (old → new), params

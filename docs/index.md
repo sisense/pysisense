@@ -40,6 +40,9 @@ The documentation is organized by feature/module. Click on any section to learn 
 - [Sisense Client](sisenseclient.md)  
   Automate cross-environment migration of users, dashboards, and models.
 
+- [Upgrading from 1.x to 2.0](migration-2.0.md)  
+  Version differences, old-to-new field mapping, and a symptom → cause → fix table.
+
 - [Utils](utils.md)  
   Automate cross-environment migration of users, dashboards, and models.
 

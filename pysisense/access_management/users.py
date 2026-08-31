@@ -411,6 +411,10 @@ class UsersMixin:
         Fetches users with expanded ``groups`` and ``role`` data and returns the
         record matching the provided email address.
 
+        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
+        is now ``ROLE_DISPLAY_NAME``) and ``GROUPS`` was replaced by
+        ``GROUP_IDS`` and ``GROUP_NAMES``. See ``docs/migration-2.0.md``.
+
         Parameters
         ----------
         user_email : str
@@ -557,6 +561,11 @@ class UsersMixin:
         group can drop it; a consumer that never received it cannot put it
         back), and ``ROLE_NAME`` carries the raw Sisense value with the
         UI-facing name in ``ROLE_DISPLAY_NAME``.
+
+        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
+        is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` was replaced by ``GROUP_IDS``
+        and ``GROUP_NAMES``, and ``Everyone`` is no longer filtered out. See
+        ``docs/migration-2.0.md``.
 
         Returns
         -------

@@ -137,3 +137,12 @@ Use a YAML config file or environment variables. See the API initialization rule
 - Commits: `commitizen` (conventional commits)
 - Versioning: `python-semantic-release`
 - Pre-commit hooks: ruff + commitizen
+
+## Version differences
+
+This file documents the current code; a user's project may pin an older release. Check
+`pysisense.__version__` first, then `docs/migration-2.0.md` (canonical old-to-new mapping,
+opens with a symptom -> cause -> fix table) and `CHANGELOG.md`. Note that two 2.0 changes
+fail silently on 1.x-era code: `ROLE_NAME` now holds the raw Sisense value (the UI name
+moved to `ROLE_DISPLAY_NAME`), and `Everyone` is no longer filtered from group lists.
+Every breaking change goes into `CHANGELOG.md` and the migration guide in the same PR.
