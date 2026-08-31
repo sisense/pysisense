@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class ColumnsMixin:
-    def get_dashboard_columns(self, dashboard_name: str) -> list[dict[str, Any]]:
+    def get_dashboard_columns(self, dashboard_name: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve columns referenced by a dashboard, including widget and filter columns.
 
         Resolves the dashboard by title with ``get_dashboard_by_name``, exports
@@ -18,11 +20,13 @@ class ColumnsMixin:
 
         Returns
         -------
-        list[dict[str, Any]]
+        list[dict[str, Any]] | dict[str, Any]
             A list of distinct column entries. Each entry contains
             ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``),
-            ``widget_id``, ``table``, and ``column``. Returns an empty list when
-            the dashboard is not found or its metadata cannot be retrieved.
+            ``widget_id``, ``table``, and ``column`` — an empty list means the
+            dashboard genuinely references no columns. On failure (dashboard
+            not found, or its metadata cannot be retrieved or parsed), returns
+            the standard ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.info(f"Starting column retrieval for dashboard: {dashboard_name}")
 
@@ -33,7 +37,7 @@ class ColumnsMixin:
         if not dashboard or "error" in dashboard:
             error_msg = f"Dashboard '{dashboard_name}' not found."
             self.logger.error(error_msg)
-            return []
+            return {"ok": False, "error": error_msg}
         dashboard_id = dashboard[0].get("oid")
         self.logger.info(f"Dashboard '{dashboard_name}' found with ID: {dashboard_id}")
 
@@ -41,19 +45,20 @@ class ColumnsMixin:
         dashboard_url = f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true"
         dashboard_response = self.api_client.get(dashboard_url)
 
-        if not dashboard_response or dashboard_response.status_code != 200:
-            self.logger.error(f"Failed to export dashboard with ID '{dashboard_id}'")
-            return []
+        if dashboard_response is None or dashboard_response.status_code != 200:
+            failure = _extract_error_message(dashboard_response, f"Failed to export dashboard with ID '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             dashboard_data = dashboard_response.json()
         except Exception:
             self.logger.exception(f"Failed to parse dashboard export response for ID '{dashboard_id}'")
-            return []
+            return {"ok": False, "error": f"Failed to parse dashboard export response for ID '{dashboard_id}'."}
 
         if not dashboard_data or not isinstance(dashboard_data, list):
             self.logger.error(f"Unexpected dashboard data structure for ID '{dashboard_id}'")
-            return []
+            return {"ok": False, "error": f"Unexpected dashboard export structure for ID '{dashboard_id}'."}
 
         dashboard = dashboard_data[0]
         self.logger.debug(f"Analyzing dashboard '{dashboard['title']}' (ID: {dashboard_id})")

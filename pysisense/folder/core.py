@@ -129,7 +129,7 @@ class FolderCoreMixin:
 
         if not folder:
             self.logger.warning(f"No folder found with ID {folder_id}.")
-            return {"error": f"No folder found with ID '{folder_id}'"}
+            return {"ok": False, "error": f"No folder found with ID '{folder_id}'"}
 
         self.logger.info(f"Successfully retrieved folder with ID {folder_id}.")
         return folder

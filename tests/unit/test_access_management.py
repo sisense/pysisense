@@ -91,6 +91,8 @@ class TestAccessManagementInit:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUserWithRoleAndGroupNames:
     def test_returns_user_dict_with_role_and_group_names(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -115,6 +117,8 @@ class TestGetUserWithRoleAndGroupNames:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUsersWithRoleNamesAndGroupNames:
     def test_returns_enriched_user_list(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -158,12 +162,18 @@ class TestGetUsersWithRoleNamesAndGroupNames:
 
 
 class TestGetUser:
-    def test_returns_user_dict_on_success(self):
+    def test_returns_canonical_user_row_on_success(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_user("jdoe@example.com")
         assert result["USER_ID"] == "user123"
         assert result["EMAIL"] == "jdoe@example.com"
+        # ROLE_NAME keeps its 1.x meaning (the UI name), so role comparisons
+        # written against 1.x keep working; the raw value is ROLE_RAW_NAME.
         assert result["ROLE_NAME"] == "viewer"
+        assert result["ROLE_DISPLAY_NAME"] == "viewer"
+        assert result["ROLE_RAW_NAME"] == "consumer"
+        assert result["GROUP_IDS"] == ["grp_engineers"]
+        assert result["GROUPS"] == ["Engineers"]
 
     def test_returns_error_when_email_not_found(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
@@ -190,6 +200,7 @@ class TestGetUser:
         user["groups"] = [{"_id": "g9"}]  # no "name" key
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_user("jdoe@example.com")
+        assert result["GROUP_IDS"] == ["g9"]
         assert result["GROUPS"] == [""]
 
 
@@ -230,14 +241,31 @@ class TestChangeUserPassword:
 
 
 class TestGetUsersAll:
-    def test_returns_list_of_user_dicts(self):
+    def test_returns_canonical_user_rows(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
         result = am.get_users_all()
         assert isinstance(result, list)
         assert result[0]["USER_ID"] == "user123"
         assert result[0]["ROLE_NAME"] == "viewer"
+        assert result[0]["ROLE_DISPLAY_NAME"] == "viewer"
+        assert result[0]["ROLE_RAW_NAME"] == "consumer"
+        assert result[0]["GROUPS"] == ["Engineers"]
 
-    def test_removes_everyone_group_when_multiple_groups_present(self):
+    def test_one_x_role_comparisons_still_work(self):
+        # The reason ROLE_NAME holds the UI name: a 1.x comparison like
+        # `user["ROLE_NAME"] == "sysAdmin"` would otherwise match nothing and
+        # fail SILENTLY, quietly turning an admin check into "not an admin".
+        admin = dict(_USER_EXPANDED)
+        admin["role"] = {"_id": "role_super", "name": "super"}
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [admin])})
+        rows = am.get_users_all()
+        assert [u for u in rows if u["ROLE_NAME"] == "sysAdmin"], "1.x role filter must still match"
+        assert rows[0]["ROLE_RAW_NAME"] == "super"
+
+    def test_everyone_group_is_reported_not_filtered(self):
+        # The SDK reports what Sisense says; consumers decide what to hide.
+        # A silently filtered membership is invisible downstream ("is Joe in
+        # Everyone?" would be answered wrongly).
         user = dict(_USER_EXPANDED)
         user["groups"] = [
             {"_id": "g1", "name": "Everyone"},
@@ -245,32 +273,29 @@ class TestGetUsersAll:
         ]
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_users_all()
-        assert "Everyone" not in result[0]["GROUPS"]
-        assert "Engineers" in result[0]["GROUPS"]
+        assert result[0]["GROUPS"] == ["Everyone", "Engineers"]
 
-    def test_returns_error_list_on_api_failure(self):
+    def test_returns_error_dict_on_api_failure(self):
         am = _make_am(get_responses={})
         result = am.get_users_all()
-        assert "error" in result[0]
+        assert isinstance(result, dict)
+        assert "error" in result
 
-    def test_skips_user_with_role_missing_name_same_as_before_the_shared_helper_swap(self):
-        # Regression: get_users_all used to build ROLE_NAME via a bare-bracket
-        # `user["role"]["name"]` lookup, which raised (and silently skipped the
-        # user) when "name" was absent. Swapping to the shared, tolerant
-        # `_map_user_role_and_groups` helper must not start including these
-        # malformed records instead of skipping them.
-        user = dict(_USER_EXPANDED)
-        user["role"] = {"_id": "role_consumer"}  # no "name"
-        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
-        result = am.get_users_all()
-        assert result == [{"error": "No users found"}]
-
-    def test_skips_user_with_no_role_at_all(self):
+    def test_user_without_role_is_included_with_empty_role_fields(self):
+        # Canonical rows report every user Sisense returns; a missing role is
+        # a normal state surfaced as empty role fields, not a dropped record.
         user = dict(_USER_EXPANDED)
         user.pop("role")
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [user])})
         result = am.get_users_all()
-        assert result == [{"error": "No users found"}]
+        assert len(result) == 1
+        assert result[0]["ROLE_ID"] == ""
+        assert result[0]["ROLE_NAME"] == ""
+        assert result[0]["ROLE_DISPLAY_NAME"] == ""
+
+    def test_zero_users_is_an_empty_list_not_an_error(self):
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
+        assert am.get_users_all() == []
 
 
 # ---------------------------------------------------------------------------
@@ -278,15 +303,19 @@ class TestGetUsersAll:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUsersExpanded:
-    def test_returns_raw_user_list_on_success(self):
+    def test_deprecated_alias_returns_raw_user_list(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])})
-        result = am.get_users_expanded()
+        with pytest.warns(DeprecationWarning, match="use get_users_all"):
+            result = am.get_users_expanded()
         assert result == [_USER_EXPANDED]
 
-    def test_returns_empty_list_when_no_users(self):
+    def test_deprecated_alias_returns_empty_list_when_no_users(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [])})
-        result = am.get_users_expanded()
+        with pytest.warns(DeprecationWarning):
+            result = am.get_users_expanded()
         assert result == []
 
     def test_returns_error_on_api_failure(self):
@@ -322,6 +351,8 @@ class TestCreateUsersBulk:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetGroup:
     def test_returns_group_dict_on_success(self):
         am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [_GROUPS[0]])})
@@ -360,6 +391,20 @@ class TestGetGroups:
         am = _make_am(get_responses={"/api/v1/groups": FakeResponse(500, {"error": "boom"})})
         result = am.get_groups()
         assert "error" in result
+
+    def test_name_filter_returns_matching_group(self):
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [_GROUPS[0]])})
+        result = am.get_groups(name=_GROUPS[0]["name"])
+        assert result == [_GROUPS[0]]
+
+    def test_name_filter_with_unknown_name_returns_error_dict(self):
+        # The ?name= filter is an exact-match dereference (live-verified) —
+        # same honesty rule as get_user(email): a typo'd name fails loudly
+        # naming the reference, it never reads as an empty listing.
+        am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [])})
+        result = am.get_groups(name="NoSuchGroup")
+        assert result["ok"] is False
+        assert "NoSuchGroup" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +504,101 @@ class TestCreateUser:
         result = am.create_user({"email": "x@x.com", "role": None, "groups": []})
         assert "error" in result
 
+    @pytest.mark.parametrize(
+        ("role", "expected_role_id"),
+        [
+            # Raw Sisense vocabulary
+            ("consumer", "role_consumer"),
+            ("super", "role_super"),
+            ("contributor", "role_contributor"),
+            # UI display vocabulary — what get_user()/get_users_all() hand back
+            # in ROLE_DISPLAY_NAME. Before 2.0 the last two were REJECTED.
+            ("viewer", "role_consumer"),
+            ("sysAdmin", "role_super"),
+            ("dashboardDesigner", "role_contributor"),
+            # Human phrasings: case, spacing and punctuation are ignored
+            ("sys admin", "role_super"),
+            ("System Admin", "role_super"),
+            ("system administrator", "role_super"),
+            ("dashboard designer", "role_contributor"),
+            ("designer", "role_contributor"),
+            ("  viewer  ", "role_consumer"),
+            ("SUPER", "role_super"),
+        ],
+    )
+    def test_accepts_both_role_vocabularies_and_human_spellings(self, role, expected_role_id):
+        captured = {}
+
+        class _CapturingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                captured["payload"] = data
+                return super().post(url, data=data, **kwargs)
+
+        client = _CapturingClient(
+            get_responses={"/api/roles": FakeResponse(200, _ROLES), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+            logger=FakeLogger(),
+        )
+        result = AccessManagement(api_client=client).create_user({"email": "x@x.com", "role": role})
+        assert result.get("_id") == "u1", f"role {role!r} was rejected: {result}"
+        assert captured["payload"]["roleId"] == expected_role_id
+        assert "role" not in captured["payload"]
+
+    @pytest.mark.parametrize(
+        ("role", "expected_role_id"),
+        [
+            # dataDesigner is its OWN role, never a synonym for contributor.
+            ("dataDesigner", "role_data_designer"),
+            ("data designer", "role_data_designer"),
+            # admin is distinct from super — aliasing it would silently
+            # over-privilege the user, so the real role must win.
+            ("admin", "role_admin"),
+            ("dataAdmin", "role_data_admin"),
+            ("custom_analyst", "role_custom_analyst"),
+        ],
+    )
+    def test_real_instance_roles_win_over_the_alias_table(self, role, expected_role_id):
+        captured = {}
+
+        class _CapturingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                captured["payload"] = data
+                return super().post(url, data=data, **kwargs)
+
+        extended_roles = _ROLES + [
+            {"_id": "role_data_designer", "name": "dataDesigner"},
+            {"_id": "role_data_admin", "name": "dataAdmin"},
+            {"_id": "role_admin", "name": "admin"},
+            {"_id": "role_custom_analyst", "name": "custom_analyst"},
+        ]
+        client = _CapturingClient(
+            get_responses={"/api/roles": FakeResponse(200, extended_roles), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+            logger=FakeLogger(),
+        )
+        result = AccessManagement(api_client=client).create_user({"email": "x@x.com", "role": role})
+        assert result.get("_id") == "u1", f"role {role!r} was rejected: {result}"
+        assert captured["payload"]["roleId"] == expected_role_id
+
+    def test_matches_display_name_from_the_roles_payload_when_present(self):
+        # Some Sisense versions return a displayName alongside the raw name;
+        # use it when it is there, without depending on it.
+        roles = [{"_id": "role_super", "name": "super", "displayName": "System Administrator"}]
+        am = _make_am(
+            get_responses={"/api/roles": FakeResponse(200, roles), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+        )
+        assert am.create_user({"email": "x@x.com", "role": "System Administrator"}).get("_id") == "u1"
+
+    def test_unknown_role_error_lists_the_available_roles(self):
+        # The caller (often an assistant) needs to know what it may retry with.
+        am = _make_am(get_responses={"/api/roles": FakeResponse(200, _ROLES)})
+        result = am.create_user({"email": "x@x.com", "role": "wizard"})
+        assert result["ok"] is False
+        assert "wizard" in result["error"]
+        for name in ("consumer", "super", "contributor"):
+            assert name in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # update_user
@@ -493,6 +633,36 @@ class TestUpdateUser:
         result = am.update_user("jdoe@example.com", {"role": "viewer"})
         assert "error" in result
 
+    @pytest.mark.parametrize(
+        ("role", "expected_role_id"),
+        [
+            ("sysAdmin", "role_super"),
+            ("sys admin", "role_super"),
+            ("dashboardDesigner", "role_contributor"),
+            ("viewer", "role_consumer"),
+            ("super", "role_super"),
+        ],
+    )
+    def test_accepts_both_role_vocabularies(self, role, expected_role_id):
+        # update_user shares _resolve_role_id with create_user — the round-trip
+        # that matters is reading ROLE_DISPLAY_NAME and writing it straight back.
+        captured = {}
+
+        class _CapturingClient(FakeApiClient):
+            def patch(self, url, data=None, **kwargs):
+                captured["payload"] = data
+                return super().patch(url, data=data, **kwargs)
+
+        client = _CapturingClient(
+            get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED]), "/api/roles": FakeResponse(200, _ROLES)},
+            patch_responses={"/api/v1/users/": FakeResponse(200, _USER_EXPANDED)},
+            logger=FakeLogger(),
+        )
+        result = AccessManagement(api_client=client).update_user("jdoe@example.com", {"role": role})
+        assert "error" not in result, f"role {role!r} was rejected: {result}"
+        assert captured["payload"]["roleId"] == expected_role_id
+        assert "role" not in captured["payload"]
+
 
 # ---------------------------------------------------------------------------
 # delete_user
@@ -520,22 +690,135 @@ class TestDeleteUser:
 
 
 class TestUsersPerGroup:
-    def test_returns_users_in_group(self):
-        users_in_group = [_USER_EXPANDED]
+    def test_returns_flat_membership_rows_for_one_group(self):
+        # Membership comes from the GROUP side (?expand=users), which is what
+        # the Sisense UI shows — see test_reports_system_group_membership.
+        group_with_members = {**_GROUPS[0], "users": [_USER_EXPANDED]}
         am = _make_am(
             get_responses={
-                "/api/v1/groups": FakeResponse(200, [_GROUPS[0]]),
-                "/api/v1/users": FakeResponse(200, users_in_group),
+                "/api/v1/groups": FakeResponse(200, [group_with_members]),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
             }
         )
         result = am.users_per_group("Engineers")
         assert isinstance(result, list)
-        assert result[0]["_id"] == "user123"
+        assert result == [
+            {
+                "GROUP_ID": "grp_engineers",
+                "GROUP_NAME": "Engineers",
+                "USER_ID": "user123",
+                "USER_NAME": "jdoe",
+                "EMAIL": "jdoe@example.com",
+                "FIRST_NAME": "John",
+                "LAST_NAME": "Doe",
+                "IS_ACTIVE": True,
+                "ROLE_ID": "role_consumer",
+                "ROLE_NAME": "viewer",
+                "ROLE_DISPLAY_NAME": "viewer",
+                "ROLE_RAW_NAME": "consumer",
+            }
+        ]
+
+    def test_no_argument_returns_every_membership_flat(self):
+        # One row per (group, user) — counts equal real membership counts.
+        groups = [
+            {"_id": "g1", "name": "Finance", "users": [_USER_EXPANDED]},
+            {"_id": "grp_engineers", "name": "Engineers", "users": [_USER_EXPANDED]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        result = am.users_per_group()
+        assert [(r["GROUP_NAME"], r["USER_NAME"]) for r in result] == [("Finance", "jdoe"), ("Engineers", "jdoe")]
+
+    def test_reports_system_group_membership_the_ui_shows(self):
+        # Regression for the 'Admins shows 0' defect. Sisense resolves the
+        # auto-generated groups (Admins, All users in system) on the GROUP side
+        # only — their members never appear in a user's own `groups` field. So
+        # reading membership from the user side reported 0 while the UI showed
+        # 34. Live-verified on the sandbox: 34/67/67, matching the UI exactly.
+        admin_user = {**_USER_EXPANDED, "groups": [], "role": {"_id": "role_super", "name": "super"}}
+        groups = [
+            # note: the member is NOT in admin_user["groups"] — that is the point
+            {"_id": "g_adm", "name": "Admins", "admins": True, "users": [admin_user]},
+            {"_id": "g_all", "name": "All users in system", "users": [admin_user]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [admin_user]),
+            }
+        )
+        assert [r["USER_NAME"] for r in am.users_per_group("Admins")] == ["jdoe"]
+        assert [r["USER_NAME"] for r in am.users_per_group("All users in system")] == ["jdoe"]
+        # Admins is not a universal group, so it stays in the survey view;
+        # "All users in system" is, so it is omitted there.
+        assert [r["GROUP_NAME"] for r in am.users_per_group()] == ["Admins"]
+
+    def test_universal_groups_are_omitted_from_the_all_groups_view(self):
+        # Sisense puts every user in Everyone and All users in system, so in the
+        # survey view they duplicate get_users_all() and swamp the real
+        # memberships (192 rows vs 58 on the sandbox).
+        groups = [
+            {"_id": "g_ev", "name": "Everyone", "users": [_USER_EXPANDED]},
+            {"_id": "g_all", "name": "All users in system", "users": [_USER_EXPANDED]},
+            {"_id": "grp_engineers", "name": "Engineers", "users": [_USER_EXPANDED]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert [r["GROUP_NAME"] for r in am.users_per_group()] == ["Engineers"]
+        # ...but each is still reachable by name.
+        assert len(am.users_per_group("Everyone")) == 1
+        assert len(am.users_per_group("All users in system")) == 1
+
+    def test_naming_a_universal_group_always_returns_it(self):
+        # The filter applies to the survey view only. An explicit request is
+        # unambiguous and must be honored, so nothing is unreachable.
+        groups = [{"_id": "g_ev", "name": "Everyone", "users": [_USER_EXPANDED]}]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert [r["USER_NAME"] for r in am.users_per_group("Everyone")] == ["jdoe"]
+
+    def test_member_missing_from_the_user_list_still_yields_a_row(self):
+        # A group can list a member the user endpoint does not return (stale or
+        # filtered). Drop the role detail, never the row — counts stay honest.
+        ghost = {"_id": "u_ghost", "userName": "ghost", "email": "ghost@x.com", "active": True}
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers", "users": [ghost]}]),
+                "/api/v1/users": FakeResponse(200, []),
+            }
+        )
+        rows = am.users_per_group("Engineers")
+        assert len(rows) == 1
+        assert rows[0]["USER_NAME"] == "ghost"
+        assert rows[0]["ROLE_NAME"] == ""
 
     def test_returns_error_when_group_not_found(self):
+        # A typo'd group name must fail loudly — never a silent empty list.
         am = _make_am(get_responses={"/api/v1/groups": FakeResponse(200, [])})
         result = am.users_per_group("Nonexistent")
-        assert "error" in result
+        assert "Nonexistent" in result["error"]
+
+    def test_group_with_no_members_returns_empty_list(self):
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, [{"_id": "g7", "name": "EmptyGroup", "users": []}]),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert am.users_per_group("EmptyGroup") == []
 
 
 # ---------------------------------------------------------------------------
@@ -543,6 +826,8 @@ class TestUsersPerGroup:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestUsersPerGroupAll:
     def test_returns_list_with_group_and_usernames(self):
         am = _make_am(
@@ -711,6 +996,8 @@ class TestGetDatamodelColumns:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+# Deprecated alias — behavior frozen until 2.0 removal; the warning is expected.
 class TestGetUnusedColumns:
     def test_raises_value_error_when_no_columns_found(self):
         # Model not found → get_datamodel_columns returns []
@@ -741,19 +1028,33 @@ class TestGetUnusedColumns:
 
 
 class TestGetUnusedColumnsBulk:
-    def test_returns_empty_list_when_datamodels_is_none(self):
+    def test_datamodels_is_a_required_parameter(self):
+        # No default — schema generators must see it as required, so a bare
+        # call cannot silently return "no unused columns".
+        import inspect
+
+        sig = inspect.signature(type(_make_am()).get_unused_columns_bulk)
+        assert sig.parameters["datamodels"].default is inspect.Parameter.empty
+        with pytest.raises(TypeError):
+            _make_am().get_unused_columns_bulk()
+
+    def test_explicit_none_returns_error_dict(self):
         am = _make_am()
         result = am.get_unused_columns_bulk(None)
-        assert result == []
+        assert result["ok"] is False
+        assert "error" in result
+        assert result["results"] == []
 
-    def test_returns_empty_list_for_empty_list_input(self):
+    def test_empty_list_input_returns_error_dict(self):
         am = _make_am()
         result = am.get_unused_columns_bulk([])
-        assert result == []
+        assert result["ok"] is False
+        assert "error" in result
+        assert result["results"] == []
 
-    def test_skips_model_when_resolve_fails(self):
-        # datamodel.resolve_datamodel_reference will call GET /api/v2/datamodels/{ref}/schema
-        # and then GET /api/v2/datamodels/schema with params — both return 404
+    def test_unresolvable_reference_fails_loudly_not_silently(self):
+        # A typo'd model name must NOT read as "no unused columns" — the
+        # total-failure dict carries ok: False and names the reference.
         am = _make_am(
             get_responses={
                 "/api/v2/datamodels/schema": FakeResponse(404, {}),
@@ -761,7 +1062,49 @@ class TestGetUnusedColumnsBulk:
             }
         )
         result = am.get_unused_columns_bulk("NoSuchModel")
-        assert result == []
+        assert result["ok"] is False
+        assert "NoSuchModel" in result["error"]
+        assert result["results"] == []
+        assert result["errors"][0]["ref"] == "NoSuchModel"
+
+    def test_success_returns_results_and_empty_errors(self):
+        schema = {"oid": "dm123", "title": "MyModel"}
+        datasets = [{"oid": "ds1"}]
+        tables = [{"name": "tbl", "columns": [{"name": "col1"}]}]
+        am = _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, schema),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, datasets),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
+                "/api/v1/dashboards/admin": FakeResponse(200, []),  # no dashboards
+            }
+        )
+        result = am.get_unused_columns_bulk("MyModel")
+        assert result["errors"] == []
+        assert "ok" not in result
+        assert len(result["results"]) == 1
+        assert result["results"][0]["used"] is False
+
+    def test_partial_success_reports_typo_in_errors_alongside_good_rows(self):
+        # The 5-models-one-typo case: good rows land in "results", the typo'd
+        # reference is reported in-band in "errors" instead of a silent skip.
+        schema = {"oid": "dm123", "title": "MyModel"}
+        datasets = [{"oid": "ds1"}]
+        tables = [{"name": "tbl", "columns": [{"name": "col1"}]}]
+        am = _make_am(
+            get_responses={
+                # Called 3× in order: resolve MyModel, column fetch for MyModel,
+                # resolve NoSuchModel (list values are consumed per call).
+                "/api/v2/datamodels/schema": [FakeResponse(200, schema), FakeResponse(200, schema), FakeResponse(404, {})],
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, datasets),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
+                "/api/v1/dashboards/admin": FakeResponse(200, []),
+            }
+        )
+        result = am.get_unused_columns_bulk(["MyModel", "NoSuchModel"])
+        assert "ok" not in result
+        assert len(result["results"]) == 1
+        assert result["errors"][0]["ref"] == "NoSuchModel"
 
 
 # ---------------------------------------------------------------------------
@@ -802,14 +1145,15 @@ class TestGetAllDashboardShares:
             },
         )
         result = am.get_all_dashboard_shares()
+        # Marketing has no shares and must contribute no rows — a placeholder
+        # would read as one share to any consumer that counts results.
         assert result == [
             {"dashboard": "Sales", "type": "user", "name": "alice@example.com"},
             {"dashboard": "Sales", "type": "group", "name": "Engineers"},
-            {"dashboard": "Marketing", "type": None, "name": None},
         ]
 
     def test_distinguishes_empty_string_email_from_unresolved_share(self):
-        # Regression: the refactor to get_user_email_and_group_name_maps() must
+        # Regression: the refactor to _get_user_email_and_group_name_maps() must
         # use "shareId in map" membership checks, not truthiness of the
         # resolved value — a user whose email is genuinely "" must still be
         # resolved (name: ""), not treated the same as an unresolvable shareId.
@@ -843,7 +1187,7 @@ class TestGetAllDashboardShares:
 
 
 # ---------------------------------------------------------------------------
-# get_user_email_and_group_name_maps
+# _get_user_email_and_group_name_maps
 # ---------------------------------------------------------------------------
 
 
@@ -855,17 +1199,17 @@ class TestGetUserEmailAndGroupNameMaps:
                 "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Engineers"}]),
             }
         )
-        result = am.get_user_email_and_group_name_maps()
+        result = am._get_user_email_and_group_name_maps()
         assert result == {"users_by_id": {"u1": "alice@example.com"}, "groups_by_id": {"g1": "Engineers"}}
 
     def test_returns_error_when_users_api_fails(self):
         am = _make_am()
-        result = am.get_user_email_and_group_name_maps()
+        result = am._get_user_email_and_group_name_maps()
         assert "error" in result
 
     def test_returns_error_when_groups_api_fails(self):
         am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "a@b.com"}])})
-        result = am.get_user_email_and_group_name_maps()
+        result = am._get_user_email_and_group_name_maps()
         assert "error" in result
 
 

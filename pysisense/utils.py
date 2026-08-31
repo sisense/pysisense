@@ -63,21 +63,28 @@ def _extract_error_message(response, context, api_client=None):
             there is no response
 
     Returns:
-        dict: {"error": str} always; plus {"status_code": int} when an HTTP
-        status is available.
+        dict: {"ok": False, "error": str} always; plus {"status_code": int}
+        when an HTTP status is available, and {"raw_body": str} when the body
+        could not be recognized (unknown JSON shape or non-JSON text — the
+        redacted, truncated dump travels there while "error" stays a clean
+        sentence). The explicit "ok": False marker is the forward-compatible
+        failure signal — consumers detect failures via payload.get("ok") is
+        False (or the presence of "error"), never by matching an exact key
+        set, since additive keys may arrive in any release.
     """
     if response is None:
         domain = getattr(api_client, "domain", None) or "the Sisense server"
-        return {"error": f"{context}: no response from {domain} — connection failed"}
+        return {"ok": False, "error": f"{context}: no response from {domain} — connection failed"}
 
     status = response.status_code
     reason = None
+    raw_body = None
     try:
         body = redact_secrets(response.json())
     except ValueError:
         raw_text = (response.text or "").strip()
         if raw_text:
-            reason = raw_text
+            raw_body = raw_text
     else:
         if isinstance(body, dict):
             for key in ("detail", "message", "title", "error"):
@@ -86,16 +93,25 @@ def _extract_error_message(response, context, api_client=None):
                     reason = value.strip()
                     break
             if reason is None and body:
-                reason = str(body)
+                raw_body = str(body)
         elif body not in (None, "", [], {}):
-            reason = str(body)
+            raw_body = str(body)
 
+    # The "error" sentence is always clean, human-authored text: either the
+    # recognised Sisense reason or an honest label. Unrecognised bodies travel
+    # separately in "raw_body" (redacted, truncated) so consumers with
+    # different trust boundaries can relay or drop them independently.
     if reason is None:
-        reason = "the server returned an empty error body"
-    elif len(reason) > _MAX_ERROR_REASON_CHARS:
+        reason = "unrecognized error body" if raw_body else "the server returned an empty error body"
+    if len(reason) > _MAX_ERROR_REASON_CHARS:
         reason = reason[:_MAX_ERROR_REASON_CHARS] + "…"
 
-    return {"error": f"{context}: {reason} (HTTP {status})", "status_code": status}
+    failure: dict = {"ok": False, "error": f"{context}: {reason} (HTTP {status})", "status_code": status}
+    if raw_body is not None:
+        if len(raw_body) > _MAX_ERROR_REASON_CHARS:
+            raw_body = raw_body[:_MAX_ERROR_REASON_CHARS] + "…"
+        failure["raw_body"] = raw_body
+    return failure
 
 
 def convert_to_dataframe(data, logger=None):

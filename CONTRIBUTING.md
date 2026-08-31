@@ -327,6 +327,13 @@ Every release's notes **must** carry a "downstream generators" changelog block l
 - **Params that gained TypedDict contracts** — `method.param` → contract name in
   `pysisense/payloads.py`.
 - **Params that gained `Literal` enums** — `method.param` → the literal values.
+- **Return-value shape changes** — including *additive* ones (a new key on the error
+  dict, a new field in a result row). Shape changes never fail loudly: the call still
+  returns, consumers pattern-matching the old shape just misread it. Each entry must
+  carry an explicit compatibility note, e.g. *"consumers matching exact key sets must
+  widen"*. (Lesson from 1.1.0: adding `status_code` to the error dict silently broke a
+  consumer that detected failures via `keys() == {"error"}` — every HTTP failure
+  arrived as success.)
 
 If a release contains none of these, say so explicitly ("no introspection-surface
 changes") rather than omitting the block.

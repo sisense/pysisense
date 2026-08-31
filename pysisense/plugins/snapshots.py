@@ -75,7 +75,7 @@ class PluginsSnapshotsMixin:
         if "plugins" not in snapshot:
             msg = "Snapshot is missing the required 'plugins' key"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         snapshot_folders: set[str] = set(snapshot["plugins"])
         created = snapshot.get("created", "unknown")

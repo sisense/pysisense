@@ -274,7 +274,7 @@ class ReportManagerCoreMixin:
         except ValidationError as e:
             msg = f"Invalid report payload: {e}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         body = [payload.model_dump(by_alias=True, exclude_none=True)]
 
@@ -320,7 +320,7 @@ class ReportManagerCoreMixin:
         except ValidationError as e:
             msg = f"Invalid report payload: {e}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         body = payload.model_dump(by_alias=True, exclude_unset=True, exclude_none=True)
         if not body:
@@ -411,7 +411,7 @@ class ReportManagerCoreMixin:
         if response is None:
             msg = f"Failed to {action} — no response received."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         if response.status_code not in success_codes:
             try:
@@ -425,6 +425,6 @@ class ReportManagerCoreMixin:
             elif response.status_code == 404 and not response.content:
                 msg = f"{msg} A 404 with an empty body usually means the Report Manager plugin is not installed or enabled on this Sisense instance."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         return None

@@ -28,7 +28,7 @@ class EncryptionCoreMixin:
         """
         if not isinstance(payload, dict):
             self.logger.error(f"Encryption {action} requires payload to be a dict.")
-            return {"error": "payload must be a dictionary."}
+            return {"ok": False, "error": "payload must be a dictionary."}
 
         endpoint = f"/api/v1/encryption/{action}"
         self.logger.debug(f"POST {endpoint}")

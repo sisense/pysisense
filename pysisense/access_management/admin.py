@@ -6,13 +6,14 @@ from ..utils import _extract_error_message
 
 
 class AdminMixin:
-    def get_user_email_and_group_name_maps(self) -> dict[str, Any]:
+    def _get_user_email_and_group_name_maps(self) -> dict[str, Any]:
         """Fetch all users and groups and build ID-to-name lookup maps.
 
-        Used for resolving share entries (dashboard or data model), which
-        reference users and groups only by ID, into readable emails and
+        Internal helper: resolves share entries (dashboard or data model),
+        which reference users and groups only by ID, into readable emails and
         group names. Shared by ``get_all_dashboard_shares`` here and by
-        ``Dashboard.get_dashboard_share`` (via ``self.access_mgmt``).
+        ``Dashboard.get_dashboard_share`` (via ``self.access_mgmt``). Use
+        ``get_users_all`` and ``get_groups`` for the public equivalents.
 
         Returns
         -------
@@ -90,8 +91,10 @@ class AdminMixin:
         -------
         list[dict[str, Any]]
             A list of dictionaries containing the dashboard title, share type
-            (``user`` or ``group``), and share name (email or group name). An
-            empty list is returned if users or groups cannot be fetched.
+            (``user`` or ``group``), and share name (email or group name) — one
+            row per share, so the row count equals the number of shares.
+            Dashboards with no shares contribute no rows. An empty list is
+            returned if users or groups cannot be fetched.
         """
         self.logger.info("Starting to retrieve dashboard shares...")
 
@@ -100,7 +103,7 @@ class AdminMixin:
 
         # Step 2: Fetch user/group ID-to-name lookup maps
         self.logger.info("Fetching users and groups.")
-        maps = self.get_user_email_and_group_name_maps()
+        maps = self._get_user_email_and_group_name_maps()
         if "error" in maps:
             return []
 
@@ -124,9 +127,8 @@ class AdminMixin:
                         share_info["name"] = groups_by_id[share["shareId"]]
 
                     shared_list.append(share_info)
-            else:
-                # Add placeholder if there are no shares for the dashboard
-                shared_list.append({"dashboard": dashboard["title"], "type": None, "name": None})
+            # Dashboards with no shares contribute no rows — a placeholder row
+            # would read as one share to any consumer that counts results.
 
         self.logger.info(f"Parsed {len(shared_list)} shared dashboards.")
 
@@ -193,7 +195,7 @@ class AdminMixin:
         response_data = response.json()
         if not response_data:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": f"DataModel '{datamodel_name}' not found"}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found"}
 
         # Extract DataModel ID
         datamodel_id = response_data.get("oid")
@@ -209,7 +211,7 @@ class AdminMixin:
 
             if interval_seconds <= 0:
                 self.logger.error("Interval must be greater than 0 seconds.")
-                return {"error": "Interval must be greater than 0 seconds."}
+                return {"ok": False, "error": "Interval must be greater than 0 seconds."}
 
             schedule_payload = {"scheduleType": "Interval", "buildType": build_type, "intervalSeconds": interval_seconds}
         elif days and hour is not None and minute is not None:
@@ -226,7 +228,7 @@ class AdminMixin:
             schedule_payload = {"cronString": cron_string, "buildType": build_type, "daysOfWeek": days, "hour": hour, "minute": minute}
         else:
             self.logger.error("Invalid schedule configuration: Provide either interval or full cron config.")
-            return {"error": "Invalid schedule configuration: Provide either interval or full cron config."}
+            return {"ok": False, "error": "Invalid schedule configuration: Provide either interval or full cron config."}
 
         self.logger.info("Creating schedule build with the following details:")
         self.logger.debug(schedule_payload)
@@ -236,7 +238,7 @@ class AdminMixin:
 
         if not response or response.status_code not in [200, 201]:
             self.logger.error("Failed to create schedule build. Response: %s", getattr(response, "text", "No response text"))
-            return {"error": "Failed to create schedule build."}
+            return {"ok": False, "error": "Failed to create schedule build."}
 
         try:
             response_data = response.json()

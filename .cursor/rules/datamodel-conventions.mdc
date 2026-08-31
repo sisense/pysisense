@@ -56,9 +56,9 @@ Creates model + dataset + all tables in a single call. Each table dict:
 
 Uses an internal API. Returns `oid`, `title`, `type`, `status`, `sizeInMb`.
 
-## `get_datasecurity` edge case
+## Datasecurity readers — empty means empty
 
-If no RLS rules exist, returns a single entry with empty values — never an empty list.
+`get_datasecurity`, `get_datasecurity_detail`, and `get_datasecurity_raw` all return `[]` only when a model genuinely has no RLS rules — never a placeholder row, and (since 2.0) never as a failure disguise: resolve/fetch failures return the standard error dict. Row counts must always equal real rule counts: programmatic consumers count rows, so a fabricated blank entry reads as "one rule". The same rule applies SDK-wide — never substitute a placeholder row for an empty result.
 
 ## Share permissions
 

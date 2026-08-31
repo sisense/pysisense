@@ -18,6 +18,8 @@ Initializes the `DataModel` class.
 
 ## Methods
 
+> **Failure contract (2.0):** every failure return in this module is the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}`. No method returns `[]`, `None`, or a bare `{"error": ...}` on failure — an empty list from a read method always means a genuinely empty result.
+
 ### `get_datamodel(self, datamodel_name)`
 
 Retrieves a DataModel by its name.
@@ -72,11 +74,11 @@ Retrieves a Connection by its name.
 
 Lists all connections via `GET /api/v2/connections`.
 
-`get_connections()` is kept as a deprecated alias with identical behavior — prefer `get_connections_all`, which makes the all-vs-single distinction from `get_connection` explicit.
+The former `get_connections()` alias (deprecated in 1.1.0) was removed in 2.0 — use `get_connections_all`, which makes the all-vs-single distinction from `get_connection` explicit.
 
 #### Returns:
 
-* `list`: Connection objects on success, or `{"error": "..."}` on failure.
+* `list`: Connection objects on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -91,7 +93,7 @@ Updates a connection via `PATCH /api/v2/connections/{connection_id}`. Only field
 
 #### Returns:
 
-* `dict`: Updated connection on success, or `{"error": "..."}` on failure.
+* `dict`: Updated connection on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -191,7 +193,7 @@ Creates a new connection using the provided payload.
 
 #### Returns:
 
-* `dict or None`: JSON response with connection details if successful, otherwise `None`.
+* `dict`: JSON response with connection details if successful (HTTP 201), or `{"ok": False, "error": "..."}` on failure (no longer `None`).
 
 ---
 
@@ -359,7 +361,7 @@ Retrieves all share entries (users and groups) for a given DataModel in flat row
 
 #### Returns:
 
-* `list`: List of dictionaries containing DataModel name, DataModel ID, party name, party type (user or group), and assigned permission level.
+* `list`: List of dictionaries containing DataModel name, DataModel ID, party name, party type (user or group), and assigned permission level. An empty list means the model genuinely has no shares. If the model cannot be resolved, returns `{"ok": False, "error": "..."}` (no longer an empty list).
 
 ---
 
@@ -373,7 +375,7 @@ Retrieves datasecurity table and column entries for a given DataModel in flat ro
 
 #### Returns:
 
-* `list`: List of dictionaries containing datamodel name, table name, column name, and associated security type. If no rules exist, a single entry with the datamodel name and empty values is returned.
+* `list`: List of dictionaries containing datamodel name, table name, column name, and associated security type — one row per secured column, so the row count equals the number of rules. An empty list always means the model genuinely has zero rules. On failure (the model cannot be resolved, or the rules cannot be fetched), returns `{"ok": False, "error": "..."}` instead.
 
 ---
 
@@ -387,7 +389,7 @@ Retrieves detailed datasecurity rules for a specific DataModel, including visibi
 
 #### Returns:
 
-* `list`: List of dictionaries, where each dictionary represents a column-level rule repeated for each share. Includes datamodel name, table name, column name, data type, value, exclusionary flag, share type, share name, and a user-friendly rule description.
+* `list`: List of dictionaries, where each dictionary represents a column-level rule repeated for each share. Includes datamodel name, table name, column name, data type, value, exclusionary flag, share type, share name, and a user-friendly rule description. An empty list always means the model genuinely has zero rules. On failure (the model cannot be resolved, or the rules cannot be fetched), returns `{"ok": False, "error": "..."}` instead.
 
 ---
 
@@ -402,7 +404,7 @@ Retrieves detailed datasecurity rules for a specific DataModel, including visibi
 
 #### Returns:
 
-* `dict`: API response on success, or `{"error": "..."}` on failure.
+* `dict`: API response on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -417,7 +419,7 @@ Adds multiple datasecurity rules to a LIVE datamodel via `POST /api/v1/elasticub
 
 #### Returns:
 
-* `dict`: API response on success, or `{"error": "..."}` on failure.
+* `dict`: API response on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -433,7 +435,7 @@ Deletes all datasecurity rules for one table/column via `DELETE {datasecurity_en
 
 #### Returns:
 
-* `dict`: `{"success": True}` on success, or `{"error": "..."}` on failure.
+* `dict`: `{"success": True}` on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -448,7 +450,7 @@ Retrieves the raw, unprocessed datasecurity rules for a DataModel — each rule 
 
 #### Returns:
 
-* `list[dict] | dict`: The raw list of datasecurity rule objects from the API, or `{"error": "..."}` on failure (including when the DataModel cannot be resolved).
+* `list[dict] | dict`: The raw list of datasecurity rule objects from the API, or `{"ok": False, "error": "..."}` on failure (including when the DataModel cannot be resolved).
 
 ---
 
@@ -468,12 +470,14 @@ Retrieves the schema of a DataModel, including tables and columns.
 
 ### `add_datamodel_shares(self, datamodel_name, shares)`
 
-Adds share entries (users and groups) to a DataModel.
+Adds share entries (users and groups) to a DataModel. Both EXTRACT (Elasticube) and LIVE DataModels are supported (EXTRACT support is new in 2.0 — the old "Cannot add shares to EXTRACT DataModels" error is retired).
 
-**Known limitation:** share writes are currently disabled for EXTRACT
-(Elasticube) DataModels — the method returns `{"error": "..."}` immediately
-for any EXTRACT model, regardless of the `shares` payload. Only LIVE
-DataModels are supported today.
+Behavior (live-verified):
+
+* Both model types key share entries by `partyId`, but use different endpoints and verbs: EXTRACT shares are merged with the existing raw permission list and written via `PUT /api/elasticubes/localhost/{title}/permissions`; LIVE shares are written via `PATCH /api/v1/elasticubes/live/{oid}/permissions` (unchanged).
+* A party that already has a share gets its permission updated in place instead of a duplicate entry (EXTRACT path).
+* Shares for INACTIVE users are skipped and reported in the returned `skipped` list — Sisense accepts the write (HTTP 200) but silently drops such entries, so submitting them would report success for a share that never lands.
+* When NO given share resolves (unknown or inactive parties), the method returns `{"ok": False, "error": "...", "skipped": [...]}` instead of writing the existing shares back unchanged.
 
 #### Parameters:
 
@@ -489,7 +493,7 @@ DataModels are supported today.
 
 #### Returns:
 
-* `dict`: Result of the share addition operation.
+* `dict`: `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>, "skipped": [...]}` on success — `skipped` lists every requested share that was not submitted, as `{"name", "type", "reason"}` entries (unknown user/group, inactive user, invalid share type); an empty list means every requested share was submitted. On failure, the standard `{"ok": False, "error": "..."}` dict (when none of the given shares resolve, no changes are written and the failure dict carries the same `"skipped"` list).
 
 ---
 
@@ -503,7 +507,7 @@ Retrieves raw share entries for an EXTRACT (Elasticube) DataModel via `GET /api/
 
 #### Returns:
 
-* `list[dict] | dict`: The raw list of share objects from the API, or `{"error": "..."}` on failure.
+* `list[dict] | dict`: The raw list of share objects from the API, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -517,7 +521,7 @@ Retrieves raw share entries for a LIVE DataModel via `GET /api/v1/elasticubes/li
 
 #### Returns:
 
-* `list[dict] | dict`: The raw list of share objects from the API, or `{"error": "..."}` on failure.
+* `list[dict] | dict`: The raw list of share objects from the API, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -534,7 +538,7 @@ Uses `PUT` because that's what the EXTRACT permissions endpoint requires — the
 
 #### Returns:
 
-* `dict`: API response on success, or `{"error": "..."}` on failure.
+* `dict`: API response on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -549,7 +553,7 @@ Replaces share entries for a LIVE DataModel via `PATCH /api/v1/elasticubes/live/
 
 #### Returns:
 
-* `dict`: API response on success, or `{"error": "..."}` on failure.
+* `dict`: API response on success, or `{"ok": False, "error": "..."}` on failure.
 
 ---
 
@@ -567,7 +571,7 @@ Retrieves data from a specific table in a DataModel with optional custom SQL que
 
 #### Returns:
 
-* `list`: List of dictionaries where each dictionary represents a row of data.
+* `list`: List of dictionaries where each dictionary represents a row of data. An empty list always means the query genuinely returned no rows. On failure, returns `{"ok": False, "error": "..."}` (no longer an empty list).
 
 ---
 
@@ -581,7 +585,7 @@ Retrieves the row count for each table in a specific DataModel.
 
 #### Returns:
 
-* `list`: List of dictionaries, each containing `table_name` and `row_count`. Includes an additional final row with the total row count.
+* `list`: List of dictionaries, each containing `table_name` and `row_count`. Includes an additional final row with the total row count. If the DataModel cannot be resolved, the `{"ok": False, "error": "..."}` dict is propagated; tables whose count query fails are skipped with a logged warning.
 
 ---
 
@@ -626,7 +630,7 @@ Exports a data model's full schema definition for re-import elsewhere (`GET /api
 
 **Returns:**
 
--   `dict`: The exported schema object on success, or `{"error": "..."}` on failure.
+-   `dict`: The exported schema object on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -643,7 +647,7 @@ Imports a data model schema (as produced by `export_datamodel_schema`) via `POST
 
 **Returns:**
 
--   `dict`: `{"datamodel_id": <str or None>, "already_exists": False}` on success, or `{"error": "...", "already_exists": bool}` on failure. `already_exists` is `True` when the import failed because a data model with the same title already exists on the target under a different ID.
+-   `dict`: `{"datamodel_id": <str or None>, "already_exists": False}` on success, or `{"ok": False, "error": "...", "already_exists": bool}` on failure. `already_exists` is `True` when the import failed because a data model with the same title already exists on the target under a different ID.
 
 * * * * *
 
@@ -653,7 +657,7 @@ Lists all ElastiCubes using the legacy v1 endpoint (`GET /api/v1/elasticubes/get
 
 **Returns:**
 
--   `list[dict]`: List of ElastiCube objects on success, or `{"error": "..."}` on failure.
+-   `list[dict]`: List of ElastiCube objects on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -668,7 +672,7 @@ Looks up a data model's OID by title using the GraphQL ECM endpoint (`POST /api/
 
 **Returns:**
 
--   `dict`: Contains `oid` and `__typename` on success, or `{"error": "..."}` on failure (including GraphQL-level errors that arrive as HTTP 200).
+-   `dict`: Contains `oid` and `__typename` on success, or `{"ok": False, "error": "..."}` on failure (including GraphQL-level errors that arrive as HTTP 200).
 
 * * * * *
 
@@ -683,7 +687,7 @@ Permanently deletes a data model using the GraphQL ECM endpoint (`POST /api/v2/e
 
 **Returns:**
 
--   `dict`: `{"success": True}` on success, or `{"error": "..."}` on failure.
+-   `dict`: `{"success": True}` on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -700,7 +704,7 @@ Only supported for extract-type data models. For live models use `set_live_datas
 
 **Returns:**
 
--   `dict`: API response body on success, or `{"error": "..."}` on failure.
+-   `dict`: API response body on success, or `{"ok": False, "error": "..."}` on failure.
 
 * * * * *
 
@@ -717,4 +721,4 @@ Only supported for live-type data models. For extract models use `update_datasec
 
 **Returns:**
 
--   `dict`: API response body on success, or `{"error": "..."}` on failure.
+-   `dict`: API response body on success, or `{"ok": False, "error": "..."}` on failure.

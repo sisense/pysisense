@@ -1,11 +1,29 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
+  # Ruff runs through `uv run` so pre-commit and CI use the SAME ruff — the one
+  # pinned in uv.lock. The previous setup pinned ruff-pre-commit independently,
+  # which drifted (0.4.4 locally vs 0.16.3 in CI) and let pre-commit format a
+  # file into a state CI then rejected.
+  #
+  # `types_or` includes markdown because `ruff format` also formats Python code
+  # blocks inside .md files, and CI checks them (`ruff format --check .` covers
+  # the whole repo). Without markdown here, a docs example could only ever fail
+  # in CI, never at commit time.
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
       - id: ruff-format
-      
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi, markdown]
+        require_serial: true
+
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v3.27.0
     hooks:

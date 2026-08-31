@@ -2,12 +2,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from typing_extensions import deprecated
+
 from ..utils import _extract_error_message
+
+# Groups Sisense auto-populates with every user on the instance. In the
+# all-groups view they duplicate get_users_all() and drown the real
+# memberships, so they are omitted by default. Asking for one by name still
+# returns it — nothing is unreachable.
+_UNIVERSAL_GROUPS = frozenset({"Everyone", "All users in system"})
 
 
 class GroupsMixin:
+    @deprecated("use get_groups")
     def get_group(self, name: str) -> dict[str, Any]:
         """Retrieve group details by name.
+
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`get_groups` with its optional ``name`` filter, which
+        returns the raw group objects.
 
         Looks up a group by its name and returns its ID, name, and default
         role.
@@ -37,11 +50,11 @@ class GroupsMixin:
             response_data = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse group response JSON.")
-            return {"error": f"Failed to parse group response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse group response JSON: {str(e)}"}
 
         if not response_data:
             self.logger.warning(f"No group found with name '{name}'")
-            return {"error": f"No group found with name '{name}'"}
+            return {"ok": False, "error": f"No group found with name '{name}'"}
 
         group = response_data[0]
         group_id = group.get("_id")
@@ -49,25 +62,37 @@ class GroupsMixin:
 
         if not group_id or not group_name:
             self.logger.error(f"Incomplete group data for name '{name}'")
-            return {"error": f"Group '{name}' found but missing expected fields"}
+            return {"ok": False, "error": f"Group '{name}' found but missing expected fields"}
 
         self.logger.debug(f"Group '{name}' found. ID: {group_id}")
         return {"GROUP_ID": group_id, "GROUP_NAME": group_name, "defaultRole": group.get("defaultRole", "")}
 
-    def get_groups(self) -> list[dict[str, Any]] | dict[str, Any]:
-        """Retrieve all groups.
+    def get_groups(self, name: str | None = None) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve groups — one named group, or all of them.
 
-        Fetches the full list of groups defined on the Sisense server.
+        Fetches the groups defined on the Sisense server. With ``name`` the
+        API filters server-side to that group; without it, every group is
+        returned. One row per group.
+
+        Parameters
+        ----------
+        name : str or None, optional
+            Group name to filter by. Omit for all groups.
 
         Returns
         -------
         list[dict[str, Any]] | dict[str, Any]
-            A list of raw group objects, or ``{"error": "..."}`` if
-            retrieval fails.
+            A list of raw group objects as returned by the API (each with
+            ``_id``, ``name``, ``defaultRole``, and related fields). Without
+            ``name``, an empty list means the server genuinely has no groups.
+            With ``name``, the filter is an exact-match lookup — an unknown
+            name returns ``{"ok": False, "error": "..."}`` naming it, never
+            an empty list. Returns the standard error dict on failure.
         """
-        self.logger.debug("Starting 'get_groups' method.")
+        self.logger.debug(f"Starting 'get_groups' method (name={name!r}).")
 
-        response = self.api_client.get("/api/v1/groups")
+        endpoint = f"/api/v1/groups?name={name}" if name is not None else "/api/v1/groups"
+        response = self.api_client.get(endpoint)
 
         if response is None or not response.ok:
             failure = _extract_error_message(response, "Failed to retrieve groups", self.api_client)
@@ -78,7 +103,15 @@ class GroupsMixin:
             groups = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse groups response JSON.")
-            return {"error": f"Failed to parse groups response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse groups response JSON: {str(e)}"}
+
+        if name is not None and not groups:
+            # The name filter is an exact-match dereference (live-verified) —
+            # an unknown name must fail loudly naming the reference, not
+            # return [] as if the listing were genuinely empty.
+            error_msg = f"Group '{name}' not found."
+            self.logger.error(error_msg)
+            return {"ok": False, "error": error_msg}
 
         self.logger.debug(f"Retrieved {len(groups or [])} group(s).")
         return groups or []
@@ -107,7 +140,7 @@ class GroupsMixin:
 
         if response is None:
             self.logger.error("No response received while creating groups in bulk.")
-            return {"error": "No response received while creating groups in bulk."}
+            return {"ok": False, "error": "No response received while creating groups in bulk."}
 
         if response.status_code != 201:
             try:
@@ -115,13 +148,13 @@ class GroupsMixin:
             except Exception:
                 error_message = response.text or "Unknown error"
             self.logger.error(f"Failed to create groups in bulk. Error: {error_message}")
-            return {"error": f"Failed to create groups in bulk. {error_message}"}
+            return {"ok": False, "error": f"Failed to create groups in bulk. {error_message}"}
 
         try:
             created_groups = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse bulk group creation response JSON.")
-            return {"error": f"Failed to parse bulk group creation response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse bulk group creation response JSON: {str(e)}"}
 
         self.logger.info(f"Successfully created {len(created_groups or [])} group(s).")
         return created_groups or []
@@ -162,60 +195,136 @@ class GroupsMixin:
         self.logger.error(failure["error"])
         return failure
 
-    def users_per_group(self, group_name: str) -> list[dict[str, Any]] | dict[str, Any]:
-        """Retrieve all users within a specific group by name.
+    def users_per_group(self, group_name: str | None = None) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve group memberships — one group's members, or every membership.
 
-        Resolves the group by name and then fetches the user objects that
-        belong to it.
+        Returns one flat row per (group, user) membership. With ``group_name``
+        the rows are that group's members; without it, every membership on the
+        instance is returned (ask ``get_groups`` for the per-group view).
+        ``Everyone`` and ``All users in system`` are omitted from the
+        all-groups view: Sisense fills both with every user, so they restate
+        ``get_users_all`` rather than describing group structure. Naming
+        either one still returns its members.
+
+        Membership is read from the **group** side
+        (``GET /api/v1/groups?expand=users``), which is the same source the
+        Sisense UI shows. Sisense resolves the auto-generated groups
+        (``Admins``, ``All users in system``) on the group side only — their
+        members do not appear in any user's own ``groups`` field — so reading
+        from the user side would report them as empty while the UI shows
+        members.
 
         Parameters
         ----------
-        group_name : str
-            The name of the group whose members to list.
+        group_name : str or None, optional
+            The name of the group whose members to list. Omit for all
+            memberships. A name that matches no group returns
+            ``{"error": "..."}`` naming it — never a silent empty list.
+            Naming ``Everyone`` or ``All users in system`` returns their
+            members — an explicit request is always honored, even though the
+            all-groups view omits them.
 
         Returns
         -------
         list[dict[str, Any]] | dict[str, Any]
-            A list of user objects in the group, or ``{"error": "..."}`` if
-            the operation fails.
+            One row per (group, user) membership, each with ``GROUP_ID``,
+            ``GROUP_NAME``, ``USER_ID``, ``USER_NAME``, ``EMAIL``,
+            ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
+            ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME`` (both the name the Sisense
+            UI shows), and ``ROLE_RAW_NAME`` (the raw Sisense value). A group
+            with no members contributes no rows, so the row count always equals
+            the real membership count.
+            Returns ``{"error": "..."}`` on failure or unknown ``group_name``.
         """
-        self.logger.debug(f"Starting 'users_per_group' method for group: {group_name}")
+        self.logger.debug(f"Starting 'users_per_group' method (group_name={group_name!r}).")
 
-        # Step 1: Fetch group details
-        group = self.get_group(group_name)
-        if not group or "error" in group:
-            error_msg = f"Group '{group_name}' not found. Cannot proceed."
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+        # A filtered request for a group that doesn't exist must fail loudly —
+        # an empty list would read as "the group has no members". get_groups
+        # returns the not-found error dict itself; pass it through.
+        if group_name is not None:
+            named = self.get_groups(name=group_name)
+            if isinstance(named, dict):
+                return named
 
-        group_id = group.get("GROUP_ID")
-        self.logger.debug(f"Group '{group_name}' found with ID: {group_id}. Proceeding to fetch users.")
-
-        # Step 2: Fetch users for the group
-        url = f"/api/v1/users?groupId={group_id}"
-        response = self.api_client.get(url)
-
+        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
         if response is None or not response.ok:
-            failure = _extract_error_message(response, f"Failed to retrieve users for group '{group_name}'", self.api_client)
+            failure = _extract_error_message(response, "Failed to retrieve group memberships", self.api_client)
             self.logger.error(failure["error"])
             return failure
 
         try:
-            users = response.json()
-            self.logger.debug(f"Found {len(users)} users in group '{group_name}'")
-            return users
+            groups = response.json() or []
         except Exception as e:
-            error_msg = f"Failed to parse user list for group '{group_name}': {e}"
-            self.logger.error(error_msg)
-            return {"error": error_msg}
+            self.logger.exception("Failed to parse group memberships response JSON.")
+            return {"ok": False, "error": f"Failed to parse group memberships response JSON: {str(e)}"}
 
+        # The expanded group payload carries each member's identity but only a
+        # raw roleId, so join against the expanded user list for the role
+        # vocabularies. A user missing from that list (or a group listing a
+        # stale member) still yields a row — with blank role fields rather than
+        # being dropped, so counts stay honest.
+        users_by_id: dict[str, dict[str, Any]] = {}
+        raw_users = self._get_users_raw()
+        if isinstance(raw_users, dict):
+            return raw_users
+        for user in raw_users:
+            if isinstance(user, dict) and user.get("_id"):
+                users_by_id[user["_id"]] = self._user_row(user)
+
+        memberships: list[dict[str, Any]] = []
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            gname = group.get("name", "")
+            if group_name is not None:
+                if gname != group_name:
+                    continue
+            elif gname in _UNIVERSAL_GROUPS:
+                # Sisense fills these with every user, so in the all-groups
+                # view they duplicate get_users_all() and would be most of the
+                # output. Naming one still returns its members.
+                continue
+            for member in group.get("users") or []:
+                if not isinstance(member, dict):
+                    continue
+                row = users_by_id.get(member.get("_id"), {})
+                memberships.append(
+                    {
+                        "GROUP_ID": group.get("_id", ""),
+                        "GROUP_NAME": gname,
+                        "USER_ID": member.get("_id", ""),
+                        "USER_NAME": member.get("userName", row.get("USER_NAME", "")),
+                        "EMAIL": member.get("email", row.get("EMAIL", "")),
+                        "FIRST_NAME": member.get("firstName", row.get("FIRST_NAME", "")),
+                        "LAST_NAME": member.get("lastName", row.get("LAST_NAME", "")),
+                        "IS_ACTIVE": member.get("active", row.get("IS_ACTIVE", False)),
+                        "ROLE_ID": member.get("roleId", row.get("ROLE_ID", "")),
+                        "ROLE_NAME": row.get("ROLE_NAME", ""),
+                        "ROLE_DISPLAY_NAME": row.get("ROLE_DISPLAY_NAME", ""),
+                        "ROLE_RAW_NAME": row.get("ROLE_RAW_NAME", ""),
+                    }
+                )
+
+        self.logger.info(f"Resolved {len(memberships)} membership row(s) (group_name={group_name!r}).")
+        return memberships
+
+    @deprecated("use users_per_group")
     def users_per_group_all(self) -> list[dict[str, Any]]:
         """Retrieve all groups mapped to the users belonging to them.
 
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`users_per_group` with no argument, which returns flat
+        one-row-per-membership results without the exclusions and synthetic
+        groups below.
+
         Groups like ``Everyone`` and ``All users in system`` are excluded.
-        Users with roles like ``admin``, ``dataAdmin``, and ``sysAdmin`` are
-        mapped to the existing ``Admins`` group. Groups with no users are also
-        included in the final result.
+        Groups with no users are still included, with an empty user list.
+
+        Its ``"Admins"`` entry is derived from users' **roles**
+        (``sysAdmin``/``dataAdmin``/``admin``) rather than from group
+        membership, and is created even when the instance has no such group.
+        :meth:`users_per_group` instead reads real group-side membership for
+        every group, matching the counts the Sisense UI shows.
 
         Returns
         -------
@@ -236,9 +345,9 @@ class GroupsMixin:
 
         self.logger.debug(f"Retrieved {len(group_data)} groups.")
 
-        # Step 2: Fetch all users
+        # Step 2: Fetch all users (canonical rows)
         all_users = self.get_users_all()
-        if not all_users:
+        if isinstance(all_users, dict) or not all_users:
             self.logger.error("No users returned from 'get_users_all' method.")
             return []
 
@@ -251,7 +360,9 @@ class GroupsMixin:
 
         self.logger.debug(f"Initialized groups dictionary with {len(groups_dict)} entries (excluding excluded groups).")
 
-        # Step 4: Populate group membership from users
+        # Step 4: Populate group membership from users (frozen output: the
+        # canonical rows now include Everyone, so the old exclusion filter is
+        # applied here to keep this deprecated alias's behavior unchanged).
         for user in all_users:
             for group in user.get("GROUPS", []):
                 if group in EXCLUDED_GROUPS:
@@ -262,9 +373,10 @@ class GroupsMixin:
                 groups_dict[group].append(user["USER_NAME"])
                 self.logger.debug(f"Added user '{user['USER_NAME']}' to group '{group}'")
 
-        # Step 5: Add users with admin-like roles to 'Admins'
+        # Step 5: Add users with admin-like roles to 'Admins' (display names —
+        # the vocabulary this alias always matched against).
         for user in all_users:
-            if user.get("ROLE_NAME") in ["sysAdmin", "dataAdmin", "admin"]:
+            if user.get("ROLE_DISPLAY_NAME") in ["sysAdmin", "dataAdmin", "admin"]:
                 groups_dict["Admins"].append(user["USER_NAME"])
                 self.logger.debug(f"Added user '{user['USER_NAME']}' to Admins group based on role.")
 

@@ -35,6 +35,28 @@ For local development, install in editable mode:
 pip install -e .
 ```
 
+### ⬆️ Upgrading from 1.x to 2.0
+
+**2.0 contains breaking changes.** `pysisense` follows semantic versioning, so pinning
+`pysisense>=1,<2` keeps you on 1.x until you choose to move.
+
+📖 **[Full upgrade guide](./docs/upgrading.md)** — every change mapped old-to-new, with
+a symptom → cause → fix table. Complete detail in the [changelog](./CHANGELOG.md).
+
+The user row is **additive** — `ROLE_NAME` and `GROUPS` keep their 1.x names and meanings,
+so role comparisons and group reads keep working. New fields (`ROLE_DISPLAY_NAME`,
+`ROLE_RAW_NAME`, `GROUP_IDS`) sit alongside them. What needs action:
+
+1. **`GROUPS` now includes `Everyone`**, which `get_users_all()` used to strip out. The key
+   and its meaning are unchanged; only this value was added.
+2. **Detect failures with `result.get("ok") is False`** — every failure dict now carries that
+   marker, and methods that used to fail with `[]`, `None` or an `"Error: ..."` string now
+   return the standard error dict. An empty list always means a genuinely empty result.
+3. **`get_unused_columns_bulk` returns a dict**, not a list — read `result["results"]`.
+4. **`get_connections` was removed** — use `get_connections_all`.
+
+Check what you are running with `python -c "import pysisense; print(pysisense.__version__)"`.
+
 ### Alternative Package Names
 
 If you search for `pysisense` and find a different package, or if you mistyped the package name, PyPI has redirect stub packages registered:
@@ -181,22 +203,24 @@ Tools that generate schemas by introspecting this package (agents, MCP servers, 
 Failure returns follow one shape across the SDK:
 
 ```python
-{"error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
+{"ok": False, "error": "<human-readable message>", "status_code": <int>}   # status_code present only when an HTTP status exists
 ```
 
-Detect failure by the **presence of the `"error"` key**; the message is safe to relay to end users (secrets are redacted). Connection-level failures carry `"error"` without `"status_code"`. Renaming or restructuring these keys is treated as a breaking change.
+Detect failure by the explicit **`"ok": False` marker** (`payload.get("ok") is False`) — the forward-compatible check — or by the presence of the `"error"` key. Never match an exact key set. The failure dict may gain **additive** keys in minor releases (`status_code` arrived in 1.1.0; some methods add context keys), so a consumer checking `keys() == {"error"}` will silently misclassify failures as successes. Renaming or removing `"error"`/`"status_code"` is treated as a breaking change; adding keys is not.
 
-**Documented failure-shape exceptions** — the following methods do *not* return the error dict on failure; consumers must handle their shapes explicitly:
+Since 2.0, `"error"` is always a **clean sentence**: either the recognised Sisense reason (from the body's `detail`/`message`/`title`/`error` key) or an honest label like `"unrecognized error body"`. When the body could not be recognized, the redacted, 300-char-truncated dump travels separately in an additive **`"raw_body"`** key, so consumers with different trust boundaries can relay or drop it independently of the sentence.
 
-| Failure shape | Methods |
-|---|---|
-| String return (`"Error: ..."` / message text) | `add_dashboard_shares`, `add_dashboard_script`, `add_widget_script` |
-| Empty list `[]` | `get_data`, `get_dashboard_share`, `get_dashboard_columns`, `get_datamodel_shares` |
-| `None` | `create_connections` |
-| List-wrapped error dict `[{"error": ..., "status_code": ...}]` | `get_users_all`, `get_users_with_role_names_and_group_names` |
-| Own consistent error handler | all `ReportManager` methods |
+Two adjacent guarantees:
 
-> **Planned for 2.0:** converging these exception shapes onto the error-dict contract — `[]`-on-403 makes permission denials invisible to consumers, but changing it is breaking, so it waits for a major version.
+- **Redaction is part of the contract, not a courtesy:** credential-shaped values are stripped by `redact_secrets()` *before* the message is built, so the `"error"` string is safe to relay verbatim across trust boundaries (e.g. privacy modes where the failure reason is the only data that reaches a model).
+- **Resolver envelopes are their own stable shape:** `resolve_dashboard_reference` and `resolve_datamodel_reference` return `{"success", "status_code", "<entity>_id", "<entity>_title", "error"}` on both success and failure. Detect their outcome via `success`, not via error-key matching — they carry payload keys alongside `"error"`, and they will **not** be folded into the generic error dict.
+
+Connection-level failures carry `"error"` without `"status_code"` (no HTTP status exists; the absence is itself signal).
+
+**All live methods follow the contract.** The pre-2.0 failure-shape exceptions (`[]`, `"Error: ..."` strings, `None`, list-wrapped error dicts) were converged onto the error dict in 2.0 — an empty list from a read method now always means a genuinely empty result, never a swallowed failure. Two footnotes:
+
+- **Deprecated aliases are fossils:** methods carrying `__deprecated__` (e.g. `get_user_with_role_and_group_names`, `users_per_group_all`, `get_unused_columns`) keep their old, frozen shapes — including old failure shapes — until removal. Skip them via the `__deprecated__` marker.
+- **Write methods return dicts on success too:** `add_dashboard_script` / `add_widget_script` return `{"success": True, "message": ...}`; `add_dashboard_shares` returns `{"success": True, "message": ..., "new_shares": n, "updated_shares": n}`; `get_unused_columns_bulk` always returns `{"results": [...], "errors": [{"ref", "error"}]}` (with `"ok": False` + top-level `"error"` added when nothing could be processed).
 
 ### Payload contracts
 

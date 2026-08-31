@@ -11,7 +11,6 @@ from __future__ import annotations
 import inspect
 import typing
 
-import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense import payloads
@@ -85,7 +84,7 @@ class TestCreateUserValidateEarly:
 
     def test_non_dict_rejected(self):
         result = self._access_mgmt().create_user("not-a-dict")
-        assert result == {"error": "user_data must be a dictionary."}
+        assert result == {"ok": False, "error": "user_data must be a dictionary."}
 
 
 # ---------------------------------------------------------------------------
@@ -129,16 +128,5 @@ class TestGetDatamodelErrorDetail:
         assert result["status_code"] == 404
 
 
-# ---------------------------------------------------------------------------
-# get_connections_all rename (get_connections kept as alias)
-# ---------------------------------------------------------------------------
-
-
-class TestGetConnectionsAllRename:
-    def test_alias_and_new_name_return_same_result(self):
-        connections = [{"oid": "c1", "name": "conn"}]
-        client = FakeApiClient(get_responses={"/api/v2/connections": FakeResponse(200, connections)}, logger=FakeLogger())
-        dm = DataModel(api_client=client)
-        assert dm.get_connections_all() == connections
-        with pytest.warns(DeprecationWarning, match="use get_connections_all"):
-            assert dm.get_connections() == connections
+# (The get_connections alias test lived here until 2.0 removed the alias —
+# test_public_contracts.py now pins that it stays removed.)
