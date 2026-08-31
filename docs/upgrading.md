@@ -180,8 +180,9 @@ rejected.
   count.
 - Membership is read from the group side, matching what the Sisense UI shows — including
   the auto-generated `Admins` and `All users in system` groups (see below).
-- `Everyone` and `All users in system` are reported rather than excluded, so on most
-  instances every user contributes a row to each.
+- `Everyone` and `All users in system` are omitted from the all-groups view by default —
+  Sisense puts every user in both, so they duplicate `get_users_all()` and would be most of
+  the output. Name one directly (`users_per_group("Everyone")`) to get its members.
 
 ### The auto-generated groups (`Admins`, `All users in system`)
 

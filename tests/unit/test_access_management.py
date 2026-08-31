@@ -722,7 +722,7 @@ class TestUsersPerGroup:
     def test_no_argument_returns_every_membership_flat(self):
         # One row per (group, user) — counts equal real membership counts.
         groups = [
-            {"_id": "g1", "name": "Everyone", "users": [_USER_EXPANDED]},
+            {"_id": "g1", "name": "Finance", "users": [_USER_EXPANDED]},
             {"_id": "grp_engineers", "name": "Engineers", "users": [_USER_EXPANDED]},
         ]
         am = _make_am(
@@ -732,7 +732,7 @@ class TestUsersPerGroup:
             }
         )
         result = am.users_per_group()
-        assert [(r["GROUP_NAME"], r["USER_NAME"]) for r in result] == [("Everyone", "jdoe"), ("Engineers", "jdoe")]
+        assert [(r["GROUP_NAME"], r["USER_NAME"]) for r in result] == [("Finance", "jdoe"), ("Engineers", "jdoe")]
 
     def test_reports_system_group_membership_the_ui_shows(self):
         # Regression for the 'Admins shows 0' defect. Sisense resolves the
@@ -754,7 +754,41 @@ class TestUsersPerGroup:
         )
         assert [r["USER_NAME"] for r in am.users_per_group("Admins")] == ["jdoe"]
         assert [r["USER_NAME"] for r in am.users_per_group("All users in system")] == ["jdoe"]
-        assert len(am.users_per_group()) == 2
+        # Admins is not a universal group, so it stays in the survey view;
+        # "All users in system" is, so it is omitted there.
+        assert [r["GROUP_NAME"] for r in am.users_per_group()] == ["Admins"]
+
+    def test_universal_groups_are_omitted_from_the_all_groups_view(self):
+        # Sisense puts every user in Everyone and All users in system, so in the
+        # survey view they duplicate get_users_all() and swamp the real
+        # memberships (192 rows vs 58 on the sandbox).
+        groups = [
+            {"_id": "g_ev", "name": "Everyone", "users": [_USER_EXPANDED]},
+            {"_id": "g_all", "name": "All users in system", "users": [_USER_EXPANDED]},
+            {"_id": "grp_engineers", "name": "Engineers", "users": [_USER_EXPANDED]},
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert [r["GROUP_NAME"] for r in am.users_per_group()] == ["Engineers"]
+        # ...but each is still reachable by name.
+        assert len(am.users_per_group("Everyone")) == 1
+        assert len(am.users_per_group("All users in system")) == 1
+
+    def test_naming_a_universal_group_always_returns_it(self):
+        # The filter applies to the survey view only. An explicit request is
+        # unambiguous and must be honored, so nothing is unreachable.
+        groups = [{"_id": "g_ev", "name": "Everyone", "users": [_USER_EXPANDED]}]
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": FakeResponse(200, groups),
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        assert [r["USER_NAME"] for r in am.users_per_group("Everyone")] == ["jdoe"]
 
     def test_member_missing_from_the_user_list_still_yields_a_row(self):
         # A group can list a member the user endpoint does not return (stale or

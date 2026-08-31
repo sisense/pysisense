@@ -161,6 +161,7 @@ def test_users_per_group_matches_sisense_own_membership() -> None:
     if not expected:
         pytest.skip("No groups on this instance.")
 
+    universal = {"Everyone", "All users in system"}
     rows = am.users_per_group()
     assert isinstance(rows, list), f"expected rows, got: {rows}"
 
@@ -169,9 +170,17 @@ def test_users_per_group_matches_sisense_own_membership() -> None:
         actual[row["GROUP_NAME"]] = actual.get(row["GROUP_NAME"], 0) + 1
 
     for name, count in expected.items():
+        if name in universal:
+            continue  # omitted from the all-groups view; checked by name below
         assert actual.get(name, 0) == count, f"group '{name}': SDK reported {actual.get(name, 0)}, Sisense reports {count}"
 
-    assert len(rows) == sum(expected.values()), "total rows must equal total memberships"
+    assert len(rows) == sum(c for n, c in expected.items() if n not in universal)
+    assert set(actual).isdisjoint(universal), "universal groups must be omitted from the all-groups view"
+
+    # ...but each remains reachable by name, and must still match Sisense.
+    for name in universal:
+        if expected.get(name):
+            assert len(am.users_per_group(name)) == expected[name], f"named lookup of '{name}' disagrees with Sisense"
 
     # The auto-generated groups are the ones that regressed; assert them by
     # name when present, so a user-side regression fails loudly here.

@@ -281,7 +281,7 @@ Retrieves group memberships as **flat rows** — one row per (group, user) membe
 
 **Returns:**
 
--   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows), and `ROLE_RAW_NAME` (the raw Sisense value). Membership is read from the group side (`GET /api/v1/groups?expand=users`), the same source the Sisense UI shows, so the auto-generated `Admins` and `All users in system` groups report their real members. A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
+-   `list` | `dict`: One row per (group, user) membership, each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (the name the Sisense UI shows), and `ROLE_RAW_NAME` (the raw Sisense value). Membership is read from the group side (`GET /api/v1/groups?expand=users`), the same source the Sisense UI shows, so the auto-generated `Admins` and `All users in system` groups report their real members. `Everyone` and `All users in system` are omitted from the all-groups view (Sisense puts every user in both, so they restate `get_users_all` rather than describing group structure) — naming one directly still returns its members. A group with no members contributes no rows, so the row count always equals the real membership count. Returns `{"ok": False, "error": "..."}` on failure or unknown `group_name`.
 
 * * * * *
 

@@ -6,6 +6,12 @@ from typing_extensions import deprecated
 
 from ..utils import _extract_error_message
 
+# Groups Sisense auto-populates with every user on the instance. In the
+# all-groups view they duplicate get_users_all() and drown the real
+# memberships, so they are omitted by default. Asking for one by name still
+# returns it — nothing is unreachable.
+_UNIVERSAL_GROUPS = frozenset({"Everyone", "All users in system"})
+
 
 class GroupsMixin:
     @deprecated("use get_groups")
@@ -195,8 +201,10 @@ class GroupsMixin:
         Returns one flat row per (group, user) membership. With ``group_name``
         the rows are that group's members; without it, every membership on the
         instance is returned (ask ``get_groups`` for the per-group view).
-        ``Everyone`` memberships are reported like any other — the SDK reports
-        what Sisense says; consumers decide what to hide.
+        ``Everyone`` and ``All users in system`` are omitted from the
+        all-groups view: Sisense fills both with every user, so they restate
+        ``get_users_all`` rather than describing group structure. Naming
+        either one still returns its members.
 
         Membership is read from the **group** side
         (``GET /api/v1/groups?expand=users``), which is the same source the
@@ -212,6 +220,9 @@ class GroupsMixin:
             The name of the group whose members to list. Omit for all
             memberships. A name that matches no group returns
             ``{"error": "..."}`` naming it — never a silent empty list.
+            Naming ``Everyone`` or ``All users in system`` returns their
+            members — an explicit request is always honored, even though the
+            all-groups view omits them.
 
         Returns
         -------
@@ -265,7 +276,13 @@ class GroupsMixin:
             if not isinstance(group, dict):
                 continue
             gname = group.get("name", "")
-            if group_name is not None and gname != group_name:
+            if group_name is not None:
+                if gname != group_name:
+                    continue
+            elif gname in _UNIVERSAL_GROUPS:
+                # Sisense fills these with every user, so in the all-groups
+                # view they duplicate get_users_all() and would be most of the
+                # output. Naming one still returns its members.
                 continue
             for member in group.get("users") or []:
                 if not isinstance(member, dict):
