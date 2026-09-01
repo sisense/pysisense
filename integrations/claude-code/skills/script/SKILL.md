@@ -84,6 +84,12 @@ A pysisense automation script is a deliverable someone else may run, rerun, and 
 
 Use the **`scaffold`** skill (`/pysisense:scaffold`) to create that shell before writing the script logic below into it. If a project shell already exists (the user is adding to or fixing an existing script), skip straight to writing code.
 
+## Fixing an existing script? Confirm the bug first
+
+If the request reads like "this script is broken" or "X isn't returning what I expect" rather than "write me a script," reproduce the reported behavior before changing anything, run the script (or the specific call) and see what actually happens, don't guess at a fix from the description alone. A report can be stale, environment-specific, or based on a misunderstanding of what the API actually returns, especially since pysisense's return shapes changed in 2.0 (see `references/auth.md`'s failure-contract note; check `pysisense.__version__` if the behavior doesn't match what's documented here). If it doesn't reproduce, say so and ask for more detail rather than guessing a change.
+
+This is the same instinct behind the `debug` stage of the SDK's own dev cycle, scaled down: no persisted state, no formal gate, just confirm it before you fix it.
+
 **Comments in generated script code.** This is a different bar than editing pysisense's own SDK source (which this repo's `CLAUDE.md` deliberately keeps comment-free except for non-obvious WHYs). A generated automation script is read by whoever runs it, often without this conversation's context. Comment the non-obvious parts: why an operation order matters, what a dry-run flag gates, why a particular endpoint is called directly instead of a wrapped method. Don't narrate the obvious (`# loop over dashboards`).
 
 ## Setup boilerplate (always start here)
@@ -123,7 +129,7 @@ DRY_RUN = True  # flip to False only after reviewing the preview output
 # 1. Resolve both users to internal IDs; fail fast if either is missing.
 from_user = access_mgmt.get_user(FROM_USER_EMAIL)
 to_user = access_mgmt.get_user(TO_USER_EMAIL)
-if "error" in from_user or "error" in to_user:
+if from_user.get("ok") is False or to_user.get("ok") is False:
     raise SystemExit(f"Could not resolve users: from={from_user.get('error')} to={to_user.get('error')}")
 
 from_user_id = from_user["USER_ID"]
@@ -131,7 +137,7 @@ to_user_id = to_user["USER_ID"]
 
 # 2. Find every dashboard owned by the source user (admin endpoint sees all dashboards).
 all_dashboards = dashboard.get_all_dashboards()
-if isinstance(all_dashboards, dict) and "error" in all_dashboards:
+if isinstance(all_dashboards, dict) and all_dashboards.get("ok") is False:
     raise SystemExit(f"Failed to list dashboards: {all_dashboards['error']}")
 
 owned = [d for d in all_dashboards if d.get("owner") == from_user_id]
@@ -148,7 +154,7 @@ if DRY_RUN:
 for d in owned:
     dashboard_id = d["oid"]
     result = dashboard.change_dashboard_owner(dashboard_id, to_user_id)
-    if isinstance(result, dict) and "error" in result:
+    if isinstance(result, dict) and result.get("ok") is False:
         print(f"FAILED: {d.get('title')} ({dashboard_id}): {result['error']}")
     else:
         print(f"OK: {d.get('title')} ({dashboard_id}) -> {TO_USER_EMAIL}")
@@ -227,13 +233,17 @@ with open("new_users.csv", newline="", encoding="utf-8") as f:
         }
         user_data = {k: v for k, v in user_data.items() if v not in (None, "")}
         response = access_mgmt.create_user(user_data)
-        if "error" in response:
+        if response.get("ok") is False:
             print(f"FAILED {row['email']}: {response['error']}")
         else:
             print(f"OK {row['email']}")
 ```
 
 ---
+
+## Wrap up: a short summary for anything destructive or multi-step
+
+After writing a script that transfers ownership, deletes something, or runs bulk creates/updates, don't just hand over the code. Add a short plain-language summary: what the script does, what its dry-run preview will show before anything changes, and what to check in that preview before flipping `DRY_RUN`/`dry_run` to execute. A few sentences is enough, this isn't a formal report document, just enough that whoever runs it (possibly not the person who asked for it) knows what they're about to do before they do it.
 
 ## When something isn't covered here
 

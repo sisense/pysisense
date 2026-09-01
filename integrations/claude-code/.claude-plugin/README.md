@@ -96,15 +96,16 @@ manifest belongs inside `.claude-plugin/`.
 
 ## Install for local testing (before publishing)
 
-From the repo root:
+The plugin lives at `integrations/claude-code/` in this repo, not at the
+repo root. From the repo root:
 
 ```bash
-claude --plugin-dir .
+claude --plugin-dir integrations/claude-code
 ```
 
 `--plugin-dir` must point at the **plugin root**, the directory that
-contains `.claude-plugin/` (i.e. this repo's root, since `.claude-plugin/`
-and `skills/` both live there).
+contains `.claude-plugin/` (`integrations/claude-code/`, since
+`.claude-plugin/` and `skills/` both live there, not the repo root).
 
 Then try a prompt that should auto-trigger the skill, for example:
 
@@ -156,10 +157,10 @@ There is no separate build step; the plugin is just this `.claude-plugin/` +
 When `pysisense`'s public API changes (new methods, changed signatures,
 renamed fields), keep this plugin in sync:
 
-1. Update the relevant `skills/script/references/*.md` file.
-2. Update `skills/script/SKILL.md`'s worked examples if they call an
-   affected method.
-3. Re-test with `claude --plugin-dir .` before committing.
+1. Update the relevant `integrations/claude-code/skills/script/references/*.md` file.
+2. Update `integrations/claude-code/skills/script/SKILL.md`'s worked examples
+   if they call an affected method.
+3. Re-test with `claude --plugin-dir integrations/claude-code` before committing.
 
 This mirrors the repo's own `examples/*.md` / `docs/*.md` maintenance rule in
 `CLAUDE.md`. The skill is effectively a third, Claude-facing copy of that
