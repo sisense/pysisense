@@ -1,72 +1,265 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+
+from typing_extensions import deprecated
+
+from ..payloads import CreateUserPayload, UpdateUserPayload
+from ..utils import _extract_error_message
+
+# Raw Sisense role name -> the display name shown in the Sisense UI.
+# Single source of truth: canonical user rows carry BOTH vocabularies
+# (ROLE_NAME/ROLE_DISPLAY_NAME aliased, ROLE_RAW_NAME raw) so no consumer has
+# to guess which vocabulary a field contains.
+_ROLE_DISPLAY_ALIASES = {
+    "consumer": "viewer",
+    "super": "sysAdmin",
+    "contributor": "dashboardDesigner",
+}
+
+
+def _normalize_role_key(value: Any) -> str:
+    """Collapse a role name to a comparison key: uppercase, alphanumerics only.
+
+    Lets ``"sys admin"``, ``"Sys-Admin"`` and ``" sysAdmin "`` all compare equal
+    so callers (and the humans typing at them) are not held to exact casing or
+    spacing.
+    """
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+# Display/human role name -> raw Sisense role name, both normalized. Consulted
+# ONLY after the instance's real roles fail to match, so a real role always
+# wins over an alias. The three canonical entries are derived from
+# _ROLE_DISPLAY_ALIASES (single source of truth); the rest are human phrasings.
+#
+# Deliberately absent: "ADMIN"/"ADMINISTRATOR" (a Sisense instance can have a
+# real `admin` role distinct from `super`, so guessing would silently
+# over-privilege) and "DATADESIGNER" (`dataDesigner` is its own role, NOT a
+# synonym for `contributor`). Both resolve via the real-role lookup, or fail
+# loudly listing the available roles.
+_ROLE_WRITE_ALIASES = {
+    **{_normalize_role_key(display): _normalize_role_key(raw) for raw, display in _ROLE_DISPLAY_ALIASES.items()},
+    _normalize_role_key("systemAdmin"): _normalize_role_key("super"),
+    _normalize_role_key("systemAdministrator"): _normalize_role_key("super"),
+    _normalize_role_key("designer"): _normalize_role_key("contributor"),
+}
 
 
 class UsersMixin:
-    def _build_role_and_group_mappings(
-        self,
-    ) -> dict[str, dict[str, str]] | None:
-        """
-        Internal helper to fetch and build role and group ID-to-name mappings.
-
-        Returns:
-            dict or None: {
-                "roles_by_id": {role_id: role_name, ...},
-                "groups_by_id": {group_id: group_name, ...},
-            }
-            or None if any API call fails.
-        """
-        # Fetch roles
-        roles_response = self.api_client.get("/api/roles")
-        if not roles_response or not roles_response.ok:
-            self.logger.error("Failed to fetch roles from API.")
-            return None
-
-        try:
-            roles_data = roles_response.json()
-            roles_by_id = {role.get("_id"): role.get("name") for role in roles_data if isinstance(role, dict) and role.get("_id")}
-        except Exception:
-            self.logger.exception("Failed to parse roles response JSON.")
-            return None
-
-        # Fetch groups
-        groups_response = self.api_client.get("/api/v1/groups")
-        if not groups_response or not groups_response.ok:
-            self.logger.error("Failed to fetch groups from API.")
-            return None
-
-        try:
-            groups_data = groups_response.json()
-            groups_by_id = {group.get("_id"): group.get("name") for group in groups_data if isinstance(group, dict) and group.get("_id")}
-        except Exception:
-            self.logger.exception("Failed to parse groups response JSON.")
-            return None
-
-        self.logger.debug(f"Built role and group mappings in helper. Roles: {len(roles_by_id)}, Groups: {len(groups_by_id)}")
-        return {"roles_by_id": roles_by_id, "groups_by_id": groups_by_id}
-
     def _fetch_expanded_users(self) -> Any:
         """Fetch the users list with ``groups`` and ``role`` expanded; returns the raw response."""
         return self.api_client.get("/api/v1/users", params={"expand": "groups,role"})
 
-    def _map_user_role_and_groups(self, user: dict[str, Any]) -> tuple[str | None, str | None, list[str], list[str]]:
+    def _get_users_raw(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Fetch and parse the expanded users list, returned exactly as the API provides it.
+
+        Internal fidelity layer: raw field names (``_id``, ``userName``), raw
+        role names, full group objects, nothing filtered. Used by the
+        canonical readers and by cross-environment migration flows that need
+        unmodified identifiers. Returns the raw list, or a failure dict.
+        """
+        response = self._fetch_expanded_users()
+
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve users", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        try:
+            users = response.json()
+        except Exception as e:
+            self.logger.exception("Failed to parse users response JSON.")
+            return {"ok": False, "error": f"Failed to parse users response JSON: {str(e)}"}
+
+        self.logger.debug(f"Retrieved {len(users or [])} user(s).")
+        return users or []
+
+    def _resolve_role_id(self, role_name: Any) -> str | dict[str, Any]:
+        """Resolve a role name to its Sisense role ID, accepting either vocabulary.
+
+        Matching is case-, space- and punctuation-insensitive, and happens in a
+        deliberate order: the instance's **real** roles first, aliases second.
+        That ordering is a safety property — an instance may define ``admin``,
+        ``dataAdmin``, ``dataDesigner``, ``tenantAdmin`` or ``custom_*`` roles,
+        and each must resolve to itself rather than to a same-sounding alias.
+
+        Parameters
+        ----------
+        role_name : Any
+            Role name in either vocabulary — raw (``"super"``), UI display
+            (``"sysAdmin"``), or a human phrasing (``"system admin"``).
+
+        Returns
+        -------
+        str | dict[str, Any]
+            The resolved role ID, or the standard
+            ``{"ok": False, "error": "...", ...}`` dict when the roles cannot be
+            fetched or the name matches nothing (the error names the roles the
+            instance actually has).
+        """
+        response = self.api_client.get("/api/roles")
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve roles", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        try:
+            roles = response.json() or []
+        except Exception as e:
+            self.logger.exception("Failed to parse roles response JSON.")
+            return {"ok": False, "error": f"Failed to parse roles response JSON: {str(e)}"}
+
+        # Build the lookup from what this instance actually defines. displayName
+        # is opportunistic — not every Sisense version returns it.
+        by_key: dict[str, str] = {}
+        available: list[str] = []
+        for role in roles:
+            if not isinstance(role, dict) or not role.get("_id"):
+                continue
+            raw_name = role.get("name")
+            if raw_name:
+                by_key.setdefault(_normalize_role_key(raw_name), role["_id"])
+                available.append(str(raw_name))
+            display = role.get("displayName")
+            if display:
+                by_key.setdefault(_normalize_role_key(display), role["_id"])
+
+        requested = _normalize_role_key(role_name)
+
+        # 1) A real role always wins.
+        role_id = by_key.get(requested)
+
+        # 2) Only then fall back to the display/human alias table.
+        if role_id is None:
+            aliased = _ROLE_WRITE_ALIASES.get(requested)
+            if aliased:
+                role_id = by_key.get(aliased)
+
+        if role_id is None:
+            error_msg = f"Role '{role_name}' not found. Available roles: {', '.join(sorted(available)) or 'none'}."
+            self.logger.error(error_msg)
+            return {"ok": False, "error": error_msg}
+
+        self.logger.debug(f"Resolved role '{role_name}' to ID '{role_id}'.")
+        return role_id
+
+    def _group_membership_map(self) -> dict[str, list[tuple[str, str]]]:
+        """Map each user ID to the groups Sisense reports them in.
+
+        Read from the **group** side (``GET /api/v1/groups?expand=users``),
+        which is the source the Sisense UI shows and the one
+        ``users_per_group`` uses. Sisense resolves its auto-generated groups
+        (``Admins``, ``All users in system``) there and never writes them back
+        into a user's own ``groups`` field, so reading the user record alone
+        under-reports membership.
+
+        Returns
+        -------
+        dict[str, list[tuple[str, str]]]
+            ``{user_id: [(group_id, group_name), ...]}``. Empty when the
+            groups cannot be fetched — callers fall back to the user record
+            rather than losing the rows entirely.
+        """
+        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
+        if response is None or not response.ok:
+            self.logger.warning("Could not fetch group-side membership; falling back to the user record.")
+            return {}
+
+        try:
+            groups = response.json() or []
+        except Exception:
+            self.logger.exception("Failed to parse group memberships response JSON.")
+            return {}
+
+        membership: dict[str, list[tuple[str, str]]] = {}
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            gid, gname = group.get("_id", ""), group.get("name", "")
+            for member in group.get("users") or []:
+                if isinstance(member, dict) and member.get("_id"):
+                    membership.setdefault(member["_id"], []).append((gid, gname))
+        return membership
+
+    def _user_row(self, user: dict[str, Any], membership: dict[str, list[tuple[str, str]]] | None = None) -> dict[str, Any]:
+        """Build the canonical user row from one raw expanded user object.
+
+        Canonical row shape (shared by ``get_user`` and ``get_users_all``):
+        ``USER_ID``, ``USER_NAME``, ``EMAIL``, ``FIRST_NAME``, ``LAST_NAME``,
+        ``IS_ACTIVE``, ``ROLE_ID``, ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME``
+        (both the name the Sisense UI shows), ``ROLE_RAW_NAME`` (the raw
+        Sisense value), ``GROUP_IDS``, ``GROUPS`` (group names, unfiltered —
+        includes ``Everyone``).
+
+        ``membership`` is the group-side map from
+        :meth:`_group_membership_map`. When given, the group fields come from
+        it so they agree with ``users_per_group``; without it they fall back to
+        the user record, which omits Sisense's derived system groups.
+
+        The group fields are always the **complete** membership, including
+        ``Everyone`` and ``All users in system``. Only ``users_per_group``'s
+        all-groups view filters those two out, for readability — so use this
+        row, not that view, to answer "which groups is this person in".
+        """
+        role_obj = user.get("role") or {}
+        role_name_raw = role_obj.get("name") or ""
+
+        # Prefer group-side membership so this row agrees with
+        # users_per_group; the user record omits Sisense's derived system
+        # groups (Admins, All users in system).
+        if membership is not None and user.get("_id") in membership:
+            pairs = membership[user["_id"]]
+            group_ids = [gid for gid, _ in pairs]
+            group_names = [gname for _, gname in pairs]
+        else:
+            groups_obj = [g for g in (user.get("groups") or []) if isinstance(g, dict)]
+            group_ids = [g.get("_id", "") for g in groups_obj]
+            group_names = [g.get("name", "") for g in groups_obj]
+
+        return {
+            "USER_ID": user.get("_id", ""),
+            "USER_NAME": user.get("userName", ""),
+            "EMAIL": user.get("email", ""),
+            "FIRST_NAME": user.get("firstName", ""),
+            "LAST_NAME": user.get("lastName", ""),
+            "IS_ACTIVE": user.get("active", False),
+            "ROLE_ID": role_obj.get("_id", ""),
+            # ROLE_NAME keeps its 1.x meaning (the name the UI shows) so that
+            # role comparisons written against 1.x keep working — that break
+            # would have been silent. ROLE_DISPLAY_NAME says the same thing
+            # unambiguously; ROLE_RAW_NAME carries Sisense's own value.
+            "ROLE_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
+            "ROLE_DISPLAY_NAME": _ROLE_DISPLAY_ALIASES.get(role_name_raw, role_name_raw),
+            "ROLE_RAW_NAME": role_name_raw,
+            "GROUP_IDS": group_ids,
+            "GROUPS": group_names,
+        }
+
+    def _map_user_role_and_groups(self, user: dict[str, Any], apply_role_alias: bool = True) -> tuple[str | None, str | None, list[str], list[str]]:
         """Resolve a single expanded user's role/group IDs and names.
+
+        Parameters
+        ----------
+        user : dict[str, Any]
+            An expanded user object (``role`` and ``groups`` as objects, not
+            raw IDs).
+        apply_role_alias : bool, optional
+            When ``True`` (default), the raw Sisense role name (e.g.
+            ``"consumer"``) is mapped to its public alias (``"viewer"``).
+            When ``False``, the raw role name is returned unchanged.
 
         Returns ``(role_id, role_name, group_ids, group_names)``.
         """
-        role_mapping = {
-            "consumer": "viewer",
-            "super": "sysAdmin",
-            "contributor": "dashboardDesigner",
-        }
+        role_mapping = _ROLE_DISPLAY_ALIASES
 
         role_obj = user.get("role") or {}
         groups_obj = user.get("groups") or []
 
         role_id = role_obj.get("_id")
         role_name_raw = role_obj.get("name")
-        role_name = role_mapping.get(role_name_raw, role_name_raw)
+        role_name = role_mapping.get(role_name_raw, role_name_raw) if apply_role_alias else role_name_raw
 
         group_ids = []
         group_names = []
@@ -82,8 +275,12 @@ class UsersMixin:
 
         return role_id, role_name, group_ids, group_names
 
+    @deprecated("use get_user")
     def get_user_with_role_and_group_names(self, user_name: str) -> dict[str, Any]:
         """Retrieve a single user by email/username with role and group details.
+
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`get_user`, which returns the canonical user row.
 
         Fetches the expanded users list and returns the matching user enriched
         with both the role and group IDs and their resolved names.
@@ -106,16 +303,16 @@ class UsersMixin:
         # Reuse expanded users endpoint to get role & group objects
         response = self._fetch_expanded_users()
 
-        if not response or not response.ok:
-            error_msg = f"Failed to retrieve users from API for username: {user_name}."
-            self.logger.error(f"{error_msg} Status Code: {response.status_code if response else 'No response'}")
-            return {"error": error_msg}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve users from API for username: {user_name}", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         try:
             users = response.json()
         except Exception as exc:
             self.logger.exception("Error decoding JSON response for user list in get_user_with_role_and_group_names.")
-            return {"error": f"Failed to decode API response: {exc}"}
+            return {"ok": False, "error": f"Failed to decode API response: {exc}"}
 
         for user in users:
             try:
@@ -144,14 +341,21 @@ class UsersMixin:
                 self.logger.exception(f"Error processing user object in get_user_with_role_and_group_names: {exc}")
 
         self.logger.warning(f"User with username '{user_name}' not found in get_user_with_role_and_group_names.")
-        return {"error": f"User '{user_name}' not found."}
+        return {"ok": False, "error": f"User '{user_name}' not found."}
 
+    @deprecated("use get_users_all")
     def get_users_with_role_names_and_group_names(self) -> list[dict[str, Any]]:
         """Retrieve all users enriched with role names and group names.
 
-        Fetches users from the users API (with raw IDs), then resolves role
-        names from ``/api/roles`` and group names from ``/api/v1/groups`` to
-        enrich each user entry.
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`get_users_all`, which returns the canonical user rows.
+
+        Fetches users with ``groups`` and ``role`` expanded in a single call
+        and resolves each user's role/group IDs and names from the expanded
+        objects. Role names are returned exactly as stored by Sisense (e.g.
+        ``"consumer"``), not the public alias — use
+        ``get_user_with_role_and_group_names`` for a single user if the
+        aliased name (``"viewer"``) is needed instead.
 
         Returns
         -------
@@ -161,29 +365,20 @@ class UsersMixin:
             ``ROLE_NAME``, ``GROUP_IDS``, and ``GROUP_NAMES``. If any API call
             fails, a single-item list with an ``error`` key is returned.
         """
-        self.logger.debug("Fetching users with raw role/group IDs to enrich with names.")
+        self.logger.debug("Fetching users with expanded role/group objects to enrich with names.")
 
-        # Step 1: Fetch users (raw IDs)
-        users_response = self.api_client.get("/api/v1/users")
-        if not users_response or not users_response.ok:
-            self.logger.error("Failed to retrieve users from API.")
-            return [{"error": "Failed to retrieve users from API"}]
+        response = self._fetch_expanded_users()
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve users from API", self.api_client)
+            self.logger.error(failure["error"])
+            return [failure]
 
         try:
-            users_raw = users_response.json()
+            users_raw = response.json()
         except Exception as exc:
             self.logger.exception("Failed to parse users response JSON.")
-            return [{"error": f"Failed to parse users response JSON: {exc}"}]
+            return [{"ok": False, "error": f"Failed to parse users response JSON: {exc}"}]
 
-        # Step 2/3: Build role and group mappings once
-        mappings = self._build_role_and_group_mappings()
-        if mappings is None:
-            return [{"error": "Failed to build role and group mappings"}]
-
-        roles_by_id = mappings["roles_by_id"]
-        groups_by_id = mappings["groups_by_id"]
-
-        # Step 4: Enrich each user with role/group names
         enriched_users: list[dict[str, Any]] = []
 
         for user in users_raw:
@@ -191,23 +386,11 @@ class UsersMixin:
                 self.logger.warning(f"Skipping unexpected user entry (not a dict): {user}")
                 continue
 
-            user_id = user.get("_id")
-            role_id = user.get("roleId") or user.get("role", {}).get("_id")
-            group_ids = user.get("groups") or []
-
-            # Normalize groups to a list of IDs (in case full objects are returned)
-            normalized_group_ids: list[str] = []
-            for g in group_ids:
-                gid = g.get("_id") if isinstance(g, dict) else g
-                if gid:
-                    normalized_group_ids.append(gid)
-
-            role_name = roles_by_id.get(role_id, None)
-            group_names = [groups_by_id.get(gid, gid) for gid in normalized_group_ids]
+            role_id, role_name, group_ids, group_names = self._map_user_role_and_groups(user, apply_role_alias=False)
 
             enriched_users.append(
                 {
-                    "USER_ID": user_id,
+                    "USER_ID": user.get("_id"),
                     "USER_NAME": user.get("userName"),
                     "FIRST_NAME": user.get("firstName"),
                     "LAST_NAME": user.get("lastName", ""),
@@ -215,7 +398,7 @@ class UsersMixin:
                     "IS_ACTIVE": user.get("active"),
                     "ROLE_ID": role_id,
                     "ROLE_NAME": role_name,
-                    "GROUP_IDS": normalized_group_ids,
+                    "GROUP_IDS": group_ids,
                     "GROUP_NAMES": group_names,
                 }
             )
@@ -223,14 +406,14 @@ class UsersMixin:
         self.logger.info(f"Resolved users with role and group names. Total users processed: {len(enriched_users)}")
         return enriched_users
 
+    @deprecated("use get_users_all")
     def get_users_expanded(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all users with raw, unmodified role and group objects.
 
-        Fetches ``GET /api/v1/users`` with ``groups`` and ``role`` expanded.
-        Unlike ``get_users_all`` and ``get_user_with_role_and_group_names``,
-        role and group names are returned exactly as stored (no display-name
-        aliasing), which is required when resolving role/group mappings
-        across two separate Sisense environments.
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`get_users_all`: its canonical rows carry the raw
+        ``ROLE_NAME``, ``GROUP_IDS``, and unfiltered ``GROUPS`` that
+        previously required this method.
 
         Returns
         -------
@@ -239,22 +422,7 @@ class UsersMixin:
             retrieval fails.
         """
         self.logger.debug("Starting 'get_users_expanded' method.")
-
-        response = self._fetch_expanded_users()
-
-        if not response or not response.ok:
-            status_code = response.status_code if response else "No response"
-            self.logger.error(f"Failed to retrieve users. Status Code: {status_code}")
-            return {"error": "Failed to retrieve users."}
-
-        try:
-            users = response.json()
-        except Exception as e:
-            self.logger.exception("Failed to parse users response JSON.")
-            return {"error": f"Failed to parse users response JSON: {str(e)}"}
-
-        self.logger.debug(f"Retrieved {len(users or [])} user(s).")
-        return users or []
+        return self._get_users_raw()
 
     def create_users_bulk(self, users: list[dict[str, Any]]) -> list[dict[str, Any]] | dict[str, Any]:
         """Create multiple users in a single bulk request.
@@ -283,7 +451,7 @@ class UsersMixin:
 
         if response is None:
             self.logger.error("No response received while creating users in bulk.")
-            return {"error": "No response received while creating users in bulk."}
+            return {"ok": False, "error": "No response received while creating users in bulk."}
 
         if response.status_code != 201:
             try:
@@ -291,77 +459,58 @@ class UsersMixin:
             except Exception:
                 error_message = response.text or "Unknown error"
             self.logger.error(f"Failed to create users in bulk. Error: {error_message}")
-            return {"error": f"Failed to create users in bulk. {error_message}"}
+            return {"ok": False, "error": f"Failed to create users in bulk. {error_message}"}
 
         try:
             created_users = response.json()
         except Exception as e:
             self.logger.exception("Failed to parse bulk user creation response JSON.")
-            return {"error": f"Failed to parse bulk user creation response JSON: {str(e)}"}
+            return {"ok": False, "error": f"Failed to parse bulk user creation response JSON: {str(e)}"}
 
         self.logger.info(f"Successfully created {len(created_users or [])} user(s).")
         return created_users or []
 
     def get_user(self, user_email: str) -> dict[str, Any]:
         """
-        Retrieve a user's details by email address, expanding group and role information.
+        Retrieve one named user by email address, in the canonical user row shape.
 
-        This method fetches users with expanded ``groups`` and ``role`` data and then
-        returns the record matching the provided email address.
+        Fetches users with expanded ``groups`` and ``role`` data and returns the
+        record matching the provided email address.
+
+        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
+        is now ``ROLE_DISPLAY_NAME``); ``GROUPS`` still holds the group names
+        and is joined by the new ``GROUP_IDS``. See ``docs/upgrading.md``.
 
         Parameters
         ----------
         user_email : str
-            Email address of the user to retrieve. (format: email)
+            Email address of the user to retrieve. **Required** — this method
+            always answers "one named user"; use ``get_users_all`` for every
+            user. (format: email)
 
         Returns
         -------
         dict[str, Any]
-            User details on success. If the operation fails, returns a dictionary with an
-            ``error`` key.
+            The canonical user row: ``USER_ID``, ``USER_NAME``, ``EMAIL``,
+            ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
+            ``ROLE_NAME`` (the raw Sisense value, e.g. ``"consumer"``),
+            ``ROLE_DISPLAY_NAME`` (the name the Sisense UI shows, e.g.
+            ``"viewer"``), ``GROUP_IDS``, and ``GROUPS`` (unfiltered —
+            includes ``Everyone``). Returns ``{"error": "..."}`` when the user
+            is not found or the API call fails.
         """
         self.logger.debug("Getting user with email: %s", user_email)
 
-        response = self._fetch_expanded_users()
+        users = self._get_users_raw()
+        if isinstance(users, dict):
+            return users
 
-        if not response or not response.ok:
-            status = response.status_code if response else "No response"
-            error_msg = f"Failed to retrieve users from API for email: {user_email}."
-            self.logger.error("%s Status Code: %s", error_msg, status)
-            return {"error": error_msg}
-
-        try:
-            users = response.json()
-            self.logger.debug("Found %s users in the response.", len(users))
-        except Exception as exc:
-            self.logger.exception("Error decoding JSON response for user list.")
-            return {"error": f"Failed to decode API response: {str(exc)}"}
-
-        role_mapping = {
-            "consumer": "viewer",
-            "super": "sysAdmin",
-            "contributor": "dashboardDesigner",
-        }
-
+        membership = self._group_membership_map()
         for user in users:
             try:
-                self.logger.debug("Checking user: %s", user.get("email"))
                 if user.get("email") == user_email:
                     self.logger.info("Found user: %s", user_email)
-                    return {
-                        "USER_ID": user["_id"],
-                        "USER_NAME": user.get("userName", ""),
-                        "FIRST_NAME": user.get("firstName", ""),
-                        "LAST_NAME": user.get("lastName", ""),
-                        "EMAIL": user.get("email", ""),
-                        "IS_ACTIVE": user.get("active", False),
-                        "ROLE_ID": user.get("role", {}).get("_id", ""),
-                        "ROLE_NAME": role_mapping.get(
-                            user.get("role", {}).get("name", ""),
-                            user.get("role", {}).get("name", ""),
-                        ),
-                        "GROUPS": [g.get("name", "") for g in user.get("groups", [])],
-                    }
+                    return self._user_row(user, membership)
             except Exception as exc:
                 self.logger.exception(
                     "Error processing user object for email %s. Exception: %s",
@@ -370,7 +519,7 @@ class UsersMixin:
                 )
 
         self.logger.warning("User with email '%s' not found.", user_email)
-        return {"error": f"User '{user_email}' not found."}
+        return {"ok": False, "error": f"User '{user_email}' not found."}
 
     def get_my_user(self) -> dict[str, Any]:
         """Retrieve the currently logged-in user for the API token.
@@ -389,14 +538,10 @@ class UsersMixin:
         self.logger.debug("Fetching logged-in user identity.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve logged-in user failed: No response received.")
-            return {"error": "No response received while retrieving logged-in user."}
-
-        if response.status_code != 200:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve logged-in user. Error: {error_message}")
-            return {"error": f"Failed to retrieve logged-in user. {error_message}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, "Failed to retrieve logged-in user", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         user = response.json()
         self.logger.info("Successfully retrieved logged-in user identity.")
@@ -418,14 +563,10 @@ class UsersMixin:
         self.logger.debug("Fetching roles from API.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error("GET request to retrieve roles failed: No response received.")
-            return {"error": "No response received while retrieving roles."}
-
-        if not response.ok:
-            error_message = response.json() if response else "No response text available."
-            self.logger.error(f"Failed to retrieve roles. Error: {error_message}")
-            return {"error": f"Failed to retrieve roles. {error_message}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve roles", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         roles = response.json()
         count = len(roles) if isinstance(roles, list) else 0
@@ -453,7 +594,7 @@ class UsersMixin:
         """
         if not password:
             self.logger.error("Password change rejected: password must not be empty.")
-            return {"error": "Password must not be empty."}
+            return {"ok": False, "error": "Password must not be empty."}
 
         endpoint = f"/api/users/{user_id}"
         self.logger.debug(f"Changing password for user ID {user_id}")
@@ -461,7 +602,7 @@ class UsersMixin:
 
         if response is None:
             self.logger.error(f"PATCH request to change password for user {user_id} failed: No response received.")
-            return {"error": f"No response received while changing password for user ID '{user_id}'"}
+            return {"ok": False, "error": f"No response received while changing password for user ID '{user_id}'"}
 
         if not response.ok:
             try:
@@ -469,7 +610,7 @@ class UsersMixin:
             except Exception:
                 error_message = "Unknown error"
             self.logger.error(f"Failed to change password for user {user_id}. Error: {error_message}")
-            return {"error": error_message}
+            return {"ok": False, "error": error_message}
 
         try:
             response_data = response.json()
@@ -479,134 +620,111 @@ class UsersMixin:
         self.logger.info(f"Successfully changed password for user ID {user_id}.")
         return response_data
 
-    def get_users_all(self) -> list[dict[str, Any]]:
-        """Retrieve all users with group and role information.
+    def get_users_all(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Retrieve every user, one canonical user row each.
 
-        Retrieves user details along with group and role information. Removes
-        the "Everyone" group from users if they belong to other groups, but
-        keeps the "Everyone" group if it is the only group the user belongs to.
+        Reports exactly what Sisense stores: group memberships are unfiltered
+        (``Everyone`` is included — consumers that want to hide a universal
+        group can drop it; a consumer that never received it cannot put it
+        back), and ``ROLE_NAME`` carries the raw Sisense value with the
+        UI-facing name in ``ROLE_DISPLAY_NAME``.
+
+        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
+        is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` is joined by the new
+        ``GROUP_IDS``, and ``Everyone`` is no longer filtered out of
+        ``GROUPS``. See ``docs/upgrading.md``.
 
         Returns
         -------
-        list[dict[str, Any]]
-            List of user details dicts, or ``[{"error": "..."}]`` if retrieval
-            fails.
+        list[dict[str, Any]] | dict[str, Any]
+            One row per user, each with ``USER_ID``, ``USER_NAME``, ``EMAIL``,
+            ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
+            ``ROLE_NAME`` (raw, e.g. ``"consumer"``), ``ROLE_DISPLAY_NAME``
+            (UI name, e.g. ``"viewer"``), ``GROUP_IDS``, and ``GROUPS``
+            (unfiltered). Returns ``{"error": "..."}`` on failure.
         """
         self.logger.debug("Getting all users")
 
-        # Fetch user data from the API with group and role info expanded
-        response = self._fetch_expanded_users()
+        users = self._get_users_raw()
+        if isinstance(users, dict):
+            return users
 
-        # Check if the API request failed
-        if not response or not response.ok:
-            self.logger.error("Failed to retrieve users from API")
-            return [{"error": "Failed to retrieve users from API"}]
-
-        try:
-            response_data = response.json()
-        except Exception as e:
-            self.logger.exception("Failed to parse user response JSON.")
-            return [{"error": f"Failed to parse user response: {str(e)}"}]
-
-        # Initialize list to store user information
+        membership = self._group_membership_map()
         data_list = []
-
-        # Mapping role names
-        ROLE_MAPPING = {"consumer": "viewer", "super": "sysAdmin", "contributor": "dashboardDesigner"}
-
-        # Process the API response to build data_list
-        for user in response_data:
+        for user in users:
             try:
-                self.logger.debug(f"Processing user: {user['email']}")
-                base_data = {
-                    "USER_ID": user["_id"],
-                    "USER_NAME": user["userName"],
-                    "FIRST_NAME": user["firstName"],
-                    "LAST_NAME": user.get("lastName", ""),
-                    "EMAIL": user["email"],
-                    "IS_ACTIVE": user["active"],
-                    "ROLE_ID": user["role"]["_id"],
-                    "ROLE_NAME": ROLE_MAPPING.get(user["role"]["name"], user["role"]["name"]),
-                    "GROUPS": [],
-                }
-
-                # Add all group names to the 'GROUPS' list
-                if "groups" in user and user["groups"]:
-                    base_data["GROUPS"] = [group["name"] for group in user["groups"]]
-                if len(base_data["GROUPS"]) > 1 and "Everyone" in base_data["GROUPS"]:
-                    base_data["GROUPS"].remove("Everyone")
-                data_list.append(base_data)
-                self.logger.debug(f"Successfully processed user: {user['email']}")
+                data_list.append(self._user_row(user, membership))
             except Exception as e:
                 self.logger.exception(f"Error processing user {user.get('email', 'Unknown')}: {str(e)}")
 
-        # Log the result and return the final data list
-        if data_list:
-            self.logger.info(f"Found {len(data_list)} users")
-        else:
-            self.logger.warning("No users found in the response")
-            return [{"error": "No users found"}]
-
+        # An instance with zero users is an empty (honest) result, not an error.
+        self.logger.info(f"Found {len(data_list)} users")
         return data_list
 
-    def create_user(self, user_data: dict[str, Any]) -> dict[str, Any]:
+    def create_user(self, user_data: CreateUserPayload) -> dict[str, Any]:
         """Create a new user in Sisense.
 
-        Processes the provided user data to resolve the role name and group
-        names to their corresponding IDs, then sends a POST request to create
-        the user. The ``role`` field is matched case-insensitively (with
-        ``"VIEWER"`` mapped to ``"CONSUMER"`` and ``"DESIGNER"`` to
-        ``"CONTRIBUTOR"``) and replaced with the resolved ``roleId``; group
-        names in ``groups`` are resolved to group IDs.
+        Validates that the required fields are present, then resolves the role
+        name and group names to their corresponding IDs and sends a POST
+        request to create the user. Group names in ``groups`` are resolved to
+        group IDs.
+
+        The ``role`` field accepts either vocabulary — the raw Sisense name
+        (``"consumer"``, ``"super"``, ``"contributor"``) or the name the UI
+        shows (``"viewer"``, ``"sysAdmin"``, ``"dashboardDesigner"``) — and is
+        matched ignoring case, spaces and punctuation, so ``"sys admin"`` and
+        ``"sysAdmin"`` are equivalent. Roles the instance defines beyond these
+        (for example ``dataDesigner``, ``dataAdmin``, ``admin`` or custom
+        roles) are matched by their own name and are never treated as synonyms
+        for a similar-sounding role. An unmatched name returns a failure dict
+        listing the roles the instance actually has.
 
         Parameters
         ----------
-        user_data : dict[str, Any]
-            Dictionary containing the user details. Supported fields use
-            canonical Sisense payload field names:
+        user_data : CreateUserPayload
+            User details, using canonical Sisense payload field names:
 
-            - ``email`` : str — the user's email address.
-            - ``firstName`` : str — the user's first name.
-            - ``lastName`` : str — the user's last name.
-            - ``role`` : str — role name to assign (resolved to ``roleId``).
-            - ``groups`` : list[str] — group names to assign (resolved to IDs).
-            - ``preferences`` : dict — user preference settings.
+            - ``email`` : str — the user's email address. **Required.**
+            - ``role`` : str — role name to assign, in either vocabulary
+              (``"viewer"`` or ``"consumer"``, ``"sysAdmin"`` or ``"super"``,
+              ``"dashboardDesigner"``/``"designer"`` or ``"contributor"``, or
+              any other role the instance defines); resolved to ``roleId``.
+              **Required.**
+            - ``userName`` : str — the user's login name (optional).
+            - ``firstName`` : str — the user's first name (optional).
+            - ``lastName`` : str — the user's last name (optional).
+            - ``groups`` : list[str] — group names to assign, resolved to IDs
+              (optional).
+            - ``password`` : str — initial password; if omitted, the user
+              receives an email to set one (optional).
+            - ``preferences`` : dict — user preference settings (optional).
 
         Returns
         -------
         dict[str, Any]
             The created user object returned by the API if successful, or a
-            dictionary with an ``error`` key if the operation fails.
+            dictionary with an ``error`` key if the operation fails. Missing
+            required fields are rejected up front, before any API call.
         """
         self.logger.debug(f"Creating user with data: {user_data}")
 
-        # Custom role mapping
-        role_alias_mapping = {"VIEWER": "CONSUMER", "DESIGNER": "CONTRIBUTOR"}
-
-        # Convert the role name in the user_data to uppercase for
-        # case-insensitive matching
-        user_role = user_data.get("role", "").upper()
-        mapped_role = role_alias_mapping.get(user_role, user_role)
-
-        # Step 1: Fetch roles from the API
-        role_response = self.api_client.get("/api/roles")
-        if not role_response or not role_response.ok:
-            self.logger.error("Failed to fetch roles from API")
-            return {"error": "Failed to fetch roles from API"}
-
-        roles_mapping = [{"id": role["_id"], "name": role["name"].upper()} for role in role_response.json()]
-        self.logger.debug(f"Roles mapping: {roles_mapping}")
-
-        # Step 2: Resolve roleId from role name
-        for role in roles_mapping:
-            if role["name"] == mapped_role:
-                user_data["roleId"] = role["id"]
-                break
-        else:
-            error_msg = f"Role '{user_data.get('role')}' not found in roles_mapping"
+        # Validate required fields up front — fail with a clear message before
+        # any API call instead of failing mid-flow at role resolution.
+        if not isinstance(user_data, dict):
+            self.logger.error("create_user requires user_data to be a dict.")
+            return {"ok": False, "error": "user_data must be a dictionary."}
+        missing = [field for field in ("email", "role") if not user_data.get(field)]
+        if missing:
+            error_msg = f"create_user requires {' and '.join(f'{f!r}' for f in missing)} in user_data — got fields: {sorted(user_data.keys()) or 'none'}"
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
 
+        # Step 1: Resolve roleId from the role name (either vocabulary)
+        resolved_role = self._resolve_role_id(user_data.get("role"))
+        if isinstance(resolved_role, dict):
+            return resolved_role
+
+        user_data["roleId"] = resolved_role
         user_data.pop("role", None)
 
         # Step 3: Resolve group IDs from group names (if provided)
@@ -617,7 +735,7 @@ class UsersMixin:
             group_response = self.api_client.get("/api/v1/groups")
             if not group_response or not group_response.ok:
                 self.logger.error("Failed to fetch groups from API")
-                return {"error": "Failed to fetch groups from API"}
+                return {"ok": False, "error": "Failed to fetch groups from API"}
 
             groups_mapping = [{"id": group["_id"], "name": group["name"].upper()} for group in group_response.json()]
             self.logger.debug(f"Groups mapping: {groups_mapping}")
@@ -631,7 +749,7 @@ class UsersMixin:
                 else:
                     error_msg = f"Group '{group_name}' not found in groups_mapping"
                     self.logger.error(error_msg)
-                    return {"error": error_msg}
+                    return {"ok": False, "error": error_msg}
 
             user_data["groups"] = updated_groups
         else:
@@ -653,9 +771,9 @@ class UsersMixin:
                 error_message = "No response body or invalid JSON"
 
             self.logger.error(f"Failed to create user. Error: {error_message}")
-            return {"error": error_message}
+            return {"ok": False, "error": error_message}
 
-    def update_user(self, user_email: str, user_data: dict[str, Any]) -> dict[str, Any]:
+    def update_user(self, user_email: str, user_data: UpdateUserPayload) -> dict[str, Any]:
         """
         Update an existing Sisense user identified by their email address.
 
@@ -667,7 +785,7 @@ class UsersMixin:
         ----------
         user_email : str
             Email address of the user to update (used to locate the user). (format: email)
-        user_data : dict[str, Any]
+        user_data : UpdateUserPayload
             Dictionary of fields to update. Only include fields you want to change.
 
             Supported fields
@@ -681,7 +799,11 @@ class UsersMixin:
             - lastName : str
                 Update the user's last name.
             - role : str
-                Role name (e.g., "viewer", "designer"). This is resolved to ``roleId`` before
+                Role name in either vocabulary — raw (``"consumer"``, ``"super"``,
+                ``"contributor"``), the UI name (``"viewer"``, ``"sysAdmin"``,
+                ``"dashboardDesigner"``), or any other role the instance defines
+                (``dataDesigner``, ``dataAdmin``, custom roles). Matched ignoring
+                case, spaces and punctuation. This is resolved to ``roleId`` before
                 sending the API request.
             - groups : list[str]
                 List of group names to apply. Group names are resolved to group IDs before
@@ -699,39 +821,15 @@ class UsersMixin:
         user = self.get_user(user_email)
         if not user:
             self.logger.error("User with email '%s' not found.", user_email)
-            return {"error": f"User with email '{user_email}' not found."}
+            return {"ok": False, "error": f"User with email '{user_email}' not found."}
 
-        role_alias_mapping = {
-            "VIEWER": "CONSUMER",
-            "DESIGNER": "CONTRIBUTOR",
-        }
-
-        # Step 1: Resolve role if provided
+        # Step 1: Resolve role if provided (either vocabulary)
         if "role" in user_data:
-            user_role = str(user_data["role"]).upper()
-            mapped_role = role_alias_mapping.get(user_role, user_role)
+            resolved_role = self._resolve_role_id(user_data["role"])
+            if isinstance(resolved_role, dict):
+                return resolved_role
 
-            role_response = self.api_client.get("/api/roles")
-            if not role_response or not role_response.ok:
-                status = role_response.status_code if role_response else "No response"
-                self.logger.error(
-                    "Failed to fetch roles from API. Status Code: %s",
-                    status,
-                )
-                return {"error": "Failed to fetch roles from API."}
-
-            roles_mapping = [{"id": role["_id"], "name": str(role["name"]).upper()} for role in role_response.json()]
-            self.logger.debug("Roles mapping: %s", roles_mapping)
-
-            for role in roles_mapping:
-                if role["name"] == mapped_role:
-                    user_data["roleId"] = role["id"]
-                    break
-            else:
-                error_msg = f"Role '{user_data['role']}' not found in roles_mapping"
-                self.logger.error(error_msg)
-                return {"error": error_msg}
-
+            user_data["roleId"] = resolved_role
             user_data.pop("role", None)
 
         # Step 2: Resolve groups only if explicitly provided
@@ -751,7 +849,7 @@ class UsersMixin:
                         "Failed to fetch groups from API. Status Code: %s",
                         status,
                     )
-                    return {"error": "Failed to fetch groups from API."}
+                    return {"ok": False, "error": "Failed to fetch groups from API."}
 
                 groups_mapping = [{"id": group["_id"], "name": str(group["name"]).upper()} for group in group_response.json()]
                 self.logger.debug("Groups mapping: %s", groups_mapping)
@@ -765,7 +863,7 @@ class UsersMixin:
                     else:
                         error_msg = f"Group '{group_name}' not found in groups_mapping"
                         self.logger.error(error_msg)
-                        return {"error": error_msg}
+                        return {"ok": False, "error": error_msg}
 
                 user_data["groups"] = updated_groups
 
@@ -780,9 +878,9 @@ class UsersMixin:
             self.logger.info("User updated successfully: %s", response_data)
             return response_data
 
-        error_message = response.json().get("error", "Unknown error") if response else "No response received"
-        self.logger.error("Failed to update user. Error: %s", error_message)
-        return {"error": error_message}
+        failure = _extract_error_message(response, "Failed to update user", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def delete_user(self, user_name: str) -> dict[str, Any]:
         """Delete a user by their email (username).
@@ -813,12 +911,12 @@ class UsersMixin:
             error_msg = f"User '{user_name}' not found. Cannot proceed with deletion."
             self.logger.error(error_msg)
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
         # support both formats just in case
         user_id = user.get("_id") or user.get("USER_ID")
         if not user_id:
             self.logger.error(f"User object for '{user_name}' is missing ID field. Cannot proceed.")
-            return {"error": (f"User '{user_name}' found but no ID field present.")}
+            return {"ok": False, "error": (f"User '{user_name}' found but no ID field present.")}
 
         self.logger.debug(f"User '{user_name}' found. Proceeding to delete user with ID: {user_id}")
 
@@ -847,4 +945,4 @@ class UsersMixin:
                 error_message = "No response body or invalid JSON"
             self.logger.error(f"Failed to delete user '{user_name}' (ID: {user['USER_ID']}). Error: {error_message}")
             self.logger.debug(f"Completed 'delete_user' method for username: {user_name}")
-            return {"error": error_message}
+            return {"ok": False, "error": error_message}

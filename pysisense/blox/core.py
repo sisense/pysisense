@@ -27,19 +27,19 @@ class BloxCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to fetch Blox actions — status {status}"
             self.logger.error(msg)
-            return [{"error": msg}]
+            return [{"ok": False, "error": msg}]
 
         try:
             actions = response.json()
         except Exception:
             msg = "Failed to parse Blox actions response as JSON"
             self.logger.error(msg)
-            return [{"error": msg}]
+            return [{"ok": False, "error": msg}]
 
         if not isinstance(actions, list):
             msg = f"Unexpected response shape from Blox actions endpoint — got {type(actions).__name__}"
             self.logger.error(msg)
-            return [{"error": msg}]
+            return [{"ok": False, "error": msg}]
 
         self.logger.info(f"Retrieved {len(actions)} Blox action(s)")
         return actions
@@ -63,7 +63,7 @@ class BloxCoreMixin:
         if self.api_client.operating_system == "windows":
             msg = "save_blox_action is not supported on Windows deployments."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         endpoint = "/api/v1/blox/saveCustomAction"
         action_type = action.get("type", "<unnamed>")
@@ -74,7 +74,7 @@ class BloxCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to save Blox action '{action_type}' — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         self.logger.info(f"Saved Blox action '{action_type}'")
         return response.json() if response.content else {"success": True}
@@ -98,7 +98,7 @@ class BloxCoreMixin:
         if self.api_client.operating_system == "windows":
             msg = "delete_blox_action is not supported on Windows deployments."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         endpoint = "/api/v1/blox/deleteCustomAction"
         self.logger.debug(f"Deleting Blox action '{action_type}'")
@@ -108,7 +108,7 @@ class BloxCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to delete Blox action '{action_type}' — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         self.logger.info(f"Deleted Blox action '{action_type}'")
         return response.json() if response.content else {"success": True}

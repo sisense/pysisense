@@ -5,7 +5,7 @@ alwaysApply: true
 
 # pysisense — Project Overview
 
-`pysisense` is an official Python SDK for the **Sisense BI platform**. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
+`pysisense` is a community-maintained Python SDK for the **Sisense BI platform**, built by the Sisense Field Engineering team. It is **not an official Sisense product** — no SLA, no official support, best-effort maintenance. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
 
 ## Development commands
 
@@ -58,6 +58,7 @@ uv run pre-commit install --hook-type commit-msg
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets` |
+| `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PluginSnapshot`) — introspectable by downstream schema generators |
 
 ## Package structure — mixin pattern
 
@@ -69,13 +70,13 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 |---|---|---|
 | `blox/` | `core.py` | `get_blox_actions` (OS-routed), `save_blox_action`, `delete_blox_action` |
 | | `widgets.py` | `get_blox_widget_style`, `update_blox_widget_style` |
-| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
-| `access_management/` | `users.py` | `get_user`, `get_my_user`, `get_roles`, `change_user_password`, `get_users_all`, `get_users_expanded`, `create_users_bulk`, `get_user_with_role_and_group_names`, `get_users_with_role_names_and_group_names`, `create_user`, `update_user`, `delete_user` |
-| | `groups.py` | `get_group`, `get_groups`, `create_groups_bulk`, `delete_group`, `users_per_group`, `users_per_group_all` |
-| | `columns.py` | `get_datamodel_columns`, `get_unused_columns`, `get_unused_columns_bulk` |
+| `access_management/` | `users.py` | `get_user` (canonical row), `get_my_user`, `get_roles`, `change_user_password`, `get_users_all` (canonical rows), `create_users_bulk`, `create_user`, `update_user`, `delete_user`; deprecated: `get_user_with_role_and_group_names`→get_user, `get_users_with_role_names_and_group_names`→get_users_all, `get_users_expanded`→get_users_all |
+| | `groups.py` | `get_groups` (optional `name=` filter), `create_groups_bulk`, `delete_group`, `users_per_group` (flat membership rows, optional `group_name=`); deprecated: `get_group`→get_groups, `users_per_group_all`→users_per_group |
+| | `columns.py` | `get_datamodel_columns`, `get_unused_columns_bulk` (returns `{"results", "errors"}`); deprecated: `get_unused_columns`→get_unused_columns_bulk |
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
+| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
 | `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk` |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
@@ -85,9 +86,9 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference`, `get_elasticubes`, `load_datamodel`, `delete_datamodel`, `export_datamodel_schema`, `import_datamodel_schema` |
-| | `connections.py` | `get_connection`, `get_connections`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
+| | `connections.py` | `get_connection`, `get_connections_all`, `update_connection`, `get_table_schema`, `generate_connections_payload`, `create_connections` |
 | | `build.py` | `create_datamodel`, `create_dataset`, `create_table`, `setup_datamodel`, `deploy_datamodel` |
-| | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity`, `set_live_datasecurity_add_many`, `get_datasecurity_raw` |
+| | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
@@ -136,3 +137,13 @@ Use a YAML config file or environment variables. See the API initialization rule
 - Commits: `commitizen` (conventional commits)
 - Versioning: `python-semantic-release`
 - Pre-commit hooks: ruff + commitizen
+
+## Version differences
+
+This file documents the current code; a user's project may pin an older release. Check
+`pysisense.__version__` first, then `docs/upgrading.md` (canonical old-to-new mapping,
+opens with a symptom -> cause -> fix table) and `CHANGELOG.md`. Note the 2.0 user row keeps 1.x's `ROLE_NAME`
+and `GROUPS` keys and meanings deliberately (the raw role value is the new
+`ROLE_RAW_NAME`); the one changed value is `Everyone` no longer being filtered from
+`GROUPS`.
+Every breaking change goes into `CHANGELOG.md` and the upgrade guide in the same PR.

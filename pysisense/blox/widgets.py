@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 # Fields that Sisense manages server-side and must be stripped before a PUT write.
 _SERVER_MANAGED_FIELDS = frozenset({"oid", "_id", "owner", "userId", "created", "lastUpdated", "instanceType", "dashboardid"})
 _BLOX_WIDGET_TYPE = "BloX"
@@ -136,24 +138,17 @@ class BloxWidgetsMixin:
         if executing_user_id:
             take_result = self._blox_take_ownership(dashboard_id, executing_user_id)
             if isinstance(take_result, str):
-                return {"error": take_result}
+                return {"ok": False, "error": take_result}
             original_owner_id, original_shares = take_result
             took_ownership = True
 
         try:
             response = self.api_client.put(f"/api/dashboards/{dashboard_id}/widgets/{widget_id}", data=payload)
 
-            if response is None:
-                self.logger.error(f"No response received when updating BloX widget {widget_id}.")
-                return {"error": f"No response received when updating widget '{widget_id}'."}
-
-            if response.status_code != 200:
-                try:
-                    error_detail = response.json()
-                except Exception:
-                    error_detail = response.text
-                self.logger.error(f"Failed to update BloX widget {widget_id} (HTTP {response.status_code}): {error_detail}")
-                return {"error": f"Failed to update widget '{widget_id}': {error_detail}"}
+            if response is None or response.status_code != 200:
+                failure = _extract_error_message(response, f"Failed to update widget '{widget_id}'", self.api_client)
+                self.logger.error(failure["error"])
+                return failure
 
             self.logger.info(f"BloX widget {widget_id} style updated on dashboard {dashboard_id}.")
             return {"currentCard": style_block.get("currentCard", {}), "currentConfig": style_block.get("currentConfig", {})}
@@ -187,24 +182,17 @@ class BloxWidgetsMixin:
         self.logger.debug(f"Fetching BloX widget {widget_id} on dashboard {dashboard_id}.")
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"No response received for widget {widget_id}.")
-            return {"error": f"No response received for widget '{widget_id}'."}
-
-        if response.status_code != 200:
-            try:
-                error_detail = response.json()
-            except Exception:
-                error_detail = response.text
-            self.logger.error(f"Failed to fetch widget {widget_id} (HTTP {response.status_code}): {error_detail}")
-            return {"error": f"Failed to fetch widget '{widget_id}': {error_detail}"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to fetch widget '{widget_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         widget = response.json()
 
         if widget.get("type") != _BLOX_WIDGET_TYPE:
             msg = f"Widget '{widget_id}' is of type '{widget.get('type')}', not '{_BLOX_WIDGET_TYPE}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         return widget
 

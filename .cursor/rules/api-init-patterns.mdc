@@ -1,13 +1,13 @@
 ---
-description: How to initialize pysisense classes — canonical patterns, admin token requirement, debug flag
+description: How to initialize pysisense classes — canonical patterns, token/permission scoping, debug flag
 alwaysApply: true
 ---
 
 # API Initialization Patterns
 
-## Admin token required
+## Tokens and permissions
 
-The SDK **must** use a Sisense admin user's API token.
+The SDK works with **any Sisense user's API token** — Sisense enforces permissions server-side, so every call is scoped to the token owner's role and access rights (e.g., listing dashboards as admin returns all dashboards; as a viewer, only dashboards shared with that user). Inherently administrative operations (ownership changes, cross-environment migrations, instance-wide listings/exports, `adminAccess=true` methods) require a dedicated Sisense admin user's token.
 
 ## Canonical init pattern
 

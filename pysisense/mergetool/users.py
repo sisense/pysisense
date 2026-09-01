@@ -188,7 +188,7 @@ class UsersMergeMixin:
         # Step 1: Fetch all source users
         self._emit(emit, {"type": "progress", "step": "fetch_source_users", "message": "Fetching users from the source environment."})
         self.logger.debug("Fetching users from source.")
-        source_result = src_access.get_users_expanded()
+        source_result = src_access._get_users_raw()
         if isinstance(source_result, dict) and "error" in source_result:
             raw_error = source_result["error"]
             self.logger.error("Failed to fetch users from source: %s", raw_error)
@@ -221,7 +221,7 @@ class UsersMergeMixin:
 
         # Step 3: Fetch target users, roles, and groups for conflict detection and ID mapping
         self._emit(emit, {"type": "progress", "step": "fetch_target_mappings", "message": "Fetching users, roles, and groups from the target environment."})
-        target_result = tgt_access.get_users_expanded()
+        target_result = tgt_access._get_users_raw()
         target_users: list[dict[str, Any]] = [] if isinstance(target_result, dict) and "error" in target_result else target_result
         target_by_email: dict[str, dict[str, Any]] = {u["email"]: u for u in target_users if u.get("email")}
 
@@ -399,7 +399,7 @@ class UsersMergeMixin:
         src_access = AccessManagement(api_client=self.source_client)
 
         self._emit(emit, {"type": "progress", "step": "fetch_source_users", "message": "Fetching all users from source."})
-        source_result = src_access.get_users_expanded()
+        source_result = src_access._get_users_raw()
         if isinstance(source_result, dict) and "error" in source_result:
             raw_error = source_result["error"]
             self.logger.error("Failed to fetch users from source: %s", raw_error)

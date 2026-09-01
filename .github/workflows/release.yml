@@ -53,7 +53,7 @@ jobs:
 
       - name: Build package
         if: steps.tag_check.outputs.exists == 'false'
-        run: uv build --frozen
+        run: uv build
 
       - name: Publish to PyPI
         if: steps.tag_check.outputs.exists == 'false'
@@ -72,6 +72,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create ${{ steps.version.outputs.tag }} \
-            --title "${{ steps.version.outputs.tag }}" \
-            --notes "Release ${{ steps.version.outputs.tag }}"
+          # Prefer the CHANGELOG section for this version; fall back to
+          # auto-generated commit notes so a release is never left with an
+          # empty body.
+          if awk -v ver="${{ steps.version.outputs.version }}" \
+               '/^## \[/ {p = ($0 ~ "\\[" ver "\\]")} p' CHANGELOG.md | grep -q .; then
+            awk -v ver="${{ steps.version.outputs.version }}" \
+              '/^## \[/ {p = ($0 ~ "\\[" ver "\\]")} p' CHANGELOG.md > /tmp/release-notes.md
+            gh release create ${{ steps.version.outputs.tag }} \
+              --title "${{ steps.version.outputs.tag }}" \
+              --notes-file /tmp/release-notes.md
+          else
+            gh release create ${{ steps.version.outputs.tag }} \
+              --title "${{ steps.version.outputs.tag }}" \
+              --generate-notes
+          fi

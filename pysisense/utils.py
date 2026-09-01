@@ -36,6 +36,84 @@ def redact_secrets(data):
     return data
 
 
+# Maximum characters of a raw error body carried into a failure message.
+_MAX_ERROR_REASON_CHARS = 300
+
+
+def _extract_error_message(response, context, api_client=None):
+    """
+    Builds a standardized failure dict from a Sisense API response.
+
+    Distinguishes three failure kinds:
+    - HTTP error with a body: relays the Sisense reason and the HTTP status.
+      The reason is taken best-effort from the JSON body ("detail", then
+      "message", then "title", then "error"), falling back to the raw body
+      text truncated to a safe length.
+    - HTTP error with an empty body: says so, with the HTTP status.
+    - No response at all (connection failure): names the target domain and
+      carries no invented status code.
+
+    The body is passed through redact_secrets() before use so credential-shaped
+    values never reach the returned message.
+
+    Parameters:
+        response: requests.Response or None (as returned by SisenseClient requests)
+        context (str): What the caller was doing, e.g. "Failed to retrieve dashboards"
+        api_client: optional SisenseClient, used to name the target domain when
+            there is no response
+
+    Returns:
+        dict: {"ok": False, "error": str} always; plus {"status_code": int}
+        when an HTTP status is available, and {"raw_body": str} when the body
+        could not be recognized (unknown JSON shape or non-JSON text — the
+        redacted, truncated dump travels there while "error" stays a clean
+        sentence). The explicit "ok": False marker is the forward-compatible
+        failure signal — consumers detect failures via payload.get("ok") is
+        False (or the presence of "error"), never by matching an exact key
+        set, since additive keys may arrive in any release.
+    """
+    if response is None:
+        domain = getattr(api_client, "domain", None) or "the Sisense server"
+        return {"ok": False, "error": f"{context}: no response from {domain} — connection failed"}
+
+    status = response.status_code
+    reason = None
+    raw_body = None
+    try:
+        body = redact_secrets(response.json())
+    except ValueError:
+        raw_text = (response.text or "").strip()
+        if raw_text:
+            raw_body = raw_text
+    else:
+        if isinstance(body, dict):
+            for key in ("detail", "message", "title", "error"):
+                value = body.get(key)
+                if isinstance(value, str) and value.strip():
+                    reason = value.strip()
+                    break
+            if reason is None and body:
+                raw_body = str(body)
+        elif body not in (None, "", [], {}):
+            raw_body = str(body)
+
+    # The "error" sentence is always clean, human-authored text: either the
+    # recognised Sisense reason or an honest label. Unrecognised bodies travel
+    # separately in "raw_body" (redacted, truncated) so consumers with
+    # different trust boundaries can relay or drop them independently.
+    if reason is None:
+        reason = "unrecognized error body" if raw_body else "the server returned an empty error body"
+    if len(reason) > _MAX_ERROR_REASON_CHARS:
+        reason = reason[:_MAX_ERROR_REASON_CHARS] + "…"
+
+    failure: dict = {"ok": False, "error": f"{context}: {reason} (HTTP {status})", "status_code": status}
+    if raw_body is not None:
+        if len(raw_body) > _MAX_ERROR_REASON_CHARS:
+            raw_body = raw_body[:_MAX_ERROR_REASON_CHARS] + "…"
+        failure["raw_body"] = raw_body
+    return failure
+
+
 def convert_to_dataframe(data, logger=None):
     """
     Converts a list of dictionaries, a single dictionary, or a simple list to a pandas DataFrame.

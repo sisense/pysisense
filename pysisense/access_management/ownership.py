@@ -60,7 +60,7 @@ class OwnershipMixin:
         if not user_info or "USER_ID" not in user_info:
             error_msg = f"User '{executing_user}' not found or USER_ID missing."
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
         user_id = user_info["USER_ID"]
 
         # Check if the new owner exists and retrieve their USER_ID
@@ -68,7 +68,7 @@ class OwnershipMixin:
         if not new_owner or "USER_ID" not in new_owner:
             error_msg = f"New owner '{new_owner_name}' not found or USER_ID missing."
             self.logger.error(error_msg)
-            return {"error": error_msg}
+            return {"ok": False, "error": error_msg}
         new_owner_id = new_owner["USER_ID"]
 
         # Build a parent map and collect matching folders
@@ -148,23 +148,7 @@ class OwnershipMixin:
                 self.logger.info(f"Dashboard: {dash_name} (ID: {dash_id})")
         else:
             self.logger.warning("Folder not found, moving to search dashboards and grant access step...")
-            limit = 50
-            skip = 0
-            dashboards = []
-            while True:
-                self.logger.debug(f"Fetching dashboards (limit={limit}, skip={skip})")
-                dashboard_response = self.api_client.post(
-                    "/api/v1/dashboards/searches",
-                    data={"queryParams": {"ownershipType": "allRoot", "search": "", "ownerInfo": True, "asObject": True}, "queryOptions": {"sort": {"title": 1}, "limit": limit, "skip": skip}},
-                )
-                dashboard_response = dashboard_response.json()
-
-                if not dashboard_response or len(dashboard_response.get("items", [])) == 0:
-                    self.logger.debug("No more dashboards found.")
-                    break
-                else:
-                    dashboards.extend(dashboard_response["items"])
-                    skip += limit
+            dashboards = self._fetch_all_dashboards_paginated()
 
             all_folder_ids = {dic["parentFolder"] for dic in dashboards if "parentFolder" in dic and dic["parentFolder"]}
             self.logger.debug(f"Collected parent folder IDs from dashboards: {all_folder_ids}")

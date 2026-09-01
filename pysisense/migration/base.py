@@ -108,12 +108,15 @@ class MigrationBaseMixin:
 
     def _export_dashboard(self, oid: str) -> tuple[dict[str, Any] | None, str | None]:
         """
-        Export dashboard from source. Tries adminAccess=true then falls back without it.
-        Returns (exported_json, error_reason).
+        Export dashboard from source. Tries adminAccess=true and falls back
+        without it ONLY on auth failures (401/403) — a fallback can never help
+        a server error or gateway timeout (the same request minus a query
+        parameter fails identically), and blindly retrying doubles the cost of
+        every slow failure. Returns (exported_json, error_reason).
         """
         # Primary: adminAccess=true
         resp = self.source_client.get(f"/api/dashboards/{oid}/export?adminAccess=true")
-        if resp and resp.status_code == 200:
+        if resp is not None and resp.status_code == 200:
             try:
                 data = resp.json()
                 if isinstance(data, dict):
@@ -122,9 +125,17 @@ class MigrationBaseMixin:
             except Exception:
                 return None, f"Export returned invalid JSON: {self._truncate(resp.text or '')}"
 
-        # Fallback: without adminAccess (old failsafe)
+        status = self._safe_status_code(resp)
+        if status not in (401, 403):
+            # Server error, timeout, or connection failure — fail fast with the
+            # real reason; a no-adminAccess retry cannot succeed where this failed.
+            if resp is None:
+                return None, "Export failed: no response from the server (connection failure or timeout)"
+            return None, f"Export failed (HTTP {status}): {self._extract_error_detail(resp)}"
+
+        # Auth failure — maybe the token cannot use adminAccess; retry plain.
         resp2 = self.source_client.get(f"/api/dashboards/{oid}/export")
-        if resp2 and resp2.status_code == 200:
+        if resp2 is not None and resp2.status_code == 200:
             try:
                 data = resp2.json()
                 if isinstance(data, dict):
@@ -133,6 +144,6 @@ class MigrationBaseMixin:
             except Exception:
                 return None, f"Export returned invalid JSON (fallback path): {self._truncate(resp2.text or '')}"
 
-        status = resp.status_code if resp else None
-        status2 = resp2.status_code if resp2 else None
-        return None, f"Export failed (adminAccess={status}, fallback={status2})"
+        status2 = self._safe_status_code(resp2)
+        detail = self._extract_error_detail(resp2) if resp2 is not None else "no response from the server"
+        return None, f"Export failed (adminAccess=HTTP {status}, fallback=HTTP {status2}): {detail}"

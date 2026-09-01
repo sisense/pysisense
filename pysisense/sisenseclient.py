@@ -19,6 +19,7 @@ from .utils import export_to_csv as export_csv_util
 DEFAULT_NON_SSL_PORT = 30845
 DEFAULT_NON_SSL_PORT_WINDOWS = 8081
 DEFAULT_REQUEST_TIMEOUT = 30
+DEFAULT_CONNECT_TIMEOUT = 5
 DEFAULT_RETRY_TOTAL = 3
 DEFAULT_RETRY_BACKOFF_FACTOR = 1
 DEFAULT_RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
@@ -41,6 +42,8 @@ class SisenseClient:
         verify_ssl: bool | None = None,
         ssl_path: str | None = None,
         retries: bool | None = None,
+        timeout: float | None = None,
+        connect_timeout: float | None = None,
     ):
         """
         Initializes the SisenseClient with configuration, logging, and
@@ -109,6 +112,18 @@ class SisenseClient:
                 automatically, to avoid duplicating a side effect the server
                 may have already applied. Connection and read timeouts are
                 never retried.
+            timeout (float | None): Client-side read timeout in seconds for
+                every request (default 30). Can also be set via the
+                ``timeout`` key in the YAML config file; this argument
+                overrides the config value when passed. Lower it for
+                read/export-heavy workloads that must fail fast; keep it
+                generous for long-running operations (builds, bulk imports,
+                large exports) and for writes — a client-side timeout on a
+                POST/PATCH leaves the server outcome ambiguous (the change
+                may still have been applied).
+            connect_timeout (float | None): Client-side TCP connect timeout
+                in seconds (default 5). Can also be set via the
+                ``connect_timeout`` YAML key.
         """
         # Decide how to build the base config
         if domain is not None or token is not None:
@@ -135,6 +150,10 @@ class SisenseClient:
             self.config["ssl_path"] = ssl_path
         if retries is not None:
             self.config["retries"] = bool(retries)
+        if timeout is not None:
+            self.config["timeout"] = timeout
+        if connect_timeout is not None:
+            self.config["connect_timeout"] = connect_timeout
 
         # Resolve operating_system: YAML config takes precedence over the kwarg.
         # Blank, null, "none", "NA", and similar absent-looking values all fall
@@ -222,6 +241,21 @@ class SisenseClient:
         else:
             self.logger.debug("HTTP retries disabled")
 
+        # Client-side request timeouts (requests-style (connect, read) tuple).
+        # The read timeout bounds how long a single request waits for the
+        # server — without it, callers are hostage to the server's own gateway
+        # timeout (observed at 300s per attempt on live instances). Configure
+        # via YAML keys `timeout` / `connect_timeout` or the constructor
+        # kwargs. The default read timeout is deliberately generous; lower it
+        # for read/export-heavy workloads that must fail fast, but keep it
+        # generous for long-running operations (builds, bulk imports, large
+        # exports) and for writes — a client-side timeout on a POST/PATCH
+        # leaves the server outcome ambiguous (the change may still apply).
+        read_timeout = float(self.config.get("timeout", DEFAULT_REQUEST_TIMEOUT))
+        conn_timeout = float(self.config.get("connect_timeout", DEFAULT_CONNECT_TIMEOUT))
+        self.request_timeout: tuple[float, float] = (conn_timeout, read_timeout)
+        self.logger.debug(f"HTTP timeouts: connect={conn_timeout}s, read={read_timeout}s")
+
     @classmethod
     def from_connection(
         cls,
@@ -234,6 +268,8 @@ class SisenseClient:
         verify_ssl: bool = True,
         ssl_path: str | None = None,
         retries: bool = True,
+        timeout: float | None = None,
+        connect_timeout: float | None = None,
     ) -> "SisenseClient":
         """
         Convenience alternative constructor for direct connection usage.
@@ -258,6 +294,8 @@ class SisenseClient:
             verify_ssl=verify_ssl,
             ssl_path=ssl_path,
             retries=retries,
+            timeout=timeout,
+            connect_timeout=connect_timeout,
         )
 
     def _non_ssl_port(self) -> int:
@@ -415,15 +453,15 @@ class SisenseClient:
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
-                response = self.session.get(url, headers=headers, params=params, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.get(url, headers=headers, params=params, verify=self.verify, timeout=self.request_timeout)
             elif method == "POST":
-                response = self.session.post(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.post(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "PUT":
-                response = self.session.put(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.put(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "PATCH":
-                response = self.session.patch(url, headers=headers, json=data, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.patch(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "DELETE":
-                response = self.session.delete(url, headers=headers, verify=self.verify, timeout=DEFAULT_REQUEST_TIMEOUT)
+                response = self.session.delete(url, headers=headers, verify=self.verify, timeout=self.request_timeout)
             else:
                 # Raise an error for unsupported HTTP methods
                 raise ValueError(f"Unsupported HTTP method: {method}")
@@ -431,7 +469,7 @@ class SisenseClient:
             # Handle known response codes
             if response.status_code in [200, 201, 204]:
                 self.logger.debug(f"{method} request to {url} succeeded with status code {response.status_code}")
-            elif response.status_code in [400, 404, 500]:
+            elif response.status_code >= 400:
                 # Log the error response text if available
                 try:
                     error_message = redact_secrets(response.json())
@@ -500,7 +538,7 @@ class SisenseClient:
         """
         if not self.token:
             self.logger.error("No bearer token is configured on this client.")
-            return {"error": "No bearer token configured."}
+            return {"ok": False, "error": "No bearer token configured."}
 
         try:
             segments = self.token.split(".")
@@ -515,4 +553,4 @@ class SisenseClient:
             return payload
         except Exception as e:
             self.logger.error(f"Failed to decode bearer token: {e}")
-            return {"error": f"Failed to decode bearer token: {e}"}
+            return {"ok": False, "error": f"Failed to decode bearer token: {e}"}

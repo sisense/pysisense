@@ -234,6 +234,19 @@ class TestSisenseClientDebugLogRedaction:
 
         assert "raw-secret-token-xyz" in caplog.text
 
+    def test_auth_error_body_is_logged_at_error_level(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=False)
+        caplog.set_level(logging.ERROR, logger="SisenseClient")
+
+        error_response = MagicMock(status_code=403)
+        error_response.json.return_value = {"error": "Access denied: admin role required"}
+        with patch.object(client.session, "get", return_value=error_response):
+            client.get("/api/v1/dashboards/admin")
+
+        assert "failed with status code 403" in caplog.text
+        assert "Access denied: admin role required" in caplog.text
+
 
 class TestSisenseClientLogFilePermissions:
     def test_log_directory_and_file_are_owner_restricted(self, tmp_path, monkeypatch):
@@ -322,3 +335,29 @@ class TestDecodeBearerToken:
             result = client.decode_bearer_token()
             assert "error" not in result, f"Failed for extra={extra}"
             assert result["user"] == "x" * (10 + extra)
+
+
+class TestSisenseClientTimeouts:
+    def test_default_timeouts(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok")
+        assert client.request_timeout == (5.0, 30.0)
+
+    def test_constructor_kwargs_override(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", timeout=60, connect_timeout=3)
+        assert client.request_timeout == (3.0, 60.0)
+
+    def test_yaml_config_keys(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\ntimeout: 90\nconnect_timeout: 2\n")
+        client = SisenseClient(config_file=str(config))
+        assert client.request_timeout == (2.0, 90.0)
+
+    def test_requests_receive_the_configured_timeout(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", timeout=45)
+        with patch.object(client.session, "get", return_value=MagicMock(status_code=200)) as mock_get:
+            client.get("/api/v1/users")
+        assert mock_get.call_args.kwargs["timeout"] == (5.0, 45.0)

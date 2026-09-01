@@ -29,7 +29,7 @@ access_mgmt = AccessManagement(api_client=api_client)
 
 ## Example 1: Get User Information by Email
 
-Retrieve information for a specific user by their email.
+Retrieve information for a specific user by their email (required). Returns the canonical user row: `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME` and `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `ROLE_RAW_NAME` (raw Sisense value, e.g. `consumer`), `GROUP_IDS`, and `GROUPS` (group names, unfiltered — the `Everyone` group is included). On failure returns `{"ok": False, "error": "..."}`.
 
 ```python
 user_email = "john.doe@example.com"
@@ -86,13 +86,14 @@ print(json.dumps(response, indent=4))
 
 ## Example 1b: Get User Information with Role/Group IDs and Names
 
-Retrieve information for a specific user by their email, including both role
-and group IDs and names. This is useful when you want a richer record for
-auditing, exports, or feeding other APIs that expect IDs.
+The canonical row returned by `get_user` already includes both role and group
+IDs and names — useful when you want a richer record for auditing, exports, or
+feeding other APIs that expect IDs. (`get_user_with_role_and_group_names` is a
+deprecated alias — use `get_user`.)
 
 ```python
 user_email = "john.doe@example.com"
-response = access_mgmt.get_user_with_role_and_group_names(user_email)
+response = access_mgmt.get_user(user_email)
 print(json.dumps(response, indent=4))
 
 # Optional: Convert the response to a DataFrame and print
@@ -107,25 +108,29 @@ api_client.export_to_csv(response, file_name="user_with_role_and_groups.csv")
 
 ## Example 2: Get All Users
 
-Fetch all users in the system.
+Fetch all users in the system. Returns a list of canonical user rows (same shape as `get_user`, including `ROLE_NAME`, `ROLE_DISPLAY_NAME`, `ROLE_RAW_NAME`, `GROUP_IDS`, and `GROUPS`). An empty list means the instance genuinely has zero users; on failure a plain `{"ok": False, "error": "..."}` dict is returned (not a list).
 
 ```python
 response = access_mgmt.get_users_all()
-df = api_client.to_dataframe(response)
-print(df)
-api_client.export_to_csv(response, file_name="all_users.csv")
+if isinstance(response, dict):
+    print(f"Failed to retrieve users. Error: {response.get('error')}")
+else:
+    df = api_client.to_dataframe(response)
+    print(df)
+    api_client.export_to_csv(response, file_name="all_users.csv")
 ```
 
 ---
 
 ## Example 2b: Get All Users with Role/Group IDs and Names
 
-Fetch all users in the system, including both role and group IDs and names.
-Compared to `get_users_all()`, this function provides a more complete view,
-which is ideal for exports and downstream automation.
+The canonical rows returned by `get_users_all()` already include both role and
+group IDs and names — ideal for exports and downstream automation.
+(`get_users_with_role_names_and_group_names` is a deprecated alias — use
+`get_users_all`.)
 
 ```python
-response = access_mgmt.get_users_with_role_names_and_group_names()
+response = access_mgmt.get_users_all()
 df = api_client.to_dataframe(response)
 print(df)
 api_client.export_to_csv(response, file_name="all_users_with_roles_and_groups.csv")
@@ -140,9 +145,9 @@ Create a user by specifying their details, including role and groups.
 ```python
 user_data = {
     "email": "john.doe@example.com",  # Required: User's email address
+    "role": "dataDesigner",  # Required: role name in either vocabulary — raw ("super"), UI ("sysAdmin"), a human phrasing ("sys admin"), or any role the instance defines ("dataDesigner"). Resolved to roleId; a missing role is rejected before any API call.
     "firstName": "John",  # Optional: User's first name
     "lastName": "Doe",  # Optional: User's last name
-    "role": "dataDesigner",  # Optional: Remove this field if not needed; if omitted, the user will be assigned the default role of 'viewer'. Cannot be an empty string.
     "groups": ["mig_test", "mig_test_2"],  # Optional: List of group names, can be an empty list if the user is not part of any group
     "password": "Sisense141!@",  # Optional: Provide a password if needed; if omitted, the user will receive an email to set their password. Cannot be an empty string so remove this field if not needed.
     "preferences": {  # Optional: User preferences, such as language settings, can be an empty dict if not needed
@@ -242,60 +247,55 @@ else:
 
 ## Example 6: Get All Users in a Specific Group
 
-List all users in a given group.
+List all members of a given group as flat membership rows — one row per (group, user), each with `GROUP_ID`, `GROUP_NAME`, `USER_ID`, `USER_NAME`, `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`, `ROLE_NAME`, `ROLE_DISPLAY_NAME`, and `ROLE_RAW_NAME`. An unknown or typo'd group name returns `{"ok": False, "error": "..."}` naming the reference — never a silent empty list.
 
 ```python
-group_name = "Admins"
+group_name = "Sales Team"
 response = access_mgmt.users_per_group(group_name)
 
 if isinstance(response, list):
-    print(f"Found {len(response)} users in group '{group_name}':")
-    for user in response:
-        print(f"- {user.get('userName')}")
+    print(f"Found {len(response)} membership row(s) in group '{group_name}':")
+    for row in response:
+        print(f"- {row.get('USER_NAME')} ({row.get('EMAIL')})")
     df = api_client.to_dataframe(response)
     print(df)
-elif isinstance(response, dict) and "error" in response:
-    print(f"No users found in the group '{group_name}'. Error: {response['error']}")
 else:
-    print(f"Unexpected response structure: {response}")
+    print(f"Failed to list group members. Error: {response.get('error')}")
 ```
 
 ---
 
-## Example 7: Get All Groups with Associated Users
+## Example 7: Get All Group Memberships
 
-Get all groups and their associated users.
+Call `users_per_group()` with no argument to get **every** membership on the instance — one flat row per (group, user). Empty groups contribute no rows, so the row count equals the real membership count; `Everyone` memberships are included. (`users_per_group_all` is a deprecated alias — use `users_per_group`.)
 
 ```python
-response = access_mgmt.users_per_group_all()
+response = access_mgmt.users_per_group()
 
-if isinstance(response, list) and response:
-    for group_info in response:
-        group_name = group_info.get("group", "Unknown Group")
-        usernames = group_info.get("username", [])
-        print(f"Group: {group_name}")
-        print("Usernames:", ", ".join(usernames) if usernames else "No users found")
-        print("-" * 40)
+if isinstance(response, list):
+    print(f"Found {len(response)} membership row(s).")
+    for row in response[:5]:
+        print(f"Group: {row.get('GROUP_NAME')} — User: {row.get('USER_NAME')}")
+    df = api_client.to_dataframe(response)
+    print(df)
+    api_client.export_to_csv(response, file_name="group_user_associations.csv")
 else:
-    error_msg = response.get("error") if isinstance(response, dict) else "Unexpected or empty response"
-    print(f"No group-user associations found. Error: {error_msg}")
-
-df = api_client.to_dataframe(response)
-print(df)
-api_client.export_to_csv(response, file_name="group_user_associations.csv")
+    print(f"Failed to list memberships. Error: {response.get('error')}")
 ```
 
 ---
 
-## Example 6a: Get All Users with Raw Role/Group Data
+## Example 6a: Get All Users with Raw Role Names
 
-Fetch users with unmodified role and group objects — useful when you need the raw role/group names (not the display-name aliases used by `get_users_all`).
+The canonical rows returned by `get_users_all()` carry both vocabularies: the UI name in `ROLE_NAME`/`ROLE_DISPLAY_NAME` (e.g. `viewer`) and the raw Sisense value in `ROLE_RAW_NAME` (e.g. `consumer`) — no separate call needed for raw names. (`get_users_expanded` is a deprecated alias — use `get_users_all`.)
 
 ```python
-response = access_mgmt.get_users_expanded()
+response = access_mgmt.get_users_all()
 
 if isinstance(response, list):
     print(f"Found {len(response)} user(s).")
+    for user in response[:5]:
+        print(f"{user['EMAIL']}: raw role = {user['ROLE_RAW_NAME']}, UI role = {user['ROLE_DISPLAY_NAME']}")
     df = api_client.to_dataframe(response)
     print(df)
 else:
@@ -323,7 +323,9 @@ else:
 
 ---
 
-## Example 7a: Get All Groups
+## Example 7a: Get All Groups (or One by Name)
+
+`get_groups()` returns the raw group-object list. Pass `name=` to look up one group server-side (exact match) — the result is still a list of raw group objects. An unknown name returns `{"ok": False, "error": "..."}` naming it, never an empty list.
 
 ```python
 response = access_mgmt.get_groups()
@@ -334,6 +336,10 @@ if isinstance(response, list):
     print(df)
 else:
     print(f"Failed to retrieve groups. Error: {response.get('error')}")
+
+# Filter to a single group by name (server-side ?name= filter)
+sales_groups = access_mgmt.get_groups(name="Sales Team")
+print(json.dumps(sales_groups, indent=4))
 ```
 
 ---
@@ -357,10 +363,12 @@ else:
 
 ## Example 7c: Delete a Group
 
+Look up the group with `get_groups(name=...)` (raw group objects use `_id`), then delete it by ID. (`get_group` is a deprecated alias — use `get_groups`.)
+
 ```python
-group = access_mgmt.get_group("Sales Team")
-if "error" not in group:
-    response = access_mgmt.delete_group(group["GROUP_ID"])
+groups = access_mgmt.get_groups(name="Sales Team")
+if isinstance(groups, list) and groups:
+    response = access_mgmt.delete_group(groups[0]["_id"])
     print(response)
 ```
 
@@ -390,6 +398,8 @@ try:
         print("Folder ownership transferred successfully.")
         print(f"Total folders changed: {response.get('total_folders_changed', 0)}")
         print(f"Total dashboards changed: {response.get('total_dashboards_changed', 0)}")
+    elif response is None:
+        print("No matching folders or dashboards found — nothing to change.")
     else:
         print(f"Failed to change ownership: {response.get('error', 'Unknown error')}")
 except Exception as e:
@@ -414,27 +424,34 @@ print(df)
 
 ## Example 10: Get Unused Columns in a DataModel
 
-List unused columns in a DataModel.
+List unused columns in a single DataModel via the bulk method. (`get_unused_columns` is a deprecated alias — use `get_unused_columns_bulk`, which also accepts a single reference.)
 
 ```python
-unused_columns = access_mgmt.get_unused_columns(datamodel_name="Sample ECommerce")
-print(json.dumps(unused_columns, indent=4))
-if unused_columns:
-    df = api_client.to_dataframe(unused_columns)
+outcome = access_mgmt.get_unused_columns_bulk(datamodels="Sample ECommerce")
+print(json.dumps(outcome, indent=4))
+if outcome["results"]:
+    df = api_client.to_dataframe(outcome["results"])
     print(df)
-api_client.export_to_csv(unused_columns, file_name="unused_columns.csv")
+    api_client.export_to_csv(outcome["results"], file_name="unused_columns.csv")
 ```
 
 ---
 
 ## Example 10B: Get Unused Columns in Multiple DataModels
+
+`get_unused_columns_bulk` always returns a dict with `"results"` (column rows across all processed models) and `"errors"` (one `{"ref": ..., "error": ...}` entry per reference that could not be processed). On partial success the good rows land in `results` and the failures in `errors`; when none of the references can be processed (or the input is invalid), the dict additionally carries `"ok": False` and a top-level `"error"` summary.
+
 ```python
-results = access_mgmt.get_unused_columns_bulk(datamodels=["60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb", "MyDataModel_ec"])
-print(json.dumps(results, indent=4))
-if results:
-    df = api_client.to_dataframe(results)
+outcome = access_mgmt.get_unused_columns_bulk(datamodels=["60ca5fe3-dc7b-4db7-aaa4-7dff0ac30bcb", "MyDataModel_ec"])
+
+if outcome.get("ok") is False:
+    print(f"Bulk analysis failed: {outcome['error']}")
+else:
+    for failure in outcome["errors"]:
+        print(f"Skipped '{failure['ref']}': {failure['error']}")
+    df = api_client.to_dataframe(outcome["results"])
     print(df)
-api_client.export_to_csv(results, file_name="unused_columns_bulk.csv")
+    api_client.export_to_csv(outcome["results"], file_name="unused_columns_bulk.csv")
 ```
 
 ---
@@ -447,6 +464,24 @@ Get sharing information for all dashboards.
 dashboard_shares = access_mgmt.get_all_dashboard_shares()
 df = api_client.to_dataframe(dashboard_shares)
 print(df)
+```
+
+---
+
+## Example 11b: Resolve User/Group IDs to Names
+
+Share entries reference users and groups only by ID. Build your own lookup maps from the
+public readers when you need readable emails and group names.
+
+```python
+users = access_mgmt.get_users_all()
+groups = access_mgmt.get_groups()
+
+if isinstance(users, list) and isinstance(groups, list):
+    users_by_id = {u["USER_ID"]: u["EMAIL"] for u in users}
+    groups_by_id = {g["_id"]: g["name"] for g in groups}
+    print(users_by_id.get("613b0200bb44e7001b4fc907"))  # -> an email, or None if not found
+    print(groups_by_id.get("613b0200bb44e7001b4fc905"))  # -> a group name, or None if not found
 ```
 
 ---

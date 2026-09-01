@@ -233,3 +233,149 @@ class TestMigrationPublicMethodsExist:
 
     def test_migrate_all_datamodels_exists(self):
         assert callable(getattr(self._migration(), "migrate_all_datamodels", None))
+
+
+# ---------------------------------------------------------------------------
+# _export_dashboard — auth-aware fallback
+# ---------------------------------------------------------------------------
+
+
+class _RecordingClient(FakeApiClient):
+    """FakeApiClient that records every GET URL, to prove no blind retry."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.get_calls = []
+
+    def get(self, url, params=None, **kwargs):
+        self.get_calls.append(url)
+        return super().get(url, params=params, **kwargs)
+
+
+class TestExportDashboardAuthAwareFallback:
+    def test_gateway_error_fails_fast_without_fallback(self):
+        # A 502 gateway timeout cannot be helped by dropping adminAccess —
+        # there must be exactly ONE request, and the reason must carry the status.
+        src = _RecordingClient(get_responses={"/api/dashboards/dash1/export": FakeResponse(502, None, text="Bad Gateway")})
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data is None
+        assert "HTTP 502" in reason
+        assert len(src.get_calls) == 1, f"blind fallback fired: {src.get_calls}"
+
+    def test_connection_failure_fails_fast_without_fallback(self):
+        src = _RecordingClient(get_responses={"/api/dashboards/dash1/export": None})
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data is None
+        assert "connection failure or timeout" in reason
+        assert len(src.get_calls) == 1, f"blind fallback fired: {src.get_calls}"
+
+    def test_auth_failure_falls_back_without_admin_access(self):
+        exported = {"oid": "dash1", "title": "Sales"}
+        src = _RecordingClient(
+            get_responses={
+                "/api/dashboards/dash1/export?adminAccess=true": FakeResponse(403, {"message": "forbidden"}),
+                "/api/dashboards/dash1/export": FakeResponse(200, exported),
+            }
+        )
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data == exported
+        assert reason is None
+        assert len(src.get_calls) == 2
+
+    def test_auth_failure_then_failed_fallback_reports_both_statuses(self):
+        src = _RecordingClient(
+            get_responses={
+                "/api/dashboards/dash1/export?adminAccess=true": FakeResponse(403, {"message": "forbidden"}),
+                "/api/dashboards/dash1/export": FakeResponse(404, {"detail": "dashboard not found"}),
+            }
+        )
+        m = Migration(source_client=src, target_client=_make_fake_client())
+
+        data, reason = m._export_dashboard("dash1")
+
+        assert data is None
+        assert "HTTP 403" in reason and "HTTP 404" in reason
+        assert "dashboard not found" in reason
+
+
+# ---------------------------------------------------------------------------
+# migrate_all_users — sysadmin exclusion
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateAllUsersSkipsSysadmins:
+    """Sysadmins must never be migrated into a target environment.
+
+    The check reads the RAW Sisense role object from
+    ``GET /api/v1/users?expand=groups,role`` (``user["role"]["name"] == "super"``),
+    NOT the canonical user row built by ``_user_row``. Those are separate code
+    paths, and this test pins that: a canonical row carries ``ROLE_NAME`` /
+    ``ROLE_RAW_NAME`` and no ``role`` key at all, so a change to the canonical
+    row's role vocabulary must not reach this logic.
+    """
+
+    _TENANTS = [{"_id": "tenant_system", "name": "system"}]
+    _ROLES = [{"_id": "role_super", "name": "super"}, {"_id": "role_consumer", "name": "consumer"}]
+
+    def _users(self):
+        return [
+            {
+                "email": "admin@example.com",
+                "firstName": "Ada",
+                "tenantId": "tenant_system",
+                "role": {"_id": "role_super", "name": "super"},
+                "groups": [],
+            },
+            {
+                "email": "viewer@example.com",
+                "firstName": "Vic",
+                "tenantId": "tenant_system",
+                "role": {"_id": "role_consumer", "name": "consumer"},
+                "groups": [],
+            },
+        ]
+
+    def _run(self):
+        posted = {}
+
+        class _CapturingClient(FakeApiClient):
+            def post(self, url, data=None, **kwargs):
+                posted["payload"] = data
+                return super().post(url, data=data, **kwargs)
+
+        src = FakeApiClient(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, self._users()),
+                "/api/v1/tenants": FakeResponse(200, self._TENANTS),
+            },
+            logger=FakeLogger(),
+        )
+        tgt = _CapturingClient(
+            get_responses={
+                "/api/roles": FakeResponse(200, self._ROLES),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+            post_responses={"/api/v1/users/bulk": FakeResponse(200, [{"_id": "u1"}])},
+            logger=FakeLogger(),
+        )
+        result = Migration(source_client=src, target_client=tgt).migrate_all_users()
+        return result, posted.get("payload") or []
+
+    def test_super_role_user_is_excluded_from_the_bulk_payload(self):
+        _, payload = self._run()
+        emails = [u.get("email") for u in payload]
+        assert "admin@example.com" not in emails, "a sysadmin must never be migrated"
+        assert "viewer@example.com" in emails
+
+    def test_skip_is_reported_in_the_summary(self):
+        result, _ = self._run()
+        assert result.get("skipped_super_count") == 1

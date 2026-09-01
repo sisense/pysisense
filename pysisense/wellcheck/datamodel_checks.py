@@ -105,53 +105,21 @@ class DatamodelChecksMixin:
                 self.logger.warning(f"Schema data is None or does not contain datasets for datamodel '{datamodel_title}'")
                 continue
 
+            (
+                dm_results,
+                dm_total_tables,
+                dm_custom_tables,
+                dm_custom_tables_with_union,
+            ) = self._compute_custom_tables_for_datamodel(
+                schema_data=schema_data,
+                datamodel_title=datamodel_title,
+            )
+
+            results.extend(dm_results)
             processed_datamodels += 1
-
-            for dataset in schema_data.get("datasets", []):
-                schema = dataset.get("schema")
-
-                if not isinstance(schema, dict) or "tables" not in schema:
-                    self.logger.warning(f"Schema or tables keys are missing in the dataset for datamodel '{datamodel_title}'")
-                    continue
-
-                tables = schema.get("tables") or []
-                if not tables:
-                    self.logger.warning(f"No tables found in dataset {dataset.get('oid')} for datamodel {datamodel_title}")
-                    continue
-
-                for table in tables:
-                    total_tables += 1
-
-                    # Only look at custom tables
-                    if table.get("type") != "custom":
-                        continue
-
-                    custom_tables += 1
-                    table_name = table.get("name", "")
-
-                    row: dict[str, Any] = {
-                        "data_model": datamodel_title,
-                        "table": table_name,
-                        "has_union": "no",
-                    }
-
-                    expr_container = table.get("expression")
-                    if isinstance(expr_container, dict) and "expression" in expr_container:
-                        expression = expr_container.get("expression")
-
-                        if expression is None:
-                            self.logger.warning(f"Expression is null in table '{table_name}' for datamodel '{datamodel_title}'")
-                        else:
-                            expr_str = str(expression)
-                            if "union" in expr_str.lower():
-                                row["has_union"] = "yes"
-                                custom_tables_with_union += 1
-                            else:
-                                self.logger.info(f"SQL expression does not contain 'union' for table '{table_name}' for datamodel '{datamodel_title}'")
-                    else:
-                        self.logger.warning(f"Expression not found for table '{table_name}' for datamodel '{datamodel_title}'")
-
-                    results.append(row)
+            total_tables += dm_total_tables
+            custom_tables += dm_custom_tables
+            custom_tables_with_union += dm_custom_tables_with_union
 
         if processed_datamodels == 0:
             self.logger.warning("No datamodels to process.")
@@ -165,6 +133,67 @@ class DatamodelChecksMixin:
         self.logger.info("Completed custom table check for data models.")
 
         return results
+
+    def _compute_custom_tables_for_datamodel(
+        self,
+        schema_data: dict[str, Any],
+        datamodel_title: str,
+    ) -> tuple[list[dict[str, Any]], int, int, int]:
+        """
+        Compute custom-table union flags for a single data model schema payload.
+        """
+        results: list[dict[str, Any]] = []
+        total_tables = 0
+        custom_tables = 0
+        custom_tables_with_union = 0
+
+        for dataset in schema_data.get("datasets", []):
+            schema = dataset.get("schema")
+
+            if not isinstance(schema, dict) or "tables" not in schema:
+                self.logger.warning(f"Schema or tables keys are missing in the dataset for datamodel '{datamodel_title}'")
+                continue
+
+            tables = schema.get("tables") or []
+            if not tables:
+                self.logger.warning(f"No tables found in dataset {dataset.get('oid')} for datamodel {datamodel_title}")
+                continue
+
+            for table in tables:
+                total_tables += 1
+
+                # Only look at custom tables
+                if table.get("type") != "custom":
+                    continue
+
+                custom_tables += 1
+                table_name = table.get("name", "")
+
+                row: dict[str, Any] = {
+                    "data_model": datamodel_title,
+                    "table": table_name,
+                    "has_union": "no",
+                }
+
+                expr_container = table.get("expression")
+                if isinstance(expr_container, dict) and "expression" in expr_container:
+                    expression = expr_container.get("expression")
+
+                    if expression is None:
+                        self.logger.warning(f"Expression is null in table '{table_name}' for datamodel '{datamodel_title}'")
+                    else:
+                        expr_str = str(expression)
+                        if "union" in expr_str.lower():
+                            row["has_union"] = "yes"
+                            custom_tables_with_union += 1
+                        else:
+                            self.logger.info(f"SQL expression does not contain 'union' for table '{table_name}' for datamodel '{datamodel_title}'")
+                else:
+                    self.logger.warning(f"Expression not found for table '{table_name}' for datamodel '{datamodel_title}'")
+
+                results.append(row)
+
+        return results, total_tables, custom_tables, custom_tables_with_union
 
     def check_datamodel_island_tables(
         self,
@@ -618,7 +647,6 @@ class DatamodelChecksMixin:
 
             resolved = self.datamodel.resolve_datamodel_reference(ref)
             if not resolved.get("success"):
-                # Preserve style: warn when skipping unresolved references
                 self.logger.warning(f"Skipping datamodel reference '{ref}': {resolved.get('error')}")
                 continue
 
@@ -635,9 +663,7 @@ class DatamodelChecksMixin:
             response = self.api_client.get(schema_endpoint)
 
             if response is None:
-                # Mirrors original intent: unable to retrieve datamodel data
                 self.logger.warning(f"Failed to retrieve data for datamodel ID: {datamodel_id}")
-                # Also keep the schema_data-style warning text
                 self.logger.warning(f"schema_data is None or does not contain datasets for datamodel '{datamodel_title}'")
                 continue
 
@@ -656,7 +682,6 @@ class DatamodelChecksMixin:
                 continue
 
             if not schema_data or "datasets" not in schema_data:
-                # Preserve original wording
                 self.logger.warning(f"schema_data is None or does not contain datasets for datamodel '{datamodel_title}'")
                 continue
 
@@ -676,11 +701,9 @@ class DatamodelChecksMixin:
                 tables_with_import_query += datamodel_import_query_tables
 
         if total_datamodels == 0:
-            # Keep a close variant of the original summary message
             self.logger.warning("No datamodels to process.")
             return []
 
-        # Summary logs, preserving original lines
         self.logger.info(f"Processed {total_datamodels} data models.")
         self.logger.info(f"Processed {total_tables} tables.")
         self.logger.info(f"Found {tables_with_import_query} tables with import queries.")
@@ -707,12 +730,10 @@ class DatamodelChecksMixin:
             tables = schema.get("tables") if isinstance(schema, dict) else None
 
             if schema is None or tables is None:
-                # Preserve original wording
                 self.logger.warning(f"Schema or tables keys are missing in the dataset for datamodel '{datamodel_title}'")
                 continue
 
             if not tables:
-                # Preserve original wording
                 self.logger.warning(f"No tables found in dataset {dataset.get('oid')} for datamodel {datamodel_title}")
                 continue
 
@@ -730,16 +751,13 @@ class DatamodelChecksMixin:
                     config_options = table.get("configOptions")
 
                     if config_options is None:
-                        # Preserve original wording
                         self.logger.warning(f"configOptions is null in table '{table_name}' for datamodel '{datamodel_title}'")
                     elif "importQuery" in config_options:
                         row["has_import_query"] = "yes"
                         tables_with_import_query += 1
                     else:
-                        # Preserve original wording
                         self.logger.info(f"importQuery not found in configOptions for table '{table_name}' for datamodel '{datamodel_title}'")
                 else:
-                    # Preserve original wording
                     self.logger.warning(f"configOptions not found for table '{table_name}' for datamodel '{datamodel_title}'")
 
                 results.append(row)
@@ -877,8 +895,6 @@ class DatamodelChecksMixin:
 
                 is_m2m = count1 > 1 and count2 > 1
 
-                # Preserve the original print-style output as a log line
-                # Original: ec_name, left_table, left_column, right_table, right_column, is_m2m
                 self.logger.info(f"{datamodel_title}, {left_table}, {left_column}, {right_table}, {right_column}, {is_m2m}")
 
                 results.append(

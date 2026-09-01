@@ -2,28 +2,62 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class AdminMixin:
-    def get_all_dashboard_shares(self) -> list[dict[str, Any]]:
-        """Retrieve all dashboard shares, including user and group details for each shared dashboard.
+    def _get_user_email_and_group_name_maps(self) -> dict[str, Any]:
+        """Fetch all users and groups and build ID-to-name lookup maps.
 
-        Uses pagination to retrieve all dashboards and their share information,
-        and collects the corresponding user and group details for each share.
+        Internal helper: resolves share entries (dashboard or data model),
+        which reference users and groups only by ID, into readable emails and
+        group names. Shared by ``get_all_dashboard_shares`` here and by
+        ``Dashboard.get_dashboard_share`` (via ``self.access_mgmt``). Use
+        ``get_users_all`` and ``get_groups`` for the public equivalents.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"users_by_id": {user_id: email, ...}, "groups_by_id": {group_id: name, ...}}``
+            on success, or ``{"error": "..."}`` if either API call fails.
+        """
+        users_response = self.api_client.get("/api/v1/users")
+        if users_response is None or users_response.status_code != 200:
+            failure = _extract_error_message(users_response, "Failed to fetch users", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        users_data = users_response.json()
+        users_by_id = {user["_id"]: user.get("email", "Unknown Email") for user in users_data}
+
+        groups_response = self.api_client.get("/api/v1/groups")
+        if groups_response is None or groups_response.status_code != 200:
+            failure = _extract_error_message(groups_response, "Failed to fetch groups", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        groups_data = groups_response.json()
+        groups_by_id = {group["_id"]: group.get("name", "Unknown Group") for group in groups_data}
+
+        return {"users_by_id": users_by_id, "groups_by_id": groups_by_id}
+
+    def _fetch_all_dashboards_paginated(self) -> list[dict[str, Any]]:
+        """Fetch every dashboard via the paginated dashboard-search endpoint.
+
+        Shared by ``get_all_dashboard_shares`` and
+        ``change_folder_and_dashboard_ownership``'s access-grant fallback.
 
         Returns
         -------
         list[dict[str, Any]]
-            A list of dictionaries containing the dashboard title, share type
-            (``user`` or ``group``), and share name (email or group name). An
-            empty list is returned if users or groups cannot be fetched.
+            All dashboard objects across every page. If a page request fails
+            or returns no response, whatever was retrieved so far is
+            returned instead of raising.
         """
         limit = 50
         skip = 0
-        dashboards = []
+        dashboards: list[dict[str, Any]] = []
 
-        self.logger.info("Starting to retrieve dashboard shares...")
-
-        # Step 1: Fetch all dashboards with pagination
         while True:
             self.logger.debug(f"Fetching dashboards with limit={limit}, skip={skip}")
             dashboard_response = self.api_client.post(
@@ -45,50 +79,56 @@ class AdminMixin:
             skip += limit
             self.logger.debug(f"Retrieved {len(items)} dashboards, total so far: {len(dashboards)}")
 
-        # Step 2: Fetch all users
-        self.logger.info("Fetching all users.")
-        users_response = self.api_client.get("/api/v1/users")
-        if not users_response or users_response.status_code != 200:
-            self.logger.error("Failed to fetch users.")
+        return dashboards
+
+    def get_all_dashboard_shares(self) -> list[dict[str, Any]]:
+        """Retrieve all dashboard shares, including user and group details for each shared dashboard.
+
+        Uses pagination to retrieve all dashboards and their share information,
+        and collects the corresponding user and group details for each share.
+
+        Returns
+        -------
+        list[dict[str, Any]]
+            A list of dictionaries containing the dashboard title, share type
+            (``user`` or ``group``), and share name (email or group name) — one
+            row per share, so the row count equals the number of shares.
+            Dashboards with no shares contribute no rows. An empty list is
+            returned if users or groups cannot be fetched.
+        """
+        self.logger.info("Starting to retrieve dashboard shares...")
+
+        # Step 1: Fetch all dashboards with pagination
+        dashboards = self._fetch_all_dashboards_paginated()
+
+        # Step 2: Fetch user/group ID-to-name lookup maps
+        self.logger.info("Fetching users and groups.")
+        maps = self._get_user_email_and_group_name_maps()
+        if "error" in maps:
             return []
 
-        users_data = users_response.json()
-        users_detail = [{"id": user["_id"], "email": user.get("email", "Unknown Email")} for user in users_data]
-
-        # Step 3: Fetch all groups
-        self.logger.info("Fetching all groups.")
-        groups_response = self.api_client.get("/api/v1/groups")
-        if not groups_response or groups_response.status_code != 200:
-            self.logger.error("Failed to fetch groups.")
-            return []
-
-        groups_data = groups_response.json()
-        groups_detail = [{"id": group["_id"], "name": group.get("name", "Unknown Group")} for group in groups_data]
+        users_by_id = maps["users_by_id"]
+        groups_by_id = maps["groups_by_id"]
 
         shared_list = []
 
-        # Step 4: Parse the dashboards to find shared users and groups
+        # Step 3: Parse the dashboards to find shared users and groups
         self.logger.debug(f"Parsing {len(dashboards)} dashboards for shared users and groups.")
         for dashboard in dashboards:
             if dashboard.get("shares"):
                 for share in dashboard["shares"]:
                     share_info = {"dashboard": dashboard["title"], "type": None, "name": None}
 
-                    if share["type"] == "user":
-                        user = next((user for user in users_detail if user["id"] == share["shareId"]), None)
-                        if user:
-                            share_info["type"] = "user"
-                            share_info["name"] = user["email"]
-                    elif share["type"] == "group":
-                        group = next((group for group in groups_detail if group["id"] == share["shareId"]), None)
-                        if group:
-                            share_info["type"] = "group"
-                            share_info["name"] = group["name"]
+                    if share["type"] == "user" and share["shareId"] in users_by_id:
+                        share_info["type"] = "user"
+                        share_info["name"] = users_by_id[share["shareId"]]
+                    elif share["type"] == "group" and share["shareId"] in groups_by_id:
+                        share_info["type"] = "group"
+                        share_info["name"] = groups_by_id[share["shareId"]]
 
                     shared_list.append(share_info)
-            else:
-                # Add placeholder if there are no shares for the dashboard
-                shared_list.append({"dashboard": dashboard["title"], "type": None, "name": None})
+            # Dashboards with no shares contribute no rows — a placeholder row
+            # would read as one share to any consumer that counts results.
 
         self.logger.info(f"Parsed {len(shared_list)} shared dashboards.")
 
@@ -147,14 +187,15 @@ class AdminMixin:
         schema_url = f"/api/v2/datamodels/schema?title={datamodel_name}"
         response = self.api_client.get(schema_url)
 
-        if not response or response.status_code != 200:
-            self.logger.error(f"Failed to fetch DataModel schema for '{datamodel_name}'")
-            return {"error": f"Failed to fetch DataModel schema for '{datamodel_name}'"}
+        if response is None or response.status_code != 200:
+            failure = _extract_error_message(response, f"Failed to fetch DataModel schema for '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         response_data = response.json()
         if not response_data:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": f"DataModel '{datamodel_name}' not found"}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found"}
 
         # Extract DataModel ID
         datamodel_id = response_data.get("oid")
@@ -170,7 +211,7 @@ class AdminMixin:
 
             if interval_seconds <= 0:
                 self.logger.error("Interval must be greater than 0 seconds.")
-                return {"error": "Interval must be greater than 0 seconds."}
+                return {"ok": False, "error": "Interval must be greater than 0 seconds."}
 
             schedule_payload = {"scheduleType": "Interval", "buildType": build_type, "intervalSeconds": interval_seconds}
         elif days and hour is not None and minute is not None:
@@ -187,7 +228,7 @@ class AdminMixin:
             schedule_payload = {"cronString": cron_string, "buildType": build_type, "daysOfWeek": days, "hour": hour, "minute": minute}
         else:
             self.logger.error("Invalid schedule configuration: Provide either interval or full cron config.")
-            return {"error": "Invalid schedule configuration: Provide either interval or full cron config."}
+            return {"ok": False, "error": "Invalid schedule configuration: Provide either interval or full cron config."}
 
         self.logger.info("Creating schedule build with the following details:")
         self.logger.debug(schedule_payload)
@@ -197,7 +238,7 @@ class AdminMixin:
 
         if not response or response.status_code not in [200, 201]:
             self.logger.error("Failed to create schedule build. Response: %s", getattr(response, "text", "No response text"))
-            return {"error": "Failed to create schedule build."}
+            return {"ok": False, "error": "Failed to create schedule build."}
 
         try:
             response_data = response.json()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _extract_error_message
+
 
 class DataModelCoreMixin:
     def get_datamodel(self, datamodel_name: str) -> dict[str, Any]:
@@ -26,18 +28,15 @@ class DataModelCoreMixin:
         endpoint = f"/api/v2/datamodels/schema?title={datamodel_name}"
         response = self.api_client.get(endpoint)
 
-        if response is None:
-            self.logger.error(f"No response received from API while retrieving DataModel '{datamodel_name}'")
-            return {"error": "No response from API while retrieving DataModel"}
-
-        if not response.ok:
-            self.logger.error(f"Failed to retrieve DataModel '{datamodel_name}'. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve DataModel. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, f"Failed to retrieve DataModel '{datamodel_name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         datamodels = response.json()
         if not datamodels:
             self.logger.warning(f"No DataModel found with name '{datamodel_name}'")
-            return {"error": f"DataModel '{datamodel_name}' not found"}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found"}
 
         self.logger.info(f"Successfully retrieved DataModel '{datamodel_name}'")
         self.logger.debug(f"DataModel details: {datamodels}")
@@ -77,13 +76,10 @@ class DataModelCoreMixin:
 
         response = self.api_client.post(endpoint, data=payload)
 
-        if response is None:
-            self.logger.error("No response received from API while retrieving datamodel metadata.")
-            return {"error": "No response from API while retrieving datamodel metadata."}
-
-        if not response.ok:
-            self.logger.error(f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}, Error: {response.text}")
-            return {"error": f"Failed to retrieve datamodel metadata. Status Code: {response.status_code}"}
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve datamodel metadata", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
 
         data = response.json()
 
@@ -175,7 +171,7 @@ class DataModelCoreMixin:
 
         structure = self._resolve_datamodel_structure(datamodel_name)
         if structure is None:
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
 
         datamodel_name = structure["datamodel_name"]
 
@@ -288,7 +284,7 @@ class DataModelCoreMixin:
         datamodel = self.get_datamodel(datamodel_name)
         if "error" in datamodel:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
-            return {"error": f"DataModel '{datamodel_name}' not found."}
+            return {"ok": False, "error": f"DataModel '{datamodel_name}' not found."}
 
         datamodel_type = datamodel.get("type")
         datamodel_name = datamodel.get("title")
@@ -363,7 +359,7 @@ class DataModelCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to fetch ElastiCubes — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         cubes = response.json()
         count = len(cubes) if isinstance(cubes, list) else 1
@@ -404,7 +400,7 @@ class DataModelCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to load data model '{title}' — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         body = response.json()
 
@@ -412,13 +408,13 @@ class DataModelCoreMixin:
         if body.get("errors"):
             msg = f"GraphQL error loading '{title}': {body['errors'][0].get('message', body['errors'])}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         model = (body.get("data") or {}).get("elasticubeByTitle")
         if not model:
             msg = f"Data model '{title}' not found on server '{server}'"
             self.logger.warning(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         self.logger.info(f"Loaded data model '{title}' — oid={model.get('oid')}")
         return model
@@ -459,7 +455,7 @@ class DataModelCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to delete data model '{title}' — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         self.logger.info(f"Deleted data model '{title}' on server '{server}'")
         return {"success": True}
@@ -511,19 +507,19 @@ class DataModelCoreMixin:
             status = response.status_code if response is not None else "no response"
             msg = f"Failed to export datamodel schema for '{datamodel_id}' — status {status}"
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         try:
             schema = response.json()
         except Exception:
             msg = f"Export returned invalid JSON for datamodel '{datamodel_id}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         if not isinstance(schema, dict):
             msg = f"Export returned non-dict JSON for datamodel '{datamodel_id}'."
             self.logger.error(msg)
-            return {"error": msg}
+            return {"ok": False, "error": msg}
 
         self.logger.info(f"Exported schema for datamodel '{datamodel_id}'.")
         return schema
@@ -606,7 +602,7 @@ class DataModelCoreMixin:
         detail = payload if payload is not None else (getattr(response, "text", None) if response is not None else None)
         msg = f"Failed to import datamodel schema for '{title}' — status {status}: {detail}"
         self.logger.error(msg)
-        return {"error": msg, "already_exists": already_exists}
+        return {"ok": False, "error": msg, "already_exists": already_exists}
 
     def resolve_datamodel_reference(self, datamodel_ref: str) -> dict[str, Any]:
         """
@@ -691,31 +687,30 @@ class DataModelCoreMixin:
         title_response = self.api_client.get(title_endpoint, params=title_params)
 
         if title_response is None:
-            error_msg = "No response received while resolving data model by title."
+            failure = _extract_error_message(title_response, "Failed to resolve data model by title", self.api_client)
             self.logger.error(
-                error_msg,
+                failure["error"],
                 extra={"datamodel_ref": datamodel_ref},
             )
             return {
                 "success": False,
+                "ok": False,
                 "status_code": 500,
                 "datamodel_id": None,
                 "datamodel_title": None,
-                "error": error_msg,
+                "error": failure["error"],
             }
 
         if title_response.status_code != 200:
-            try:
-                error_body = title_response.json()
-            except Exception:
-                error_body = getattr(title_response, "text", "No response text")
-            error_msg = f"Failed to resolve data model by title. Status: {title_response.status_code}, Error: {error_body}"
+            failure = _extract_error_message(title_response, "Failed to resolve data model by title", self.api_client)
+            error_msg = failure["error"]
             self.logger.error(
                 error_msg,
                 extra={"datamodel_ref": datamodel_ref},
             )
             return {
                 "success": False,
+                "ok": False,
                 "status_code": title_response.status_code,
                 "datamodel_id": None,
                 "datamodel_title": None,
@@ -732,6 +727,7 @@ class DataModelCoreMixin:
             )
             return {
                 "success": False,
+                "ok": False,
                 "status_code": 500,
                 "datamodel_id": None,
                 "datamodel_title": None,
@@ -753,6 +749,7 @@ class DataModelCoreMixin:
             )
             return {
                 "success": False,
+                "ok": False,
                 "status_code": 404,
                 "datamodel_id": None,
                 "datamodel_title": None,
@@ -779,6 +776,7 @@ class DataModelCoreMixin:
             )
             return {
                 "success": False,
+                "ok": False,
                 "status_code": 500,
                 "datamodel_id": None,
                 "datamodel_title": None,

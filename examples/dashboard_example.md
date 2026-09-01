@@ -94,6 +94,8 @@ Add a custom JavaScript script to a dashboard for UI customization.
 
 The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Only the **dashboard owner** can save scripts; pass **`executing_user`** as the Sisense **username** of your API token user to temporarily take ownership (admin), apply the script, then restore the previous owner and shares.
 
+On success this returns `{"success": True, "message": "..."}`; failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`. If the update fails with **404** and no `executing_user` was passed, a hint about passing `executing_user` is appended to the `error` sentence.
+
 ```python
 dashboard_id = "65d62c9574851800339cf49e"
 script = """
@@ -119,14 +121,17 @@ dashboard.on('widgetready', function(d) {
 });
 """
 response = dashboard.add_dashboard_script(dashboard_id, script, executing_user="sisensepy@sisense.com")
-print(response)
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(response["message"])  # {"success": True, "message": "..."}
 ```
 
 ---
 
 ## Example 6: Add Widget Script
 
-Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** often indicates an ownership issue.
+Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect and returns `{"success": True, "message": "..."}`. Failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}` — including when the script was added but the republish failed, in which case the `error` sentence says so. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** and no `executing_user` appends a hint about passing `executing_user` to the `error` sentence.
 
 ```python
 dashboard_id = "67dc928ae72ce30033bc6680"
@@ -148,48 +153,61 @@ widget.on('beforeviewloaded', function(se, ev){
 }) 
 """
 response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user="sisensepy@sisense.com")
-print(response)
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(response["message"])  # {"success": True, "message": "..."}
 ```
 
 ---
 
 ## Example 7: Add Dashboard Shares
 
-Share a dashboard with users and groups, specifying permissions.
+Share a dashboard with users and groups, specifying permissions. On success this returns `{"success": True, "message": "...", "new_shares": <n>, "updated_shares": <n>}` — when every requested share already exists with the same rule, both counts are `0`. Failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`.
 
 ```python
 dashboard_id = "6823c49365acb80033041c88"
 shares = [{"name": "john.doe@sisense.com", "type": "user", "rule": "edit"}, {"name": "viewer@sisense.com", "type": "user", "rule": "view"}, {"name": "mig_test", "type": "group", "rule": "view"}]
 response = dashboard.add_dashboard_shares(dashboard_id, shares)
-print(response)
+if response.get("ok") is False:
+    print(response["error"])
+else:
+    print(response["message"])
+    print(f"New shares: {response['new_shares']}, updated shares: {response['updated_shares']}")
 ```
 
 ---
 
 ## Example 8: Get Columns from a Dashboard
 
-Retrieve all columns from a specific dashboard.
+Retrieve all columns from a specific dashboard. An empty list means the dashboard genuinely references no columns; failures (dashboard not found, export failed or unparseable) return the standard error dict `{"ok": False, "error": "..."}`.
 
 ```python
 dashboard_id = "pysense_databricks"
 dashboard_columns = dashboard.get_dashboard_columns(dashboard_id)
-print(json.dumps(dashboard_columns, indent=4))
-df = api_client.to_dataframe(dashboard_columns)
-print(df)
+if isinstance(dashboard_columns, dict) and dashboard_columns.get("ok") is False:
+    print(dashboard_columns["error"])
+else:
+    print(json.dumps(dashboard_columns, indent=4))
+    df = api_client.to_dataframe(dashboard_columns)
+    print(df)
 ```
 
 ---
 
 ## Example 9: Get Dashboard Shares
 
-Get sharing information for a dashboard by name.
+Get sharing information for a dashboard by name. An empty list always means the dashboard genuinely has no shares; a dashboard that cannot be found returns the standard error dict `{"ok": False, "error": "..."}`.
 
 ```python
 dashboard_name = "pysense_databricks"
 share_info = dashboard.get_dashboard_share(dashboard_name)
-print(json.dumps(share_info, indent=4))
-df = api_client.to_dataframe(share_info)
-print(df)
+if isinstance(share_info, dict) and share_info.get("ok") is False:
+    print(share_info["error"])
+else:
+    print(json.dumps(share_info, indent=4))
+    df = api_client.to_dataframe(share_info)
+    print(df)
 ```
 
 ---
@@ -274,64 +292,6 @@ else:
 
 ---
 
-## Example 13: Move Dashboard to Folder
-
-Place an imported dashboard into a target folder after migration.
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-folder_id = "folder_oid_here"
-result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Example 14: Rename Dashboard
-
-Update a dashboard title after import.
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Example 15: Publish Dashboard
-
-Republish a dashboard (for example preflight when the user already has access).
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-result = dashboard.publish_dashboard(dashboard_id)
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Example 16: Check Can Be Owned
-
-Check whether the current user can take ownership of a dashboard.
-
-```python
-dashboard_id = "6823c49365acb80033041c88"
-result = dashboard.can_be_owned(dashboard_id)
-print(json.dumps(result, indent=4))
-```
-
----
-
-## Notes
-
-- Adjust parameters as needed for your environment.
-- For more details, refer to the documentation in the `docs/` folder.
-
----
-
----
-
 ## Example 13: Get Dashboards (Standard Endpoint)
 
 Retrieve dashboards visible to the authenticated user. Unlike `get_all_dashboards` which uses the admin endpoint, this uses `GET /api/v1/dashboards` and returns dashboards owned by or shared with the current user.
@@ -349,45 +309,56 @@ print(df)
 
 ---
 
-## Example 14: Publish a Dashboard
+## Example 14: Move Dashboard to Folder
 
-Publish a dashboard to make it visible to shared users after programmatic ownership or share changes.
+Place an imported dashboard into a target folder after migration.
 
 ```python
-dashboard_id = "65d62c9wregfhg0e33bc64e8"
-response = dashboard.publish_dashboard(dashboard_id)
-print(response)
-# {"success": True}
+dashboard_id = "6823c49365acb80033041c88"
+folder_id = "folder_oid_here"
+result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
+print(json.dumps(result, indent=4))
 ```
 
 ---
 
-## Example 15: Rename a Dashboard
+## Example 15: Rename Dashboard
 
-Update a dashboard's title.
+Update a dashboard title after import.
 
 ```python
-dashboard_id = "65d62c9wregfhg0e33bc64e8"
-response = dashboard.rename_dashboard(dashboard_id, "Q4 Sales Overview")
-print(json.dumps(response, indent=4))
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
+print(json.dumps(result, indent=4))
 ```
 
 ---
 
-## Example 16: Move a Dashboard to a Folder
+## Example 16: Publish Dashboard
 
-Place a dashboard inside a specific folder.
+Republish a dashboard (for example preflight when the user already has access).
 
 ```python
-dashboard_id = "65d62c9wregfhg0e33bc64e8"
-folder_id = "65d62c9wregfhg0e33bc64f0"
-response = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
-print(json.dumps(response, indent=4))
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.publish_dashboard(dashboard_id)
+print(json.dumps(result, indent=4))
 ```
 
 ---
 
-## Example 17: Change Dashboard Owner
+## Example 17: Check Can Be Owned
+
+Check whether the current user can take ownership of a dashboard.
+
+```python
+dashboard_id = "6823c49365acb80033041c88"
+result = dashboard.can_be_owned(dashboard_id)
+print(json.dumps(result, indent=4))
+```
+
+---
+
+## Example 18: Change Dashboard Owner
 
 Transfer ownership of a dashboard to a different user. Pass the Sisense user ID (not email). Use `AccessManagement.get_user(email)` to look up the user ID.
 
@@ -406,7 +377,7 @@ response = dashboard.change_dashboard_owner(dashboard_id, original_owner_id, adm
 
 ---
 
-## Example 18: Get a Widget by ID
+## Example 19: Get a Widget by ID
 
 Fetch the full widget object for a single widget.
 
@@ -419,7 +390,7 @@ print(json.dumps(widget, indent=4))
 
 ---
 
-## Example 19: Update a Widget
+## Example 20: Update a Widget
 
 Read a widget, change a field, and write it back. Server-managed fields are stripped automatically.
 
@@ -436,7 +407,7 @@ print(json.dumps(response, indent=4))
 
 ---
 
-## Example 20: Find Widgets by Type
+## Example 21: Find Widgets by Type
 
 Search for all BloX widgets across the entire instance.
 
@@ -465,7 +436,7 @@ api_client.export_to_csv(results, "chart_widgets.csv")
 
 ---
 
-## Example 21: Import Dashboards in Bulk
+## Example 22: Import Dashboards in Bulk
 
 Import a previously exported dashboard payload — typically obtained from `export_dashboard` on another environment. Used internally by `MergeTool.migrate_dashboards`; see `mergetool_example.md` for full cross-environment dashboard migration.
 
@@ -474,3 +445,10 @@ exported = dashboard.export_dashboard("65d62c9wregfhg0e33bc64e8")
 result = dashboard.import_dashboards_bulk([exported], action="skip")  # Options: "skip", "overwrite", "duplicate"
 print(json.dumps(result, indent=4))
 ```
+
+---
+
+## Notes
+
+- Adjust parameters as needed for your environment.
+- For more details, refer to the documentation in the `docs/` folder.

@@ -6,6 +6,8 @@ from typing import Any
 
 import jsbeautifier as beautifier
 
+from ..utils import _extract_error_message
+
 
 class ScriptsMixin:
     def _take_dashboard_ownership(self, dashboard_id: str, executing_user: str) -> tuple[str, list[dict[str, Any]]] | str:
@@ -105,7 +107,7 @@ class ScriptsMixin:
         else:
             self.logger.info(f"Ownership of dashboard {dashboard_id} successfully restored to original owner.")
 
-    def add_dashboard_script(self, dashboard_id: str, script: str | dict[str, Any], executing_user: str | None = None) -> str:
+    def add_dashboard_script(self, dashboard_id: str, script: str | dict[str, Any], executing_user: str | None = None) -> dict[str, Any]:
         """Add or overwrite a script on a dashboard.
 
         Adds or overwrites a script on a dashboard, temporarily changing
@@ -129,9 +131,9 @@ class ScriptsMixin:
 
         Returns
         -------
-        str
-            A success message on success, or an error message string describing
-            the failure.
+        dict[str, Any]
+            ``{"success": True, "message": "..."}`` on success, or the standard
+            ``{"ok": False, "error": "...", ...}`` dict on failure.
         """
         add_dashboard_script_endpoint = f"/api/dashboards/{dashboard_id}"
         original_owner_id: str | None = None
@@ -141,7 +143,7 @@ class ScriptsMixin:
         if executing_user:
             result = self._take_dashboard_ownership(dashboard_id, executing_user)
             if isinstance(result, str):
-                return result
+                return {"ok": False, "error": result.removeprefix("Error: ")}
             original_owner_id, shares = result
             took_ownership = True
         else:
@@ -158,38 +160,30 @@ class ScriptsMixin:
                 self.logger.debug(f"Final dashboard script payload prepared: {script_dict}")
             except json.JSONDecodeError:
                 self.logger.error("Invalid JSON format for dashboard script.")
-                return "Error: Dashboard Script must be a valid JSON string."
+                return {"ok": False, "error": "Dashboard Script must be a valid JSON string."}
 
             # Add script to the dashboard
             script_response = self.api_client.put(add_dashboard_script_endpoint, data=script_dict)
 
             if script_response is None or script_response.status_code != 200:
-                try:
-                    error_message = script_response.json()
-                except Exception:
-                    error_message = getattr(script_response, "text", "No response text")
-
-                self.logger.error(f"Failed to add script to dashboard {dashboard_id}. Error: {error_message}")
-
+                failure = _extract_error_message(script_response, f"Failed to add dashboard script to dashboard '{dashboard_id}'", self.api_client)
                 if script_response is not None and script_response.status_code == 404 and executing_user is None:
-                    return (
-                        f"Error: Failed to add dashboard script to dashboard '{dashboard_id}'. "
-                        f"This may be because the API token used does not belong to the dashboard owner, "
-                        f"and no 'executing_user' was provided. Only the dashboard owner can modify scripts."
-                        f" Please provide the 'executing_user' parameter to change ownership temporarily or "
-                        f"set the API token user as dashboard owner."
+                    failure["error"] += (
+                        " (this may be because the API token user is not the dashboard owner and no"
+                        " 'executing_user' was provided — only the owner can modify scripts; pass"
+                        " 'executing_user' to change ownership temporarily)"
                     )
-
-                return f"Error: Failed to add dashboard script to dashboard {dashboard_id}."
+                self.logger.error(failure["error"])
+                return failure
 
             self.logger.info(f"Dashboard Script successfully added to dashboard {dashboard_id}.")
-            return "Dashboard Script added successfully."
+            return {"success": True, "message": f"Dashboard Script added successfully to dashboard '{dashboard_id}'."}
 
         finally:
             if took_ownership:
                 self._release_dashboard_ownership(dashboard_id, original_owner_id, shares)
 
-    def add_widget_script(self, dashboard_id: str, widget_id: str, script: str | dict[str, Any], executing_user: str | None = None) -> str:
+    def add_widget_script(self, dashboard_id: str, widget_id: str, script: str | dict[str, Any], executing_user: str | None = None) -> dict[str, Any]:
         """Add or overwrite a script for a specific widget within a dashboard.
 
         Adds or overwrites a script for a specific widget, republishing the
@@ -216,9 +210,10 @@ class ScriptsMixin:
 
         Returns
         -------
-        str
-            A success message on success, or an error message string describing
-            the failure.
+        dict[str, Any]
+            ``{"success": True, "message": "..."}`` on success, or the standard
+            ``{"ok": False, "error": "...", ...}`` dict on failure (including
+            when the script was added but republishing the dashboard failed).
         """
         add_widget_script_endpoint = f"/api/dashboards/{dashboard_id}/widgets/{widget_id}"
         original_owner_id: str | None = None
@@ -228,7 +223,7 @@ class ScriptsMixin:
         if executing_user:
             result = self._take_dashboard_ownership(dashboard_id, executing_user)
             if isinstance(result, str):
-                return result
+                return {"ok": False, "error": result.removeprefix("Error: ")}
             original_owner_id, shares = result
             took_ownership = True
         else:
@@ -245,29 +240,21 @@ class ScriptsMixin:
                 self.logger.debug(f"Final widget script payload prepared: {script_dict}")
             except json.JSONDecodeError:
                 self.logger.error("Invalid JSON format for widget script.")
-                return "Error: Widget Script must be a valid JSON string."
+                return {"ok": False, "error": "Widget Script must be a valid JSON string."}
 
             # Add script to the widget
             script_response = self.api_client.put(add_widget_script_endpoint, data=script_dict)
 
             if script_response is None or script_response.status_code != 200:
-                try:
-                    error_message = script_response.json()
-                except Exception:
-                    error_message = getattr(script_response, "text", "No response text")
-
-                self.logger.error(f"Failed to add widget script to dashboard {dashboard_id} widget {widget_id}. Error: {error_message}")
-
+                failure = _extract_error_message(script_response, f"Failed to add widget script to dashboard '{dashboard_id}', widget '{widget_id}'", self.api_client)
                 if script_response is not None and script_response.status_code == 403 and executing_user is None:
-                    return (
-                        f"Error: Failed to add widget script to dashboard '{dashboard_id}', widget '{widget_id}'. "
-                        f"This may be because the API token used does not belong to the dashboard owner, "
-                        f"and no 'executing_user' was provided. Only the dashboard owner can modify scripts."
-                        f" Please provide the 'executing_user' parameter to change ownership temporarily or "
-                        f"set the API token user as dashboard owner."
+                    failure["error"] += (
+                        " (this may be because the API token user is not the dashboard owner and no"
+                        " 'executing_user' was provided — only the owner can modify scripts; pass"
+                        " 'executing_user' to change ownership temporarily)"
                     )
-
-                return f"Error: Failed to add widget script to dashboard {dashboard_id} widget {widget_id}."
+                self.logger.error(failure["error"])
+                return failure
 
             self.logger.info(f"Widget Script successfully added to dashboard {dashboard_id} widget {widget_id}.")
 
@@ -277,11 +264,11 @@ class ScriptsMixin:
             if republish_response is not None and republish_response.status_code == 204:
                 self.logger.info(f"Dashboard {dashboard_id} republished successfully.")
             else:
-                error_message = republish_response.json() if republish_response else "No response received."
-                self.logger.error(f"Failed to republish dashboard {dashboard_id}. Error: {error_message}")
-                return f"Error: Failed to republish dashboard {dashboard_id}. Error: {error_message}"
+                failure = _extract_error_message(republish_response, f"Widget script was added, but republishing dashboard '{dashboard_id}' failed", self.api_client)
+                self.logger.error(failure["error"])
+                return failure
 
-            return "Widget Script added successfully."
+            return {"success": True, "message": f"Widget Script added successfully to dashboard '{dashboard_id}', widget '{widget_id}'."}
 
         finally:
             if took_ownership:
@@ -301,13 +288,21 @@ class ScriptsMixin:
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the dashboard is retrieved successfully,
-            or an ``{"error": "..."}`` dictionary from ``export_dashboard``.
+            A :class:`SisenseScript` instance when the dashboard is retrieved and
+            has a script. ``{"error": "..."}`` when the export fails (including
+            ``status_code`` for HTTP failures such as missing access) or when the
+            dashboard has no script — a normal state, reported explicitly.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
         if "error" in dashboard_data:
             return dashboard_data
+
+        script = dashboard_data.get("script")
+        if not script:
+            msg = f"Dashboard '{dashboard_data.get('title') or dashboard_id}' has no dashboard script."
+            self.logger.info(msg)
+            return {"ok": False, "error": msg}
 
         DASHBOARD_SCRIPT_TEMPLATE = """\
         /*
@@ -321,7 +316,7 @@ class ScriptsMixin:
         return SisenseScript(
             url=f"/app/main/dashboards/{dashboard_data.get('oid', 'unknown')}",
             title=dashboard_data.get("title", "unknown"),
-            script=dashboard_data["script"],
+            script=script,
             template=DASHBOARD_SCRIPT_TEMPLATE,
             type=None,
             footer=footer,
@@ -343,8 +338,11 @@ class ScriptsMixin:
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the widget is found and has script data,
-            or an ``{"error": "..."}`` dictionary on failure.
+            A :class:`SisenseScript` instance when the widget is found and has a
+            script. ``{"error": "..."}`` when the export fails (including
+            ``status_code`` for HTTP failures such as missing access), the widget
+            is not found, or the widget has no script — a normal state, reported
+            explicitly.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
@@ -353,11 +351,26 @@ class ScriptsMixin:
 
         WIDGET_TEMPLATE_REGEX = r"/\*.*?see the online documentation at.*?\*/"
 
-        widgets = dashboard_data["widgets"]
-        widget_data = next((w for w in widgets if w["oid"] == widget_id), None)
+        widgets = dashboard_data.get("widgets") or []
+        widget_data = next((w for w in widgets if w.get("oid") == widget_id), None)
 
         if not widget_data:
-            return {"error": f"Widget with ID '{widget_id}' not found in dashboard '{dashboard_id}'"}
+            return {"ok": False, "error": f"Widget with ID '{widget_id}' not found in dashboard '{dashboard_id}'"}
+
+        # Some Sisense versions omit the script (and title) from the export
+        # payload's widget objects entirely — fetch the widget directly, which
+        # carries the full object including its script.
+        if "script" not in widget_data:
+            self.logger.debug(f"Export payload omits widget script fields on this Sisense version; fetching widget {widget_id} directly.")
+            direct_widget = self.get_widget_by_id(dashboard_id, widget_id)
+            if isinstance(direct_widget, dict) and "error" not in direct_widget:
+                widget_data = direct_widget
+
+        script = widget_data.get("script")
+        if not script:
+            msg = f"Widget '{widget_data.get('title') or widget_id}' has no widget script."
+            self.logger.info(msg)
+            return {"ok": False, "error": msg}
 
         footer = "// Widget Title: {title} \n// Script is for widget type of {widget_type}\n// To view widget URL Path is {url}"
 
@@ -365,7 +378,7 @@ class ScriptsMixin:
             url=f"/app/main/dashboards/{dashboard_data.get('oid', 'unknown')}/widgets/{widget_data.get('oid', 'unknown')}",
             title=widget_data.get("title", "unknown"),
             type=widget_data.get("type", "unknown"),
-            script=widget_data["script"],
+            script=script,
             template=WIDGET_TEMPLATE_REGEX,
             footer=footer,
         )

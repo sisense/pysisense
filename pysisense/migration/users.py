@@ -93,9 +93,9 @@ class UsersMigrationMixin:
         response = self.target_client.post("/api/v1/users/bulk", data=bulk_user_data)
 
         # Log the full response for debugging
-        status_code = response.status_code if response else "No response"
+        status_code = response.status_code if response is not None else "No response"
         self.logger.debug(f"Target environment response status code: {status_code}")
-        self.logger.debug(f"Target environment response body: {response.text if response else 'No response body'}")
+        self.logger.debug(f"Target environment response body: {response.text if response is not None else 'No response body'}")
 
         # Step 5: Early exit if response is missing or empty
         if response is None:
