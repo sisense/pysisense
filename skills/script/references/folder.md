@@ -8,10 +8,10 @@ Structural CRUD for the Sisense folder hierarchy only — creating/renaming/movi
 
 | Method | Notes |
 |---|---|
-| `create_folder(name, parent_id=None)` | `POST /api/v1/folders`. Omit `parent_id` for a root-level folder. Returns the created folder object (`oid`, `name`, ...) on HTTP 201, or `{"error": "..."}`. |
-| `update_folder(folder_id, name=None, parent_id=None, owner=None)` | `PATCH /api/v1/folders/{id}` — only fields explicitly passed are sent; omitted ones are left alone. `parent_id` moves the folder in the tree; `owner` takes a user OID. Returns the updated folder object, or `{"error": "..."}`. |
-| `get_folder_id(folder_id)` | `GET /api/v1/folders/{id}` — single folder by OID. Returns `{"error": "..."}` on failure **or if the folder isn't found** (empty response is treated as an error, not `{}`). |
-| `delete_folder(folder_id)` | `DELETE /api/v1/folders/{id}`. The folder must be empty/deletable per server rules. Returns `{"message": "Folder with ID '...' deleted successfully."}` on HTTP 204, or `{"error": "..."}`. |
+| `create_folder(name, parent_id=None)` | `POST /api/v1/folders`. Omit `parent_id` for a root-level folder. Returns the created folder object (`oid`, `name`, ...) on HTTP 201, or `{"ok": False, "error": "..."}`. |
+| `update_folder(folder_id, name=None, parent_id=None, owner=None)` | `PATCH /api/v1/folders/{id}` — only fields explicitly passed are sent; omitted ones are left alone. `parent_id` moves the folder in the tree; `owner` takes a user OID. Returns the updated folder object, or `{"ok": False, "error": "..."}`. |
+| `get_folder_id(folder_id)` | `GET /api/v1/folders/{id}` — single folder by OID. Returns `{"ok": False, "error": "..."}` on failure **or if the folder isn't found** (empty response is treated as an error, not `{}`). |
+| `delete_folder(folder_id)` | `DELETE /api/v1/folders/{id}`. The folder must be empty/deletable per server rules. Returns `{"message": "Folder with ID '...' deleted successfully."}` on HTTP 204, or `{"ok": False, "error": "..."}`. |
 
 ```python
 folder.create_folder("Analytics")
@@ -24,7 +24,7 @@ folder.delete_folder("65d62c9wregfhg0e33bc64e8")
 
 ## Listing: flat vs tree
 
-`get_folders(structure="flat")` hits `GET /api/v1/folders?structure={structure}` and returns whatever the API gives back for that structure value — `list[dict]` normally, `{"error": "..."}` on failure.
+`get_folders(structure="flat")` hits `GET /api/v1/folders?structure={structure}` and returns whatever the API gives back for that structure value — `list[dict]` normally, `{"ok": False, "error": "..."}` on failure.
 
 - `structure="flat"` (the default) — every folder as a single top-level list, no nesting. Useful for bulk lookups/ID mapping before a migration.
 - `structure="tree"` — nested hierarchy; child nodes may carry their own `folders`/`dashboards` keys.
@@ -46,7 +46,7 @@ folder.get_folder_ancestors("ancestors")  # whatever "ancestors" means server-si
 
 ## `get_navver` — navigation tree
 
-`get_navver()` — `GET /api/v1/navver`, no arguments. Returns the Sisense navigation payload (includes a `folders` key with the hierarchy as rendered in the UI), or `{"error": "..."}`. This is a different payload shape from `get_folders`/`get_all_folders` — use it when you specifically need the navver-flavored tree rather than the folders API's own structure.
+`get_navver()` — `GET /api/v1/navver`, no arguments. Returns the Sisense navigation payload (includes a `folders` key with the hierarchy as rendered in the UI), or `{"ok": False, "error": "..."}`. This is a different payload shape from `get_folders`/`get_all_folders` — use it when you specifically need the navver-flavored tree rather than the folders API's own structure.
 
 ## Ownership — not here
 

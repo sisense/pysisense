@@ -1,18 +1,18 @@
 ---
 name: script
-description: Use whenever the user asks for a script, automation, or one-off task that touches Sisense — dashboards, widgets, users, groups, roles, folders, data models, data security, permissions, ownership transfers, migrations, or admin/governance operations (e.g. "transfer all dashboards from user A to user B", "list dashboards owned by X", "bulk-create these users", "audit unused columns", "share this dashboard with a group"). Also use when the user mentions the `pysisense` package, `SisenseClient`, `config.yaml` for Sisense, or asks to write/fix/debug a Python script against a Sisense instance. Triggers even if the user doesn't say "pysisense" explicitly — any request to script a Sisense admin/BI task qualifies. For setting up a brand-new script's project shell (folder, `uv init`, config template) rather than writing the script logic itself, see the `scaffold` skill instead; for generating/validating/troubleshooting the config YAML itself, see the `config` skill.
+description: Writes Python automation scripts against the pysisense SDK: dashboards, widgets, users, groups, roles, folders, data models, permissions, ownership transfers, migrations, and other Sisense admin tasks. Use this for any request to script a Sisense task, even if the user never says "pysisense" explicitly, for example "transfer all dashboards from A to B", "bulk-create these users", "audit unused columns", or "share this dashboard with a group". Also triggers when the user mentions `pysisense`, `SisenseClient`, or a Sisense `config.yaml`. For setting up a brand-new script's project folder, use the `scaffold` skill instead; for the config file itself, use `config`.
 ---
 
 # pysisense automation scripts
 
-Write Python scripts against the **pysisense SDK** — the official wrapper around the Sisense REST API used throughout this repository. Real classes, methods, and conventions only. Never invent endpoints or method names; if a needed capability isn't listed below or in `references/`, say so and grep `pysisense/<module>/` in this repo before guessing.
+Write Python scripts against the **pysisense SDK**, the official wrapper around the Sisense REST API used throughout this repository. Real classes, methods, and conventions only. Never invent endpoints or method names. If a needed capability isn't listed below or in `references/`, say so and grep `pysisense/<module>/` in this repo before guessing.
 
 This skill is for **writing scripts that use pysisense as a library** (the same spirit as `examples/*.md`), not for modifying the SDK's own source. If the user's request is instead about editing pysisense internals, switch to the `orchestrator` skill (the pysisense dev cycle).
 
 ## Load order
 
 1. Read this file fully first.
-2. Auth/config boilerplate is in [`references/auth.md`](references/auth.md) — read it once per session, it rarely changes.
+2. Auth/config boilerplate is in [`references/auth.md`](references/auth.md). Read it once per session, it rarely changes.
 3. Then read whichever of these match the task, before writing the corresponding code:
 
 | Task involves | Read |
@@ -32,55 +32,59 @@ This skill is for **writing scripts that use pysisense as a library** (the same 
 | Scheduled reports (CRUD, on-demand run) | [`references/report_manager.md`](references/report_manager.md) |
 | Dashboard/data-model health or complexity checks | [`references/wellcheck.md`](references/wellcheck.md) |
 
-If a needed capability still isn't covered by any of these, grep the relevant `pysisense/<module>/*.py` file directly rather than guessing signatures — don't rely on the CLAUDE.md mixin lookup table alone, it has known staleness in at least one spot (some `access_management` methods are misattributed to `custom_code` in that table).
+If a needed capability still isn't covered by any of these, grep the relevant `pysisense/<module>/*.py` file directly rather than guessing signatures. Don't rely on the CLAUDE.md mixin lookup table alone, it has known staleness in at least one spot (some `access_management` methods are misattributed to `custom_code` in that table).
 
 ## Non-negotiable conventions
 
 These scripts run against **real, often production, Sisense environments**. Treat every write operation (ownership change, delete, bulk create) as high blast-radius.
 
-**Error handling — check dicts, don't assume success.**
-Every pysisense call returns either the payload or `{"error": "..."}`. Never assume success:
+**Error handling: check for failure, don't assume success.**
+Every pysisense call returns either the payload or a failure dict: `{"ok": False, "error": "...", "status_code": <int, when available>}`. Check for it before using the result:
 
 ```python
 response = dashboard.change_dashboard_owner(dashboard_id, new_owner_id)
-if isinstance(response, dict) and "error" in response:
+if isinstance(response, dict) and response.get("ok") is False:
     print(f"Failed: {response['error']}")
 else:
     print("Success")
 ```
 
+An empty list from a read method (`get_datasecurity`, `get_users_all`, etc.) means a genuinely empty result, never a failure. Failures always come back as the dict above, never as `[]`, `None`, or a bare string.
+
+**Never bracket-access API payload fields.** The Sisense API omits keys entirely instead of sending them empty (a scriptless dashboard has no `script` key at all). Use `.get(...)` with a fallback, not `data["script"]`, or a missing field will raise `KeyError` on data that's simply in a normal, unremarkable state.
+
 **No hardcoded credentials.** Tokens/domains always come from a YAML config (`config.yaml`, or `source.yaml`/`target.yaml` for migrations) loaded via `SisenseClient(config_file=...)`. Never inline a token or domain in the script body.
 
-**Use `debug=True` while developing.** It's the only thing standing between "silent failure" and a readable trail in `logs/pysisense.log`. Never log tokens/passwords yourself — the SDK already redacts secrets in its own logging.
+**Use `debug=True` while developing.** It's the only thing standing between "silent failure" and a readable trail in `logs/pysisense.log`. Never log tokens/passwords yourself, the SDK already redacts secrets in its own logging.
 
 **Dry-run first for anything destructive or bulk.** Any script that does ownership transfers, deletions, or bulk creates/updates must default to a `dry_run=True`-style preview: print what *would* happen (counts, names, IDs) before making a single write call. Only flip to live execution on explicit confirmation (a flag, or the user re-running with `dry_run=False`). See Example 1 below for the pattern.
 
-**Resolve names to IDs before mutating.** Ownership/share operations need Sisense internal IDs (`_id` / `USER_ID` / `GROUP_ID`), not emails or display names. Always resolve first via `get_user()` / `get_group()`, and fail fast (print and skip, don't guess) if resolution fails.
+**Resolve names to IDs before mutating.** Ownership/share operations need Sisense internal IDs (`_id` / `USER_ID` / `GROUP_ID`), not emails or display names. Always resolve first via `get_user()` / `get_groups(name=...)` (returns a list; take the first entry), and fail fast (print and skip, don't guess) if resolution fails.
 
-**IDs vs titles.** Dashboard- and data-model-facing methods generally accept either a 24-char ID or a title/name — check the method's docstring or `references/` before assuming. `resolve_dashboard_reference()` exists specifically to normalize an ambiguous reference.
+**IDs vs titles.** Dashboard- and data-model-facing methods generally accept either a 24-char ID or a title/name. Check the method's docstring or `references/` before assuming. `resolve_dashboard_reference()` exists specifically to normalize an ambiguous reference.
 
-**Escape hatch: raw `api_client.get/post/put/delete` when a mixin method can't do it.** Not every capability is wrapped — e.g. `Dashboard.get_all_dashboards()` has no pagination, so it can time out or return an unwieldy payload on an environment with hundreds of dashboards. It's fine to call the underlying endpoint directly:
+**Escape hatch: raw `api_client.get/post/put/delete` when a mixin method can't do it.** Not every capability is wrapped. For example, `Dashboard.get_all_dashboards()` has no pagination, so it can time out or return an unwieldy payload on an environment with hundreds of dashboards. It's fine to call the underlying endpoint directly:
 
 ```python
 response = api_client.get("/api/v1/dashboards/admin", params={"dashboardType": "owner", "skip": skip, "limit": 50})
 ```
 
 Rules for doing this safely:
-- Only use an endpoint/param already confirmed in the SDK source (the mixin method's docstring names its endpoint) — never invent one.
-- `api_client.get/post/put/delete` return a raw `requests.Response` or `None`, **not** the `{"error": ...}` dict the mixin methods return. Check `response is None`, then `response.ok` / `response.status_code`, yourself — the wrapping the mixins do internally doesn't happen for direct calls.
-- Prefer the wrapped method whenever it already does the job; drop to raw calls only for a genuine capability gap (pagination, an uncommon query param), not as a default style.
+- Only use an endpoint/param already confirmed in the SDK source (the mixin method's docstring names its endpoint). Never invent one.
+- `api_client.get/post/put/delete` return a raw `requests.Response` or `None`, **not** the `{"ok": False, "error": ...}` dict the mixin methods return. Check `response is None`, then `response.ok` / `response.status_code`, yourself. The wrapping the mixins do internally doesn't happen for direct calls. Don't assume an error body is JSON either, some Sisense error responses are plain HTML.
+- Prefer the wrapped method whenever it already does the job. Drop to raw calls only for a genuine capability gap (pagination, an uncommon query param), not as a default style.
 
-**PATCH/update payloads carry only what's explicitly provided.** When building an `update_user`/`update_*` payload from user input, don't inject empty-string or empty-list defaults for fields the user didn't ask to change — especially `groups`: an explicit `[]` clears all group membership.
+**PATCH/update payloads carry only what's explicitly provided.** When building an `update_user`/`update_*` payload from user input, don't inject empty-string or empty-list defaults for fields the user didn't ask to change. Especially `groups`: an explicit `[]` clears all group membership.
 
-**Admin token required.** Ownership changes, migrations, and most bulk/admin operations require the API token to belong to a dedicated Sisense admin user. If a script fails with permission-shaped errors, that's the first thing to check — not a code bug.
+**Admin token, only when the operation actually needs one.** Any Sisense user's token works, Sisense enforces permissions server-side, so a call is automatically scoped to whatever that user can see. But ownership changes, cross-environment migrations, instance-wide listings/exports, and any `adminAccess=true` method genuinely need a dedicated admin user's token. If one of those fails with a permission-shaped error, check the token's role before assuming it's a code bug.
 
 ## New script? Scaffold the project first
 
-A pysisense automation script is a deliverable someone else may run, rerun, and hand off — not a scratch snippet. Unless the user explicitly asks for a quick inline snippet, or is clearly just pasting into a REPL or an existing project, the script needs a project shell first: a folder, `uv init`, a `config.example.yaml` template, a README, and a `.gitignore`.
+A pysisense automation script is a deliverable someone else may run, rerun, and hand off. It's not a scratch snippet. Unless the user explicitly asks for a quick inline snippet, or is clearly just pasting into a REPL or an existing project, the script needs a project shell first: a folder, `uv init`, a `config.example.yaml` template, a README, and a `.gitignore`.
 
 Use the **`scaffold`** skill (`/pysisense:scaffold`) to create that shell before writing the script logic below into it. If a project shell already exists (the user is adding to or fixing an existing script), skip straight to writing code.
 
-**Comments in generated script code.** This is a different bar than editing pysisense's own SDK source (which this repo's `CLAUDE.md` deliberately keeps comment-free except for non-obvious WHYs) — a generated automation script is read by whoever runs it, often without this conversation's context. Comment the non-obvious parts: why an operation order matters, what a dry-run flag gates, why a particular endpoint is called directly instead of a wrapped method. Don't narrate the obvious (`# loop over dashboards`).
+**Comments in generated script code.** This is a different bar than editing pysisense's own SDK source (which this repo's `CLAUDE.md` deliberately keeps comment-free except for non-obvious WHYs). A generated automation script is read by whoever runs it, often without this conversation's context. Comment the non-obvious parts: why an operation order matters, what a dry-run flag gates, why a particular endpoint is called directly instead of a wrapped method. Don't narrate the obvious (`# loop over dashboards`).
 
 ## Setup boilerplate (always start here)
 
@@ -99,7 +103,7 @@ Full class list, config.yaml fields, SSL/retry options: [`references/auth.md`](r
 
 ---
 
-## Worked example 1 — transfer all dashboards from user A to user B (dry-run safe)
+## Worked example 1: transfer all dashboards from user A to user B (dry-run safe)
 
 The canonical "admin operation" script. Resolves both users, finds every dashboard owned by A, previews the change, and only executes on confirmation.
 
@@ -116,7 +120,7 @@ FROM_USER_EMAIL = "alice@example.com"
 TO_USER_EMAIL = "bob@example.com"
 DRY_RUN = True  # flip to False only after reviewing the preview output
 
-# 1. Resolve both users to internal IDs — fail fast if either is missing.
+# 1. Resolve both users to internal IDs; fail fast if either is missing.
 from_user = access_mgmt.get_user(FROM_USER_EMAIL)
 to_user = access_mgmt.get_user(TO_USER_EMAIL)
 if "error" in from_user or "error" in to_user:
@@ -137,7 +141,7 @@ for d in owned:
     print(f"  - {d.get('title')} ({d.get('oid')})")
 
 if DRY_RUN:
-    print("\nDry run — no changes made. Set DRY_RUN = False to execute.")
+    print("\nDry run, no changes made. Set DRY_RUN = False to execute.")
     raise SystemExit(0)
 
 # 3. Execute the transfer, one dashboard at a time, logging each result.
@@ -153,9 +157,9 @@ for d in owned:
 Notes:
 - `change_dashboard_owner` defaults to `admin_access=True`, which is correct here since the API token user is neither the old nor new owner.
 - If you need to restore ownership back to the token user afterward, pass `admin_access=False` (see `references/dashboards.md`).
-- For a **temporary** ownership hop (e.g. to apply a dashboard script as owner, then hand it back), see the `executing_user` pattern in `references/dashboards.md` instead — that's a narrower, self-restoring operation, not a permanent transfer.
+- For a **temporary** ownership hop (e.g. to apply a dashboard script as owner, then hand it back), see the `executing_user` pattern in `references/dashboards.md` instead. That's a narrower, self-restoring operation, not a permanent transfer.
 
-## Worked example 2 — audit: list dashboards + owners for governance reporting
+## Worked example 2: audit, list dashboards + owners for governance reporting
 
 Read-only, safe to run anytime. Good starting point when a user's request is exploratory ("how many dashboards does X own") before committing to a write operation.
 
@@ -187,7 +191,7 @@ print(df)
 api_client.export_to_csv(rows, "dashboard_ownership_audit.csv")
 ```
 
-## Worked example 3 — bulk-provision groups then users from a CSV
+## Worked example 3: bulk-provision groups then users from a CSV
 
 Order matters: groups must exist before users can reference them by name in `create_user`.
 
@@ -233,6 +237,6 @@ with open("new_users.csv", newline="", encoding="utf-8") as f:
 
 ## When something isn't covered here
 
-- Check the mixin lookup table in this repo's root `CLAUDE.md` for the method's owning file, then read that file directly — docstrings are accurate and NumPy-style.
+- Check the mixin lookup table in this repo's root `CLAUDE.md` for the method's owning file, then read that file directly. Docstrings are accurate and NumPy-style.
 - Check `examples/<module>_example.md` for a working snippet in the same style as above.
 - Do not guess a method name or endpoint. If unsure, say what you checked and what's still unclear.

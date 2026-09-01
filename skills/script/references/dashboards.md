@@ -31,7 +31,7 @@ while True:
     skip += page_size
 ```
 
-This bypasses the mixin's `{"error": ...}` wrapping — check `response.ok`/`response.status_code` yourself, as above.
+This bypasses the mixin's `{"ok": False, "error": ...}` wrapping, check `response.ok`/`response.status_code` yourself, as above.
 
 ## Ownership transfer
 
@@ -41,7 +41,7 @@ This bypasses the mixin's `{"error": ...}` wrapping — check `response.ok`/`res
 - `admin_access=True` (default): required whenever the API token user is **not** the dashboard's current owner — the normal case for an admin script transferring between two other users.
 - `admin_access=False`: use only when restoring ownership back to a user who is already the effective owner at call time (e.g. the token user itself, after a temporary hop — see `executing_user` below).
 - The previous owner is demoted to a share entry with `original_owner_rule` (default `"edit"`) rather than losing access outright.
-- Returns the API response, or `{"success": True}` on an empty 200, or `{"error": "..."}`.
+- Returns the API response, or `{"success": True}` on an empty 200, or `{"ok": False, "error": "..."}`.
 
 For bulk transfers, resolve both users once, filter `get_all_dashboards()` by `owner == from_user_id`, and call `change_dashboard_owner` per dashboard — see SKILL.md Worked Example 1 for the full dry-run-safe pattern.
 

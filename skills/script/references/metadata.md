@@ -26,7 +26,7 @@ datasources = metadata.get_datasources()
 
 ## Return shape
 
-All read methods return `list[dict] | dict`: the API payload (typically a list) on success, or `{"error": "..."}` on failure — check `"error" in result` before iterating, since a failure result is a dict, not a list.
+All read methods return `list[dict] | dict`: the API payload (typically a list) on success, or `{"ok": False, "error": "..."}` on failure — check `"error" in result` before iterating, since a failure result is a dict, not a list.
 
 ## Adding a saved measure
 
@@ -41,7 +41,7 @@ measure = {
 result = metadata.add_datasource_measure(measure)
 ```
 
-Returns the created measure object on `200`/`201`, `{"success": True}` if the response body isn't JSON, or `{"error": "..."}` on failure.
+Returns the created measure object on `200`/`201`, `{"success": True}` if the response body isn't JSON, or `{"ok": False, "error": "..."}` on failure.
 
 ## Raw metadata queries
 
@@ -58,4 +58,4 @@ result = metadata.post_metadata_query(query_payload)
 
 Use this only for schema/metadata-level lookups against the metadata API. To actually execute a JAQL query and get back result rows/CSV from an elasticube or live datasource, use `Queries.elasticube_run_jaql_query` / `Queries.elasticubes_run_jaql_csv` instead — different endpoint, different purpose.
 
-Same failure convention as `add_datasource_measure`: `{"success": True}` if the body isn't JSON, `{"error": "..."}` on non-2xx.
+Same failure convention as `add_datasource_measure`: `{"success": True}` if the body isn't JSON, `{"ok": False, "error": "..."}` on non-2xx.

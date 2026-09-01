@@ -5,19 +5,19 @@
 Never hardcode a token or domain. Load from YAML via `SisenseClient(config_file=...)`.
 
 ```yaml
-domain: ""          # IP or domain — no protocol, no port
+domain: ""          # IP or domain, no protocol, no port
 is_ssl: true         # true for HTTPS, false uses HTTP (default port 30845)
 # port: 30845        # optional, HTTP port when is_ssl is false
-token: ""            # Sisense Admin API token
+token: ""            # Sisense API token, any user's works; use an admin user's for admin operations
 # verify_ssl: false  # verify the server's TLS certificate; defaults to true
 # ssl_path: ""       # optional CA bundle file/dir for self-signed/internal certs
 # retries: false     # auto-retry transient server errors (429/500/502/503/504); defaults to true
 ```
 
-- **Use a dedicated Sisense admin user's token.** Ownership changes, migrations, and most bulk/admin operations fail or behave inconsistently with a scoped/non-admin user.
-- **TLS verification is on by default.** Only set `verify_ssl: false` for trusted internal networks with self-signed certs — it exposes the token to on-path interception, and the SDK logs a warning + emits `UserWarning` when disabled. Prefer `ssl_path` pointing at a CA bundle over disabling verification entirely.
+- **Any Sisense user's token works.** Sisense enforces permissions server-side, so every call is scoped to that user's own role and access. Use a dedicated **admin** user's token only for what genuinely needs it: ownership changes, cross-environment migrations, instance-wide listings/exports, and `adminAccess=true` methods.
+- **TLS verification is on by default.** Only set `verify_ssl: false` for trusted internal networks with self-signed certs, it exposes the token to on-path interception, and the SDK logs a warning and emits `UserWarning` when disabled. Prefer `ssl_path` pointing at a CA bundle over disabling verification entirely.
 - **Non-SSL default ports**: `30845` (Linux), `8081` (Windows). Override with `port` in the YAML.
-- Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
+- Never commit `config.yaml`, `source.yaml`, or `target.yaml`, they contain real tokens.
 
 ## Single-environment init pattern
 
@@ -87,3 +87,11 @@ identity = api_client.decode_bearer_token()
 # or, via AccessManagement:
 me = access_mgmt.get_my_user()
 ```
+
+## Failure contract
+
+Every method returns either its payload, or `{"ok": False, "error": "...", "status_code": <int, when available>}` on failure. Check `response.get("ok") is False`, not just `"error" in response`. An empty list from a read method is a genuinely empty result, never a failure in disguise.
+
+## If behavior doesn't match what's documented here
+
+This file describes the pysisense version installed in *this* repo. A script's own environment may pin an older release. Check `import pysisense; pysisense.__version__` before assuming a mismatch is a bug, and see `docs/upgrading.md` for the old-to-new mapping if it's version-related.

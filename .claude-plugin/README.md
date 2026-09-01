@@ -3,7 +3,7 @@
 Teaches Claude Code to write correct `pysisense` SDK scripts (dashboards,
 users, groups, admin operations) using this repo's real API surface and
 conventions, and to safely extend the SDK itself via a structured dev cycle.
-See [`plugin.json`](plugin.json) for the manifest — there's no umbrella
+See [`plugin.json`](plugin.json) for the manifest. There's no umbrella
 skill; every skill below triggers on its own description.
 
 **Writing scripts that use pysisense:**
@@ -11,8 +11,8 @@ skill; every skill below triggers on its own description.
 [`../skills/config/SKILL.md`](../skills/config/SKILL.md),
 [`../skills/script/SKILL.md`](../skills/script/SKILL.md).
 
-**Contributing to pysisense's own source** (a different audience — SDK
-maintainers, not script authors) — a 10-stage dev cycle, not a single skill:
+**Contributing to pysisense's own source** (a different audience: SDK
+maintainers, not script authors). A 10-stage dev cycle, not a single skill:
 [`../skills/orchestrator/SKILL.md`](../skills/orchestrator/SKILL.md),
 [`debug`](../skills/debug/SKILL.md) (conditional), [`plan`](../skills/plan/SKILL.md),
 [`struct`](../skills/struct/SKILL.md), [`rethink`](../skills/rethink/SKILL.md),
@@ -52,23 +52,23 @@ skills/
   orchestrator/
     SKILL.md            # owns the dev-cycle pipeline: sequencing, shared state (.pysisense-dev/), resume-from-gate
   debug/
-    SKILL.md            # stage 0 (conditional, bug reports only) — confirm the reported problem actually reproduces
+    SKILL.md            # stage 0 (conditional, bug reports only): confirm the reported problem actually reproduces
   plan/
-    SKILL.md            # stage 1 — task definition: scope, change type, definition-of-done checklist
+    SKILL.md            # stage 1: task definition, scope, change type, definition-of-done checklist
   struct/
-    SKILL.md            # stage 2 — impact/compatibility analysis, breaking-change classification
+    SKILL.md            # stage 2: impact/compatibility analysis, breaking-change classification
   rethink/
-    SKILL.md            # gate — runs after struct and after code; halts the cycle on high-stakes ambiguity
+    SKILL.md            # gate: runs after struct and after code, halts the cycle on high-stakes ambiguity
   build/
-    SKILL.md            # stage 3 — TDD: write tests before implementation
+    SKILL.md            # stage 3: TDD, write tests before implementation
   code/
-    SKILL.md            # stage 4 — implementation + required docs/examples sync
+    SKILL.md            # stage 4: implementation + required docs/examples sync
   validate/
-    SKILL.md            # stage 5 — run the test suite, report pass/fail
+    SKILL.md            # stage 5: run the test suite, report pass/fail
   ci/
-    SKILL.md            # stage 6 — local CI emulation (lint, format, docstrings, tests)
+    SKILL.md            # stage 6: local CI emulation (lint, format, docstrings, tests)
   report/
-    SKILL.md            # stage 7 (final) — human-facing summary of the whole cycle
+    SKILL.md            # stage 7 (final): human-facing summary of the whole cycle
 ```
 
 One module has no dedicated reference yet: `sisenseclient.py` itself (the base
@@ -79,19 +79,19 @@ reference already assumes.
 Thirteen skills total, invoked as `/pysisense:<name>` where `<name>` is the
 directory name under `skills/`. Three (`scaffold`, `config`, `script`) are
 independent and cover writing automation scripts. The other ten form the
-**dev cycle** for editing pysisense's own source — `orchestrator` sequences
+**dev cycle** for editing pysisense's own source. `orchestrator` sequences
 them (`[debug] → plan → struct → rethink → build → code → rethink →
 validate → ci → report`), keeping shared state in `.pysisense-dev/`
 (gitignored) so the cycle can pause and resume later, even in a different
 session. `debug` only runs for bug-shaped requests, confirming the reported
-problem actually reproduces before `plan` scopes a fix for it; `rethink`
+problem actually reproduces before `plan` scopes a fix for it. `rethink`
 runs after `struct` and after `code`. Either can halt the cycle for the
-user. Each stage skill can also be invoked directly for a one-off ask (e.g.
+user. Each stage skill can also be invoked directly for a one-off ask, e.g.
 `/pysisense:struct` just for an impact analysis, or `/pysisense:debug` to
-check whether a suspected bug is real) without running the full cycle.
+check whether a suspected bug is real, without running the full cycle.
 
-`skills/` lives as a **sibling** of `.claude-plugin/`, not nested inside it —
-that's the layout Claude Code's plugin loader expects by default; only the
+`skills/` lives as a **sibling** of `.claude-plugin/`, not nested inside it.
+That's the layout Claude Code's plugin loader expects by default; only the
 manifest belongs inside `.claude-plugin/`.
 
 ## Install for local testing (before publishing)
@@ -102,7 +102,7 @@ From the repo root:
 claude --plugin-dir .
 ```
 
-`--plugin-dir` must point at the **plugin root** — the directory that
+`--plugin-dir` must point at the **plugin root**, the directory that
 contains `.claude-plugin/` (i.e. this repo's root, since `.claude-plugin/`
 and `skills/` both live there).
 
@@ -114,11 +114,11 @@ write a script to transfer all dashboards from alice@example.com to bob@example.
 
 Confirm that:
 
-- A skill triggers automatically (no need to name it explicitly) —
+- A skill triggers automatically (no need to name it explicitly):
   `script` for a direct "write me a script" ask.
 - Claude reads `script/SKILL.md` and pulls in the right `references/*.md`
   file for the task (dashboards vs. users/groups vs. auth).
-- Generated code matches this repo's real method signatures — cross-check
+- Generated code matches this repo's real method signatures. Cross-check
   against `pysisense/<module>/*.py` or `examples/<module>_example.md` if
   anything looks off.
 - For a "set up a new script project for X" style ask, `scaffold` triggers
@@ -128,13 +128,13 @@ Confirm that:
   port for a Windows deployment"), `config` triggers with the field reference
   and troubleshooting table.
 - For "add a method to Dashboard" or similar, `orchestrator` triggers instead
-  of `script`, and actually runs the full cycle in order — `.pysisense-dev/`
+  of `script`, and actually runs the full cycle in order. `.pysisense-dev/`
   gets created, `plan.md`/`struct.md` get written, and the cycle stops with a
   clear question if a breaking change is detected (test this deliberately by
   asking for a change to an existing public method's return shape).
 - For a bug-report-shaped ask ("X returns the wrong thing", "this is
   broken"), `orchestrator` runs `debug` before `plan` and writes
-  `.pysisense-dev/debug.md`; if the repro genuinely doesn't reproduce, the
+  `.pysisense-dev/debug.md`. If the repro genuinely doesn't reproduce, the
   cycle stops and asks for more detail instead of quietly planning a fix
   anyway. For a plain feature/refactor ask, confirm `debug` is skipped
   (`debug_result: "skipped"` in `cycle.json`) rather than run unnecessarily.
@@ -146,7 +146,7 @@ Confirm that:
 ## Installing for regular use
 
 Once verified, install the plugin the same way as any other local Claude Code
-plugin — add this repo as a plugin source (or, for team distribution, publish
+plugin: add this repo as a plugin source (or, for team distribution, publish
 it via a plugin marketplace) and enable it per Claude Code's plugin docs.
 There is no separate build step; the plugin is just this `.claude-plugin/` +
 `skills/` pair.
@@ -162,5 +162,5 @@ renamed fields), keep this plugin in sync:
 3. Re-test with `claude --plugin-dir .` before committing.
 
 This mirrors the repo's own `examples/*.md` / `docs/*.md` maintenance rule in
-`CLAUDE.md` — the skill is effectively a third, Claude-facing copy of that
+`CLAUDE.md`. The skill is effectively a third, Claude-facing copy of that
 same "how do I call this API" knowledge, and it goes stale the same way.

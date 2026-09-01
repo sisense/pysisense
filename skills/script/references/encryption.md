@@ -57,14 +57,14 @@ reencrypted = target_encryption.encrypt({"value": plaintext["value"]})
 | `decrypt(payload)` | `POST /api/v1/encryption/decrypt` | dict, typically `{"value": <ciphertext>}` |
 
 Both require `payload` to be a `dict` — passing anything else returns
-`{"error": "payload must be a dictionary."}` without a request being made.
+`{"ok": False, "error": "payload must be a dictionary."}` without a request being made.
 Field names beyond `value` follow your Sisense version's REST API reference;
 the SDK passes the payload through unchanged.
 
 ## Return shape
 
 Both methods return the raw JSON response dict on success, or
-`{"error": "..."}` on failure (no response, non-OK status, or an
+`{"ok": False, "error": "..."}` on failure (no response, non-OK status, or an
 unparseable body falls back to `{"success": True}` only when the response
 was OK but had no JSON body). There is no separate `"success"` key on a
 normal successful call — check for the absence of `"error"`.

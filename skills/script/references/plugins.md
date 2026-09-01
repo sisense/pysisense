@@ -8,8 +8,8 @@ Manages plugin enable/disable state and snapshots. Does **not** install or remov
 
 | Method | Use when |
 |---|---|
-| `get_all_plugins()` | Every plugin on the instance. Paginates `GET /api/v1/plugins` internally and returns one flat list of `{"name", "folderName", "isEnabled"}` objects. Returns `[{"error": "..."}]` (a list, not a dict) on failure. |
-| `get_plugin(plugin)` | One plugin by `name` or `folderName`. Matching is case-insensitive and the `"plugin-"` prefix is optional on either side — `get_plugin("CustomTodayFilter")` and `get_plugin("plugin-CustomTodayFilter")` both work. Returns `{"error": "..."}` if not found. |
+| `get_all_plugins()` | Every plugin on the instance. Paginates `GET /api/v1/plugins` internally and returns one flat list of `{"name", "folderName", "isEnabled"}` objects. Returns `[{"ok": False, "error": "..."}]` (a list, not a dict) on failure. |
+| `get_plugin(plugin)` | One plugin by `name` or `folderName`. Matching is case-insensitive and the `"plugin-"` prefix is optional on either side — `get_plugin("CustomTodayFilter")` and `get_plugin("plugin-CustomTodayFilter")` both work. Returns `{"ok": False, "error": "..."}` if not found. |
 
 ## Single enable/disable
 
@@ -21,7 +21,7 @@ plugins.disable_plugin("plugin-CustomTodayFilter")
 # {"folderName": "plugin-CustomTodayFilter", "isEnabled": False, "changed": True}
 ```
 
-If the plugin is already in the target state, no PATCH is sent — `"changed": False` comes back instead. `{"error": "..."}` on lookup failure or a failed PATCH.
+If the plugin is already in the target state, no PATCH is sent — `"changed": False` comes back instead. `{"ok": False, "error": "..."}` on lookup failure or a failed PATCH.
 
 ## Bulk enable/disable
 
@@ -33,7 +33,7 @@ result = plugins.enable_plugins(["AdditionalInfoTooltip", "plugin-CustomTodayFil
 ```
 
 - `bulk=True` (default): all changed plugins go out in **one** PATCH request.
-- `bulk=False`: one PATCH per plugin — slower, but isolates failures per-plugin instead of failing the whole batch. `errors` (list of `folderName`) is only ever populated in this mode; a bulk-mode PATCH failure short-circuits and returns `{"error": "..."}` for the whole call instead.
+- `bulk=False`: one PATCH per plugin — slower, but isolates failures per-plugin instead of failing the whole batch. `errors` (list of `folderName`) is only ever populated in this mode; a bulk-mode PATCH failure short-circuits and returns `{"ok": False, "error": "..."}` for the whole call instead.
 - Plugins already in the target state are skipped (no API call) and land in `already_enabled` / `already_disabled` instead of `changed`.
 - Unmatched names land in `not_found`, not an error.
 
@@ -46,7 +46,7 @@ snapshot = plugins.save_snapshot()
 # {"created": "2026-05-06T14:30:00Z", "plugins": ["plugin-AdditionalInfoTooltip", "plugin-CustomTodayFilter"]}
 ```
 
-`restore_snapshot(snapshot, bulk=True)` diffs the snapshot against the instance's live state and applies the minimal delta: enables anything in the snapshot that's currently off, disables anything currently on that isn't in the snapshot. Requires the `"plugins"` key — `{"error": "..."}` if missing.
+`restore_snapshot(snapshot, bulk=True)` diffs the snapshot against the instance's live state and applies the minimal delta: enables anything in the snapshot that's currently off, disables anything currently on that isn't in the snapshot. Requires the `"plugins"` key — `{"ok": False, "error": "..."}` if missing.
 
 ```python
 result = plugins.restore_snapshot(snapshot)

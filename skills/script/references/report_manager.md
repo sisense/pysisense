@@ -2,7 +2,7 @@
 
 `from pysisense import ReportManager` — `report_manager = ReportManager(api_client=api_client)`
 
-Report Manager is a **Marketplace/on-demand plugin**, not guaranteed to be installed or enabled on every instance. Every method below returns `{"error": "..."}` instead of raising when the plugin's endpoints are unavailable — always check for `"error"` before using the result. If it's not enabled on your instance, the built-in dashboard **subscriptions** feature is the closest fallback (`pysisense` does not wrap subscriptions).
+Report Manager is a **Marketplace/on-demand plugin**, not guaranteed to be installed or enabled on every instance. Every method below returns `{"ok": False, "error": "..."}` instead of raising when the plugin's endpoints are unavailable — always check for `"error"` before using the result. If it's not enabled on your instance, the built-in dashboard **subscriptions** feature is the closest fallback (`pysisense` does not wrap subscriptions).
 
 ## Methods
 
@@ -22,7 +22,7 @@ response = report_manager.get_reports(name="Weekly Sales", enabled=True)
 df = api_client.to_dataframe(response)
 ```
 
-`get_reports` filter kwargs: `name`, `ids` (list or bare str), `enabled` (bool), `statuses` (list or bare str), `priority` (`"high"`/`"normal"`), `owner_ids` (list or bare str), `fields` (whitelist string, prefix with `-` to exclude), `sort` (prefix with `-` for descending), `limit` (page size, default `100`). Returns a flat `list[dict]`, or `{"error": "..."}`.
+`get_reports` filter kwargs: `name`, `ids` (list or bare str), `enabled` (bool), `statuses` (list or bare str), `priority` (`"high"`/`"normal"`), `owner_ids` (list or bare str), `fields` (whitelist string, prefix with `-` to exclude), `sort` (prefix with `-` for descending), `limit` (page size, default `100`). Returns a flat `list[dict]`, or `{"ok": False, "error": "..."}`.
 
 ```python
 response = report_manager.get_report(
@@ -37,7 +37,7 @@ response = report_manager.get_report(
 
 ## create_report / update_report — payload shape
 
-Both validate a dict against a Pydantic model **before** any HTTP call and return `{"error": "Invalid report payload: ..."}` immediately on a Pydantic `ValidationError` — no request is sent. Both models use `extra="forbid"`, so an unknown/misspelled field key fails validation rather than being silently dropped.
+Both validate a dict against a Pydantic model **before** any HTTP call and return `{"ok": False, "error": "Invalid report payload: ..."}` immediately on a Pydantic `ValidationError` — no request is sent. Both models use `extra="forbid"`, so an unknown/misspelled field key fails validation rather than being silently dropped.
 
 `CreateReportPayload` fields (canonical Sisense payload names via aliases):
 
@@ -81,8 +81,8 @@ response = report_manager.update_report(
 ## delete_report / run_report
 
 ```python
-report_manager.delete_report("5A929ac648c9EcebAf0DE08e")  # -> {"success": True} or {"error": "..."}
-report_manager.run_report("5A929ac648c9EcebAf0DE08e")  # -> {"success": True} (or response body) or {"error": "..."}
+report_manager.delete_report("5A929ac648c9EcebAf0DE08e")  # -> {"success": True} or {"ok": False, "error": "..."}
+report_manager.run_report("5A929ac648c9EcebAf0DE08e")  # -> {"success": True} (or response body) or {"ok": False, "error": "..."}
 ```
 
 `run_report` triggers an immediate on-demand run. If the max number of concurrently running reports has been reached, the server **queues** the report instead of running it right away — this is not surfaced as an error, the call still returns success.

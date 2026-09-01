@@ -44,8 +44,8 @@ else:
     print(csv_result)  # parsed JSON (dict or list) — server didn't return CSV
 ```
 
-`elasticubes_run_jaql_csv` returns `dict[str, Any] | str`: parsed JSON if the response is JSON, raw CSV text otherwise, or `{"error": "..."}` on failure. Check `isinstance(result, str)` before treating it as CSV text — a JSON-shaped error or result dict can still come back instead.
+`elasticubes_run_jaql_csv` returns `dict[str, Any] | str`: parsed JSON if the response is JSON, raw CSV text otherwise, or `{"ok": False, "error": "..."}` on failure. Check `isinstance(result, str)` before treating it as CSV text — a JSON-shaped error or result dict can still come back instead.
 
 ## Return shape / error convention
 
-Both methods follow the standard SDK convention: the parsed response body on success, or `{"error": "..."}` on failure (no response received, or non-OK HTTP status). `elasticube_run_jaql_query` falls back to `{"success": True}` if a 2xx response has no JSON body; `elasticubes_run_jaql_csv` falls back to the raw response text (or `None`) under the same condition, per its plain-text/CSV nature.
+Both methods follow the standard SDK convention: the parsed response body on success, or `{"ok": False, "error": "..."}` on failure (no response received, or non-OK HTTP status). `elasticube_run_jaql_query` falls back to `{"success": True}` if a 2xx response has no JSON body; `elasticubes_run_jaql_csv` falls back to the raw response text (or `None`) under the same condition, per its plain-text/CSV nature.

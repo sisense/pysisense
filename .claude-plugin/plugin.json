@@ -1,7 +1,7 @@
 {
   "name": "pysisense",
   "version": "0.1.0",
-  "description": "Write correct, production-safe Sisense automation scripts using the pysisense SDK — dashboards, users, groups, and admin operations.",
+  "description": "Write production-safe Sisense automation scripts with the pysisense SDK, and safely extend the SDK itself through a guided development cycle.",
   "author": {
     "name": "Micael Santana",
     "email": "micael.santana@sisense.com"

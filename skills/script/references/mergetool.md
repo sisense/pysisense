@@ -67,7 +67,7 @@ Folders are the one exception worth knowing: they're batched by hierarchy depth 
 | Saved filters | `migrate_saved_filters`, `migrate_all_saved_filters` | `mergetool/filters.py` |
 | Dashboards | `migrate_dashboards`, `migrate_all_dashboards` | `mergetool/dashboards.py` |
 
-BloX migration additionally requires the **target** to be a Linux deployment — saving/deleting BloX actions is Linux-only; the method returns `{"error": "...not supported on Windows..."}` rather than hitting a wrong endpoint.
+BloX migration additionally requires the **target** to be a Linux deployment — saving/deleting BloX actions is Linux-only; the method returns `{"ok": False, "error": "...not supported on Windows..."}` rather than hitting a wrong endpoint.
 
 ## Return shape
 

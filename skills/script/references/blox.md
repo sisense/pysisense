@@ -16,7 +16,7 @@
 - Linux: `GET /api/v1/blox/getCustomActions`
 - Windows: `GET /api/v1/getCustomActions/actions`
 
-Returns a `list[dict]` of action objects, or `[{"error": "..."}]` on failure (note: the error is wrapped in a one-item **list**, not a bare dict, since the success shape is a list).
+Returns a `list[dict]` of action objects, or `[{"ok": False, "error": "..."}]` on failure (note: the error is wrapped in a one-item **list**, not a bare dict, since the success shape is a list).
 
 ```python
 actions = blox.get_blox_actions()
@@ -25,8 +25,8 @@ actions = blox.get_blox_actions()
 `save_blox_action` / `delete_blox_action` are Linux-only. On a Windows-configured client they short-circuit before any request and return:
 
 ```python
-{"error": "save_blox_action is not supported on Windows deployments."}
-{"error": "delete_blox_action is not supported on Windows deployments."}
+{"ok": False, "error": "save_blox_action is not supported on Windows deployments."}
+{"ok": False, "error": "delete_blox_action is not supported on Windows deployments."}
 ```
 
 On Linux, both return the parsed JSON body on success, or `{"success": True}` if the response has no content:
@@ -45,7 +45,7 @@ blox.delete_blox_action("MyCustomAction")
 | `get_blox_widget_style(dashboard_id, widget_id, *, admin_access=True)` | Read a widget's `style.currentCard` and `style.currentConfig` objects. |
 | `update_blox_widget_style(dashboard_id, widget_id, *, current_card=None, current_config=None, executing_user_id=None)` | Replace one or both style objects and write the widget back. |
 
-Both operate only on widgets of type `"BloX"` — any other widget type returns `{"error": "..."}` naming the actual type found.
+Both operate only on widgets of type `"BloX"` — any other widget type returns `{"ok": False, "error": "..."}` naming the actual type found.
 
 - `currentCard` — the BloX card definition: body, actions, and the `style` CSS string.
 - `currentConfig` — widget configuration: `fontFamily`, `fontSizes`, etc.
@@ -56,7 +56,7 @@ style["currentCard"]["style"]  # CSS string
 style["currentConfig"]["fontFamily"]
 ```
 
-`get_blox_widget_style` returns `{"currentCard": {...}, "currentConfig": {...}}` on success, `{"error": "..."}` on failure. `admin_access=True` (default) appends `?adminAccess=true`, letting the call reach dashboards the token user doesn't own.
+`get_blox_widget_style` returns `{"currentCard": {...}, "currentConfig": {...}}` on success, `{"ok": False, "error": "..."}` on failure. `admin_access=True` (default) appends `?adminAccess=true`, letting the call reach dashboards the token user doesn't own.
 
 `update_blox_widget_style` is read-modify-write: it fetches the widget itself, then replaces `style.currentCard` and/or `style.currentConfig` **wholesale** with whatever you pass — there's no partial merge of nested fields, so start from the object returned by `get_blox_widget_style`. An object you omit is left untouched.
 
