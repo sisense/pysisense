@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from typing_extensions import deprecated
+
 from ..payloads import NotebookCreatePayload, NotebookUpdatePayload
 from ..utils import _extract_error_message
 
@@ -316,8 +318,14 @@ class CustomCodeCoreMixin:
         endpoint = f"/api/resources/{path}"
         return self._patch_resource(endpoint, f"resource {path}", payload)
 
+    @deprecated("use rename_notebook_file")
     def rename_notebook_folder(self, old_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Rename a custom-code notebook folder.
+
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`rename_notebook_file` with
+        ``resource_path=f"notebooks/custom_code_notebooks/notebooks/{old_id}/"``,
+        which sends the identical request.
 
         Sends ``PATCH /api/resources/notebooks/custom_code_notebooks/notebooks/{old_id}/``.
 
