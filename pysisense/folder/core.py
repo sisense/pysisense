@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from typing_extensions import deprecated
+
 from ..utils import _extract_error_message
 
 
@@ -134,8 +136,12 @@ class FolderCoreMixin:
         self.logger.info(f"Successfully retrieved folder with ID {folder_id}.")
         return folder
 
+    @deprecated("use get_folders")
     def get_folder_ancestors(self, structure: str) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve folders by a caller-supplied structure value.
+
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`get_folders`, which this method calls unchanged.
 
         Thin alias for ``get_folders(structure)`` — passes the ``structure``
         string through to ``GET /api/v1/folders?structure={structure}``
@@ -212,8 +218,13 @@ class FolderCoreMixin:
         self.logger.info("Successfully retrieved navver navigation payload.")
         return navver
 
+    @deprecated('use get_folders(structure="tree")')
     def get_all_folders(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve the full folder tree.
+
+        Deprecated alias kept for backward compatibility (behavior frozen) —
+        prefer :meth:`get_folders` with ``structure="tree"``, which this
+        method calls unchanged.
 
         Convenience wrapper for ``get_folders("tree")``. Returns the nested
         folder hierarchy used by Sisense for organizing dashboards.
