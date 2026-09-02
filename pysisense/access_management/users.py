@@ -411,9 +411,9 @@ class UsersMixin:
         """Retrieve all users with raw, unmodified role and group objects.
 
         Deprecated alias kept for backward compatibility (behavior frozen) —
-        prefer :meth:`get_users_all`: its canonical rows carry the raw
-        ``ROLE_NAME``, ``GROUP_IDS``, and unfiltered ``GROUPS`` that
-        previously required this method.
+        prefer :meth:`get_users_all`: its canonical rows carry the raw role
+        value in ``ROLE_RAW_NAME`` plus ``GROUP_IDS`` and unfiltered
+        ``GROUPS``, which previously required this method.
 
         Returns
         -------
@@ -477,9 +477,11 @@ class UsersMixin:
         Fetches users with expanded ``groups`` and ``role`` data and returns the
         record matching the provided email address.
 
-        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
-        is now ``ROLE_DISPLAY_NAME``); ``GROUPS`` still holds the group names
-        and is joined by the new ``GROUP_IDS``. See ``docs/upgrading.md``.
+        Changed in 2.0: ``ROLE_NAME`` and ``GROUPS`` keep their 1.x meanings;
+        the row gains ``ROLE_DISPLAY_NAME`` (same value as ``ROLE_NAME``),
+        ``ROLE_RAW_NAME`` (the raw Sisense role value) and ``GROUP_IDS``, and
+        ``Everyone`` is no longer stripped from ``GROUPS``. See
+        ``docs/upgrading.md``.
 
         Parameters
         ----------
@@ -493,11 +495,11 @@ class UsersMixin:
         dict[str, Any]
             The canonical user row: ``USER_ID``, ``USER_NAME``, ``EMAIL``,
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
-            ``ROLE_NAME`` (the raw Sisense value, e.g. ``"consumer"``),
-            ``ROLE_DISPLAY_NAME`` (the name the Sisense UI shows, e.g.
-            ``"viewer"``), ``GROUP_IDS``, and ``GROUPS`` (unfiltered —
-            includes ``Everyone``). Returns ``{"error": "..."}`` when the user
-            is not found or the API call fails.
+            ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME`` (both the name the Sisense
+            UI shows, e.g. ``"viewer"``), ``ROLE_RAW_NAME`` (the raw Sisense
+            value, e.g. ``"consumer"``), ``GROUP_IDS``, and ``GROUPS``
+            (unfiltered — includes ``Everyone``). Returns ``{"error": "..."}``
+            when the user is not found or the API call fails.
         """
         self.logger.debug("Getting user with email: %s", user_email)
 
@@ -626,11 +628,12 @@ class UsersMixin:
         Reports exactly what Sisense stores: group memberships are unfiltered
         (``Everyone`` is included — consumers that want to hide a universal
         group can drop it; a consumer that never received it cannot put it
-        back), and ``ROLE_NAME`` carries the raw Sisense value with the
-        UI-facing name in ``ROLE_DISPLAY_NAME``.
+        back), and each row carries both role vocabularies (``ROLE_NAME`` and
+        ``ROLE_DISPLAY_NAME`` hold the UI name, ``ROLE_RAW_NAME`` the raw
+        Sisense value).
 
-        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
-        is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` is joined by the new
+        Changed in 2.0: ``ROLE_NAME`` and ``GROUPS`` keep their 1.x meanings;
+        the row gains ``ROLE_DISPLAY_NAME``, ``ROLE_RAW_NAME`` and
         ``GROUP_IDS``, and ``Everyone`` is no longer filtered out of
         ``GROUPS``. See ``docs/upgrading.md``.
 
@@ -639,9 +642,10 @@ class UsersMixin:
         list[dict[str, Any]] | dict[str, Any]
             One row per user, each with ``USER_ID``, ``USER_NAME``, ``EMAIL``,
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
-            ``ROLE_NAME`` (raw, e.g. ``"consumer"``), ``ROLE_DISPLAY_NAME``
-            (UI name, e.g. ``"viewer"``), ``GROUP_IDS``, and ``GROUPS``
-            (unfiltered). Returns ``{"error": "..."}`` on failure.
+            ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME`` (UI name, e.g.
+            ``"viewer"``), ``ROLE_RAW_NAME`` (raw, e.g. ``"consumer"``),
+            ``GROUP_IDS``, and ``GROUPS`` (unfiltered). Returns
+            ``{"error": "..."}`` on failure.
         """
         self.logger.debug("Getting all users")
 
