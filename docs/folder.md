@@ -84,7 +84,10 @@ Retrieves folders with a configurable ``structure`` query parameter (``GET /api/
 
 * * * * *
 
-### `get_folder_ancestors(structure)`
+### `get_folder_ancestors(structure)` — deprecated
+
+**Deprecated:** use `get_folders(structure)` instead. This is a thin, behavior-frozen
+alias kept for backward compatibility.
 
 Retrieves folder data for a given ``structure`` query parameter (``GET /api/v1/folders?structure={structure}``).
 
@@ -108,7 +111,10 @@ Retrieves the Sisense navigation payload (``GET /api/v1/navver``), including the
 
 * * * * *
 
-### `get_all_folders()`
+### `get_all_folders()` — deprecated
+
+**Deprecated:** use `get_folders(structure="tree")` instead. This is a thin,
+behavior-frozen wrapper kept for backward compatibility.
 
 Retrieves the full folder tree (`structure=tree`).
 

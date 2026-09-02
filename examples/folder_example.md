@@ -24,10 +24,11 @@ folder = Folder(api_client=api_client)
 
 ## Example 1: Get All Folders (Tree)
 
-Retrieve the nested folder hierarchy.
+Retrieve the nested folder hierarchy. (`get_all_folders()` is a deprecated alias for
+`get_folders(structure="tree")` — use the latter in new code.)
 
 ```python
-response = folder.get_all_folders()
+response = folder.get_folders(structure="tree")
 print(json.dumps(response, indent=4))
 
 folder_df = api_client.to_dataframe(response)
@@ -54,10 +55,11 @@ print(json.dumps(response, indent=4))
 
 ## Example 1c: Get Folder Ancestors
 
-Retrieve folder data for a specific structure type.
+Retrieve folder data for a specific structure type. (`get_folder_ancestors(structure)`
+is a deprecated alias for `get_folders(structure)` — use the latter in new code.)
 
 ```python
-response = folder.get_folder_ancestors("ancestors")
+response = folder.get_folders("ancestors")
 print(json.dumps(response, indent=4))
 ```
 
@@ -156,7 +158,7 @@ Pass any structure value supported by the Sisense API.
 # Flat list
 flat = folder.get_folders(structure="flat")
 
-# Tree (same as get_all_folders)
+# Tree
 tree = folder.get_folders(structure="tree")
 ```
 

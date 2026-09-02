@@ -4,6 +4,17 @@ All notable changes to `pysisense` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/) — breaking changes land only in a major release.
 
+## [Unreleased]
+
+### Deprecated
+
+- **`Folder.get_folder_ancestors`** — thin passthrough for `get_folders(structure)` with
+  no behavior of its own. Use `get_folders(structure)` directly. Marked with PEP 702
+  `__deprecated__`, behavior frozen.
+- **`Folder.get_all_folders`** — convenience wrapper for `get_folders(structure="tree")`
+  with no behavior of its own. Use `get_folders(structure="tree")` directly. Marked with
+  PEP 702 `__deprecated__`, behavior frozen.
+
 ## [2.0.1] — 2026-08-31
 
 ### Fixed
