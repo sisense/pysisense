@@ -75,7 +75,7 @@ uv run pre-commit install
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
-| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets` |
+| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets`, `load_config` |
 | `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PluginSnapshot`) — introspectable by downstream schema generators |
 
 ### Package structure — mixin pattern
@@ -195,7 +195,6 @@ api_client = SisenseClient(config_file=config_path, debug=True)
 access_mgmt = AccessManagement(api_client=api_client)
 blox = Blox(api_client=api_client)
 dashboard = Dashboard(api_client=api_client)
-folder = Folder(api_client=api_client)
 datamodel = DataModel(api_client=api_client)
 folder = Folder(api_client=api_client)
 plugins = Plugins(api_client=api_client)
@@ -214,6 +213,8 @@ token: ""           # Sisense Admin API token
 # ssl_path: ""      # optional CA bundle file/dir for self-signed or internal certs; takes precedence over verify_ssl unless verify_ssl is false
 # retries: false    # auto-retry transient server errors (429/500/502/503/504) with backoff; defaults to true
 ```
+
+The same keys may come from a JSON file (`config_file="config.json"`) or a plain dict (`config_file={...}`); `Migration`/`MergeTool` take the same forms via `source_config`/`target_config` (`source_yaml`/`target_yaml` remain as aliases). Loading is centralised in `pysisense.load_config` (`utils.py`) — reuse it rather than parsing config files elsewhere.
 
 > Never commit `config.yaml`, `source.yaml`, or `target.yaml` — they contain real tokens.
 
