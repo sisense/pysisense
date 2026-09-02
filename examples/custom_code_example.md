@@ -81,10 +81,16 @@ print(json.dumps(contents, indent=4))
 
 ## Example 7: Rename File or Folder
 
+`rename_notebook_folder` is a deprecated alias — a folder rename is just a file rename
+where the resource path points at the folder itself.
+
 ```python
 custom_code.rename_notebook_file(
     "notebooks/custom_code_notebooks/my_folder/file.ipynb",
     {"name": "renamed.ipynb"},
 )
-custom_code.rename_notebook_folder("old-folder-id", {"name": "new-folder-name"})
+custom_code.rename_notebook_file(
+    "notebooks/custom_code_notebooks/notebooks/old-folder-id/",
+    {"name": "new-folder-name"},
+)
 ```

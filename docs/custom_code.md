@@ -56,6 +56,9 @@ Renames a resource file via `PATCH /api/resources/{path}`.
 
 * * * * *
 
-### `rename_notebook_folder(old_id, payload)`
+### `rename_notebook_folder(old_id, payload)` — deprecated
+
+**Deprecated:** use `rename_notebook_file(f"notebooks/custom_code_notebooks/notebooks/{old_id}/", payload)`
+instead. This is a thin, behavior-frozen alias kept for backward compatibility.
 
 Renames a notebook folder via `PATCH /api/resources/notebooks/custom_code_notebooks/notebooks/{oldId}/`.

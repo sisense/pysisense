@@ -4,6 +4,15 @@ All notable changes to `pysisense` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/) — breaking changes land only in a major release.
 
+## [Unreleased]
+
+### Deprecated
+
+- **`CustomCode.rename_notebook_folder`** — fixed-path specialization of
+  `rename_notebook_file` with no behavior of its own beyond the endpoint it builds.
+  Use `rename_notebook_file(f"notebooks/custom_code_notebooks/notebooks/{old_id}/",
+  payload)` directly. Marked with PEP 702 `__deprecated__`, behavior frozen.
+
 ## [2.0.1] — 2026-08-31
 
 ### Fixed

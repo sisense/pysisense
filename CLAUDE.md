@@ -94,7 +94,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `ownership.py` | `change_folder_and_dashboard_ownership` |
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
-| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
+| `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`; deprecated: `rename_notebook_folder`→rename_notebook_file |
 | `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk` |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
