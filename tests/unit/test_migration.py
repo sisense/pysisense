@@ -49,6 +49,29 @@ class TestMigrationInit:
         m = Migration(source_client=src, target_client=tgt)
         assert m.logger is logger
 
+    def test_config_dicts_build_both_clients(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)  # SisenseClient writes logs/ into the cwd
+        m = Migration(
+            source_config={"domain": "src.example.com", "token": "a"},
+            target_config={"domain": "tgt.example.com", "token": "b", "is_ssl": False},
+        )
+        assert m.source_client.base_url == "https://src.example.com"
+        assert m.target_client.base_url == "http://tgt.example.com:30845"
+
+    def test_yaml_aliases_accept_json_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        src = tmp_path / "source.json"
+        src.write_text('{"domain": "src.example.com", "token": "a"}')
+        tgt = tmp_path / "target.yaml"
+        tgt.write_text("domain: tgt.example.com\ntoken: b\n")
+        m = Migration(source_yaml=str(src), target_yaml=str(tgt))
+        assert m.source_client.base_url == "https://src.example.com"
+        assert m.target_client.base_url == "https://tgt.example.com"
+
+    def test_partial_config_init_raises(self):
+        with pytest.raises(ValueError, match="source_config and target_config"):
+            Migration(source_config={"domain": "src.example.com", "token": "a"})
+
 
 # ---------------------------------------------------------------------------
 # _emit helper

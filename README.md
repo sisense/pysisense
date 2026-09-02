@@ -71,9 +71,9 @@ These packages raise an error with a clear message if you try to import them, po
 
 ## 🚀 Quick Start
 
-### 1️⃣ Create your YAML config files
+### 1️⃣ Create your config files
 
-Create one or more YAML files (use the templates in `examples/` as reference only):
+Create one or more config files (use the templates in `examples/` as reference only):
 
 - `config.yaml` – for single-environment operations
 - `source.yaml` and `target.yaml` – for migration scenarios
@@ -84,6 +84,14 @@ Each file should follow this structure:
 domain: "your-domain.com"
 is_ssl: true
 token: "<your_api_token>"
+```
+
+The same settings can come from a JSON file (`config.json`) or a plain Python dict, wherever a config is accepted:
+
+```python
+client = SisenseClient(config_file="config.json")
+client = SisenseClient(config_file={"domain": "your-domain.com", "is_ssl": True, "token": "<your_api_token>"})
+migration = Migration(source_config="source.yaml", target_config={"domain": "...", "token": "..."})
 ```
 
 For **non-SSL** connections (`is_ssl: false`), HTTP requests use port **30845** by default. You can override it with an optional `port` field (ignored when `is_ssl` is `true`):

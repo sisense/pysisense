@@ -2,7 +2,9 @@
 
 import os
 
-from pysisense.utils import convert_to_dataframe, convert_utc_to_local, export_to_csv, redact_secrets
+import pytest
+
+from pysisense.utils import convert_to_dataframe, convert_utc_to_local, export_to_csv, load_config, redact_secrets
 
 
 class TestRedactSecrets:
@@ -103,3 +105,53 @@ class TestConvertUtcToLocal:
         result = convert_utc_to_local("not-a-real-date")
         assert result is not None
         assert "Invalid timestamp" in result
+
+
+class TestLoadConfig:
+    def test_mapping_is_copied_not_shared(self):
+        source = {"domain": "h", "token": "t"}
+        result = load_config(source)
+        assert result == source
+        result["is_ssl"] = False
+        assert "is_ssl" not in source
+
+    def test_yaml_file(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text("domain: myhost\ntoken: secret\nis_ssl: false\n")
+        assert load_config(str(path)) == {"domain": "myhost", "token": "secret", "is_ssl": False}
+
+    def test_yml_extension_is_yaml(self, tmp_path):
+        path = tmp_path / "config.yml"
+        path.write_text("domain: myhost\ntoken: secret\n")
+        assert load_config(str(path)) == {"domain": "myhost", "token": "secret"}
+
+    def test_json_file(self, tmp_path):
+        path = tmp_path / "config.json"
+        path.write_text('{"domain": "myhost", "token": "secret", "port": 4000}')
+        assert load_config(str(path)) == {"domain": "myhost", "token": "secret", "port": 4000}
+
+    def test_pathlike_is_accepted(self, tmp_path):
+        path = tmp_path / "config.json"
+        path.write_text('{"domain": "myhost", "token": "secret"}')
+        assert load_config(path) == {"domain": "myhost", "token": "secret"}
+
+    def test_unknown_extension_falls_back_to_yaml_which_also_reads_json(self, tmp_path):
+        path = tmp_path / "config.conf"
+        path.write_text('{"domain": "myhost", "token": "secret"}')
+        assert load_config(str(path)) == {"domain": "myhost", "token": "secret"}
+
+    def test_empty_file_raises_value_error(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text("")
+        with pytest.raises(ValueError, match="top-level mapping"):
+            load_config(str(path))
+
+    def test_non_mapping_document_raises_value_error(self, tmp_path):
+        path = tmp_path / "config.json"
+        path.write_text('["domain", "token"]')
+        with pytest.raises(ValueError, match="top-level mapping"):
+            load_config(str(path))
+
+    def test_unsupported_source_type_raises_type_error(self):
+        with pytest.raises(TypeError, match="file path or a mapping"):
+            load_config(42)

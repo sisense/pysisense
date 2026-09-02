@@ -4,6 +4,34 @@ All notable changes to `pysisense` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/) — breaking changes land only in a major release.
 
+## [Unreleased]
+
+### Added
+
+- **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
+  `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
+  `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;
+  `source_yaml` / `target_yaml` keep working as aliases. The loader is exported as
+  `pysisense.load_config`. A config missing `domain` or `token` now raises a `ValueError`
+  naming the key instead of a bare `KeyError`.
+
+### Fixed
+
+- `update_user` with an unknown email raised `KeyError` instead of returning the standard
+  failure dict — the 2.0 `get_user` failure dict is never empty, so the old `if not user`
+  guard never fired.
+- `create_user` / `update_user` no longer modify the caller's payload dict while resolving
+  `role` and `groups` to IDs, and no longer write the raw payload (which may carry
+  `password`) to the debug log.
+- `get_user` / `get_users_all` docstrings described `ROLE_NAME` as the raw role value; it
+  keeps the 1.x display-name meaning, as the changelog and upgrade guide say.
+
+### Changed
+
+- `users_per_group(name)` no longer makes a separate `?name=` lookup before fetching the
+  expanded group listing — one fewer request per call, same results and same error for an
+  unknown name. `get_groups(name=...)` sends the name as a URL-encoded query parameter.
+
 ## [2.0.1] — 2026-08-31
 
 ### Fixed

@@ -1,6 +1,10 @@
+import json
+import os
+from collections.abc import Mapping
 from datetime import datetime
 
 import pandas as pd
+import yaml
 from pandas import json_normalize
 
 # Key names (case-insensitive) whose values are replaced by redact_secrets().
@@ -33,6 +37,54 @@ def redact_secrets(data):
         return {key: ("***REDACTED***" if str(key).lower() in _SENSITIVE_KEYS else redact_secrets(value)) for key, value in data.items()}
     if isinstance(data, list):
         return [redact_secrets(item) for item in data]
+    return data
+
+
+# File extensions parsed as JSON. Everything else is parsed as YAML, which is
+# a superset of JSON, so a JSON document under another extension still loads.
+_JSON_SUFFIXES = frozenset({".json"})
+
+
+def load_config(source):
+    """Load a client configuration from a file path or an in-memory mapping.
+
+    Accepts the same settings from any of three sources: a YAML file
+    (``.yaml``/``.yml``), a JSON file (``.json``), or a plain Python mapping
+    such as a ``dict``. Files with any other extension are parsed as YAML,
+    which also accepts JSON syntax.
+
+    Parameters
+    ----------
+    source : str | os.PathLike | Mapping[str, Any]
+        Path to a YAML or JSON config file, or an already-built mapping with
+        the same keys (``domain``, ``token``, ``is_ssl``, ...).
+
+    Returns
+    -------
+    dict[str, Any]
+        A new dict holding the configuration. A mapping is shallow-copied, so
+        later changes by the client never leak back into the caller's object.
+
+    Raises
+    ------
+    TypeError
+        If ``source`` is neither a path nor a mapping.
+    ValueError
+        If the file does not contain a top-level mapping of settings (for
+        example an empty file, or a bare list).
+    """
+    if isinstance(source, Mapping):
+        return dict(source)
+    if not isinstance(source, (str, os.PathLike)):
+        raise TypeError(f"Config source must be a file path or a mapping, not {type(source).__name__}.")
+
+    path = os.fspath(source)
+    with open(path, encoding="utf-8") as stream:
+        data = json.load(stream) if os.path.splitext(path)[1].lower() in _JSON_SUFFIXES else yaml.safe_load(stream)
+
+    if not isinstance(data, dict):
+        found = "nothing" if data is None else f"a {type(data).__name__}"
+        raise ValueError(f"Config file '{path}' must contain a top-level mapping of settings, but it holds {found}.")
     return data
 
 
