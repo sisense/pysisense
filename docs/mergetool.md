@@ -6,21 +6,31 @@ The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, gro
 Initialization
 --------------
 
-Provide either two YAML config files or two pre-built `SisenseClient` instances.
+Provide either two configs (each a YAML file, a JSON file, or a Python dict) or two pre-built `SisenseClient` instances.
 
-### `__init__(self, source_yaml=None, target_yaml=None, debug=False, *, source_client=None, target_client=None)`
+```python
+merge = MergeTool(source_config="source.yaml", target_config="target.json")
+merge = MergeTool(
+    source_config={"domain": "src.example.com", "token": "<src_token>"},
+    target_config={"domain": "tgt.example.com", "token": "<tgt_token>"},
+)
+```
+
+### `__init__(self, source_yaml=None, target_yaml=None, debug=False, *, source_client=None, target_client=None, source_config=None, target_config=None)`
 
 #### Parameters:
 
--   `source_yaml` (str, optional): Path to the YAML config file for the source environment.
+-   `source_config` (str | os.PathLike | dict, optional): Config for the source environment: a `.yaml`/`.yml` or `.json` file path, or a dict with the same keys.
 
--   `target_yaml` (str, optional): Path to the YAML config file for the target environment.
+-   `target_config` (str | os.PathLike | dict, optional): Config for the target environment, in the same forms.
+
+-   `source_yaml`, `target_yaml` (optional): Aliases for `source_config` / `target_config`, kept for backward compatibility. They accept the same forms.
 
 -   `debug` (bool, optional): Enable debug logging on newly created clients. Default is `False`.
 
--   `source_client` (SisenseClient, optional): Pre-built source client. Takes precedence over `source_yaml`.
+-   `source_client` (SisenseClient, optional): Pre-built source client. Takes precedence over `source_config`.
 
--   `target_client` (SisenseClient, optional): Pre-built target client. Takes precedence over `target_yaml`.
+-   `target_client` (SisenseClient, optional): Pre-built target client. Takes precedence over `target_config`.
 
 * * * * *
 

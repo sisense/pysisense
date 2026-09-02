@@ -69,7 +69,9 @@ Inherently administrative operations require a dedicated Sisense admin user's to
 - Granting permissions across environments
 - System-wide migrations
 
-See [`examples/config.yaml`](../examples/config.yaml) for a template.
+The same keys can be supplied as a JSON file (`config_file="config.json"`) or as a Python dict (`config_file={...}`); `Migration` and `MergeTool` accept the same forms via `source_config` / `target_config`.
+
+See [`examples/config.yaml`](../examples/config.yaml) or [`examples/config.json`](../examples/config.json) for a template.
 
 ---
 

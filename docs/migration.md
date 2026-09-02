@@ -8,10 +8,11 @@ Initialization
 
 ## Example Configuration Files
 
-To use the `Migration` class, you must provide two YAML files representing your source and target Sisense environments:
+To use the `Migration` class, provide a config for each of your source and target Sisense environments. A config is anything `SisenseClient` accepts: a YAML file, a JSON file, or a Python dict with the same keys.
 
 - [`examples/source.yaml`](../examples/source.yaml): Configuration for the **source** Sisense environment.
 - [`examples/target.yaml`](../examples/target.yaml): Configuration for the **target** Sisense environment.
+- [`examples/config.json`](../examples/config.json): The same structure as a JSON file.
 
 These files should follow the same structure as [`examples/config.yaml`](../examples/config.yaml), including:
 
@@ -21,17 +22,29 @@ is_ssl: true
 token: "<your_api_token>"
 ```
 
-### `__init__(self, source_yaml, target_yaml, debug=False)`
+```python
+migration = Migration(source_config="source.yaml", target_config="target.json")
+migration = Migration(
+    source_config={"domain": "src.example.com", "token": "<src_token>"},
+    target_config={"domain": "tgt.example.com", "token": "<tgt_token>"},
+)
+```
 
-Initializes the Migration class with API clients and Access Management for both source and target environments.
+### `__init__(self, source_yaml=None, target_yaml=None, debug=False, *, source_client=None, target_client=None, source_config=None, target_config=None)`
+
+Initializes the Migration class with API clients for both source and target environments. Provide either two configs or two pre-built `SisenseClient` instances.
 
 #### Parameters:
 
--   `source_yaml` (str): Path to the YAML file for source environment configuration.
+-   `source_config` (str | os.PathLike | dict, optional): Config for the source environment: a `.yaml`/`.yml` or `.json` file path, or a dict with the same keys.
 
--   `target_yaml` (str): Path to the YAML file for target environment configuration.
+-   `target_config` (str | os.PathLike | dict, optional): Config for the target environment, in the same forms.
 
--   `debug` (bool, optional): Enables debug logging if `True`. Default is `False`.
+-   `source_yaml`, `target_yaml` (optional): Aliases for `source_config` / `target_config`, kept for backward compatibility. They accept the same forms.
+
+-   `source_client`, `target_client` (SisenseClient, optional): Pre-built clients. Take precedence over the configs.
+
+-   `debug` (bool, optional): Enables debug logging on newly created clients. Default is `False`.
 
 * * * * *
 

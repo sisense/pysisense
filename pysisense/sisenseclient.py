@@ -4,16 +4,16 @@ import logging
 import os
 import re
 import warnings
+from collections.abc import Mapping
 from logging.handlers import TimedRotatingFileHandler
 from typing import Any
 
 import requests
 import urllib3
-import yaml
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from .utils import convert_to_dataframe, redact_secrets
+from .utils import convert_to_dataframe, load_config, redact_secrets
 from .utils import export_to_csv as export_csv_util
 
 DEFAULT_NON_SSL_PORT = 30845
@@ -31,7 +31,7 @@ _OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
 class SisenseClient:
     def __init__(
         self,
-        config_file: str | None = "config.yaml",
+        config_file: str | os.PathLike[str] | Mapping[str, Any] | None = "config.yaml",
         debug: bool = False,
         *,
         domain: str | None = None,
@@ -51,10 +51,13 @@ class SisenseClient:
 
         Two supported patterns:
 
-        1) Legacy YAML-based usage (backward compatible):
+        1) Config-based usage (backward compatible). The config can be a YAML
+           file, a JSON file, or a plain Python dict with the same keys:
             client = SisenseClient(config_file="config.yaml", debug=False)
+            client = SisenseClient(config_file="config.json", debug=False)
+            client = SisenseClient(config_file={"domain": "...", "token": "..."})
 
-           The YAML must contain:
+           The config must contain:
              - domain: "https://your-domain.sisense.com"
              - token: "YOUR_API_TOKEN"
              - is_ssl: true  # optional, defaults to True
@@ -74,8 +77,11 @@ class SisenseClient:
         - Otherwise, config_file is required and used as before.
 
         Parameters:
-            config_file (str): Path to the YAML configuration file. Ignored if
-                both domain and token are provided.
+            config_file (str | os.PathLike | Mapping | None): Path to a YAML
+                (``.yaml``/``.yml``) or JSON (``.json``) configuration file,
+                or an in-memory mapping with the same keys. A mapping is
+                copied, never modified. Ignored if both domain and token are
+                provided.
             debug (bool): Flag to enable debug-level logging.
             domain (str | None): Sisense base URL or hostname. If provided together
                 with token, inline config is used instead of YAML.
@@ -132,10 +138,13 @@ class SisenseClient:
                 raise ValueError("When using direct connection, both 'domain' and 'token' must be provided.")
             self.config = {"domain": domain, "token": token}
         else:
-            # Legacy YAML mode
+            # Config mode: YAML file, JSON file, or mapping
             if not config_file:
                 raise ValueError("config_file must be provided when 'domain' and 'token' are not supplied.")
             self.config = self._load_config(config_file)
+            missing = [key for key in ("domain", "token") if not self.config.get(key)]
+            if missing:
+                raise ValueError(f"Config is missing required key(s): {', '.join(missing)}.")
 
         # is_ssl / port / verify_ssl kwargs override whatever the config
         # source provides (or its absence) whenever explicitly passed, in
@@ -311,17 +320,16 @@ class SisenseClient:
 
     def _load_config(self, config_file):
         """
-        Loads the configuration file in YAML format.
+        Loads the client configuration from a YAML file, a JSON file, or a mapping.
 
         Parameters:
-            config_file (str): Path to the YAML configuration file.
+            config_file (str | os.PathLike | Mapping): Path to a ``.yaml``/``.yml``
+                or ``.json`` file, or an in-memory mapping with the same keys.
 
         Returns:
-            dict: Parsed YAML configuration as a dictionary.
+            dict: The configuration as a dictionary (a copy, when a mapping is given).
         """
-        # Open and parse the YAML file
-        with open(config_file) as stream:
-            return yaml.safe_load(stream)
+        return load_config(config_file)
 
     def _get_logger(self, name, log_filename, log_level):
         """

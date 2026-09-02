@@ -41,6 +41,12 @@ scripts/
 # All YAML files
 *.yaml
 
+# JSON configs carry real tokens too — only the placeholder example is tracked
+config.json
+source.json
+target.json
+!examples/config.json
+
 # pytest cache
 .pytest_cache/
 
