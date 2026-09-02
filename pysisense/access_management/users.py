@@ -6,7 +6,7 @@ from typing import Any
 from typing_extensions import deprecated
 
 from ..payloads import CreateUserPayload, UpdateUserPayload
-from ..utils import _extract_error_message
+from ..utils import _extract_error_message, redact_secrets
 
 # Raw Sisense role name -> the display name shown in the Sisense UI.
 # Single source of truth: canonical user rows carry BOTH vocabularies
@@ -710,13 +710,16 @@ class UsersMixin:
             dictionary with an ``error`` key if the operation fails. Missing
             required fields are rejected up front, before any API call.
         """
-        self.logger.debug(f"Creating user with data: {user_data}")
+        self.logger.debug(f"Creating user with data: {redact_secrets(user_data)}")
 
         # Validate required fields up front — fail with a clear message before
         # any API call instead of failing mid-flow at role resolution.
         if not isinstance(user_data, dict):
             self.logger.error("create_user requires user_data to be a dict.")
             return {"ok": False, "error": "user_data must be a dictionary."}
+        # Work on a copy: the role/group name-to-ID resolution below rewrites
+        # keys, and the caller's dict must not change under them.
+        user_data = dict(user_data)
         missing = [field for field in ("email", "role") if not user_data.get(field)]
         if missing:
             error_msg = f"create_user requires {' and '.join(f'{f!r}' for f in missing)} in user_data — got fields: {sorted(user_data.keys()) or 'none'}"
@@ -760,7 +763,7 @@ class UsersMixin:
             user_data["groups"] = []
 
         # Step 4: Send POST request to create the user
-        self.logger.debug(f"Final user data for API call: {user_data}")
+        self.logger.debug(f"Final user data for API call: {redact_secrets(user_data)}")
         response = self.api_client.post("/api/v1/users", data=user_data)
 
         if response and response.ok:
@@ -822,10 +825,20 @@ class UsersMixin:
         """
         self.logger.debug("Updating user with email: %s", user_email)
 
+        if not isinstance(user_data, dict):
+            self.logger.error("update_user requires user_data to be a dict.")
+            return {"ok": False, "error": "user_data must be a dictionary."}
+        # Work on a copy: the role/group name-to-ID resolution below rewrites
+        # keys, and the caller's dict must not change under them.
+        user_data = dict(user_data)
+
         user = self.get_user(user_email)
-        if not user:
-            self.logger.error("User with email '%s' not found.", user_email)
-            return {"ok": False, "error": f"User with email '{user_email}' not found."}
+        if not user or "error" in user:
+            # 2.0 get_user always returns a dict (never None), so the first check
+            # is defensive. The key fix: a failure dict is non-empty, so the old
+            # `if not user` guard never fired, and the PATCH call raised KeyError.
+            # get_user already logged the reason and named the user.
+            return user or {"ok": False, "error": f"User with email '{user_email}' not found."}
 
         # Step 1: Resolve role if provided (either vocabulary)
         if "role" in user_data:
@@ -871,7 +884,7 @@ class UsersMixin:
 
                 user_data["groups"] = updated_groups
 
-        self.logger.debug("Final updated user data for API call: %s", user_data)
+        self.logger.debug("Final updated user data for API call: %s", redact_secrets(user_data))
         response = self.api_client.patch(
             f"/api/v1/users/{user['USER_ID']}",
             data=user_data,

@@ -650,6 +650,23 @@ class TestCreateUser:
         for name in ("consumer", "super", "contributor"):
             assert name in result["error"]
 
+    def test_does_not_mutate_the_caller_payload(self):
+        am = _make_am(
+            get_responses={"/api/roles": FakeResponse(200, _ROLES), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+        )
+        payload = {"email": "x@x.com", "role": "viewer", "groups": ["Engineers"]}
+        am.create_user(payload)
+        assert payload == {"email": "x@x.com", "role": "viewer", "groups": ["Engineers"]}
+
+    def test_password_is_redacted_from_debug_log(self):
+        am = _make_am(
+            get_responses={"/api/roles": FakeResponse(200, _ROLES)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+        )
+        am.create_user({"email": "x@x.com", "role": "viewer", "password": "hunter2"})
+        assert not any("hunter2" in str(m["msg"]) for m in am.logger.messages)
+
 
 # ---------------------------------------------------------------------------
 # update_user
@@ -713,6 +730,33 @@ class TestUpdateUser:
         assert "error" not in result, f"role {role!r} was rejected: {result}"
         assert captured["payload"]["roleId"] == expected_role_id
         assert "role" not in captured["payload"]
+
+    def test_unknown_user_returns_error_dict_even_when_role_resolves(self):
+        # Regression: get_user's failure dict is non-empty, so the old
+        # `if not user` guard never fired and the PATCH raised KeyError on
+        # user["USER_ID"]. Roles are mocked so the failure cannot be blamed
+        # on role resolution.
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, []), "/api/roles": FakeResponse(200, _ROLES)})
+        result = am.update_user("ghost@example.com", {"role": "viewer"})
+        assert result["ok"] is False
+        assert "ghost@example.com" in result["error"]
+
+    def test_does_not_mutate_the_caller_payload(self):
+        am = _make_am(
+            get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED]), "/api/roles": FakeResponse(200, _ROLES)},
+            patch_responses={"/api/v1/users/": FakeResponse(200, _USER_EXPANDED)},
+        )
+        payload = {"role": "viewer"}
+        am.update_user("jdoe@example.com", payload)
+        assert payload == {"role": "viewer"}
+
+    def test_password_is_redacted_from_debug_log(self):
+        am = _make_am(
+            get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])},
+            patch_responses={"/api/v1/users/": FakeResponse(200, _USER_EXPANDED)},
+        )
+        am.update_user("jdoe@example.com", {"password": "hunter2"})
+        assert not any("hunter2" in str(m["msg"]) for m in am.logger.messages)
 
 
 # ---------------------------------------------------------------------------
