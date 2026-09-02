@@ -91,8 +91,8 @@ class GroupsMixin:
         """
         self.logger.debug(f"Starting 'get_groups' method (name={name!r}).")
 
-        endpoint = f"/api/v1/groups?name={name}" if name is not None else "/api/v1/groups"
-        response = self.api_client.get(endpoint)
+        # params= so a name with spaces or reserved characters is URL-encoded.
+        response = self.api_client.get("/api/v1/groups", params={"name": name} if name is not None else None)
 
         if response is None or not response.ok:
             failure = _extract_error_message(response, "Failed to retrieve groups", self.api_client)
@@ -195,6 +195,28 @@ class GroupsMixin:
         self.logger.error(failure["error"])
         return failure
 
+    def _get_groups_expanded(self) -> list[dict[str, Any]] | dict[str, Any]:
+        """Fetch every group with its members expanded, as the API returns them.
+
+        ``GET /api/v1/groups?expand=users`` is the group-side membership source
+        the Sisense UI shows; ``users_per_group`` and the canonical user rows
+        both read from it. Returns the raw group list (dict entries only), or
+        a failure dict.
+        """
+        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
+        if response is None or not response.ok:
+            failure = _extract_error_message(response, "Failed to retrieve group memberships", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+
+        try:
+            groups = response.json() or []
+        except Exception as e:
+            self.logger.exception("Failed to parse group memberships response JSON.")
+            return {"ok": False, "error": f"Failed to parse group memberships response JSON: {str(e)}"}
+
+        return [group for group in groups if isinstance(group, dict)]
+
     def users_per_group(self, group_name: str | None = None) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve group memberships — one group's members, or every membership.
 
@@ -245,25 +267,17 @@ class GroupsMixin:
         """
         self.logger.debug(f"Starting 'users_per_group' method (group_name={group_name!r}).")
 
+        groups = self._get_groups_expanded()
+        if isinstance(groups, dict):
+            return groups
+
         # A filtered request for a group that doesn't exist must fail loudly —
-        # an empty list would read as "the group has no members". get_groups
-        # returns the not-found error dict itself; pass it through.
-        if group_name is not None:
-            named = self.get_groups(name=group_name)
-            if isinstance(named, dict):
-                return named
-
-        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
-        if response is None or not response.ok:
-            failure = _extract_error_message(response, "Failed to retrieve group memberships", self.api_client)
-            self.logger.error(failure["error"])
-            return failure
-
-        try:
-            groups = response.json() or []
-        except Exception as e:
-            self.logger.exception("Failed to parse group memberships response JSON.")
-            return {"ok": False, "error": f"Failed to parse group memberships response JSON: {str(e)}"}
+        # an empty list would read as "the group has no members". The expanded
+        # listing already holds every group, so no extra lookup is needed.
+        if group_name is not None and not any(group.get("name") == group_name for group in groups):
+            error_msg = f"Group '{group_name}' not found."
+            self.logger.error(error_msg)
+            return {"ok": False, "error": error_msg}
 
         # The expanded group payload carries each member's identity but only a
         # raw roleId, so join against the expanded user list for the role
@@ -280,8 +294,6 @@ class GroupsMixin:
 
         memberships: list[dict[str, Any]] = []
         for group in groups:
-            if not isinstance(group, dict):
-                continue
             gname = group.get("name", "")
             if group_name is not None:
                 if gname != group_name:

@@ -162,21 +162,13 @@ class UsersMixin:
             groups cannot be fetched — callers fall back to the user record
             rather than losing the rows entirely.
         """
-        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
-        if response is None or not response.ok:
+        groups = self._get_groups_expanded()
+        if isinstance(groups, dict):
             self.logger.warning("Could not fetch group-side membership; falling back to the user record.")
-            return {}
-
-        try:
-            groups = response.json() or []
-        except Exception:
-            self.logger.exception("Failed to parse group memberships response JSON.")
             return {}
 
         membership: dict[str, list[tuple[str, str]]] = {}
         for group in groups:
-            if not isinstance(group, dict):
-                continue
             gid, gname = group.get("_id", ""), group.get("name", "")
             for member in group.get("users") or []:
                 if isinstance(member, dict) and member.get("_id"):

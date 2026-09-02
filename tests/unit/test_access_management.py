@@ -915,6 +915,20 @@ class TestUsersPerGroup:
         )
         assert am.users_per_group("EmptyGroup") == []
 
+    def test_named_group_fetches_the_group_listing_once(self):
+        # The expanded listing already answers "does this group exist", so a
+        # separate ?name= lookup is a wasted round trip. A second groups call
+        # would hit the 500 and turn this into a failure.
+        group_with_members = {**_GROUPS[0], "users": [_USER_EXPANDED]}
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": [FakeResponse(200, [group_with_members]), FakeResponse(500, {})],
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        rows = am.users_per_group("Engineers")
+        assert [r["USER_NAME"] for r in rows] == ["jdoe"]
+
 
 # ---------------------------------------------------------------------------
 # users_per_group_all
