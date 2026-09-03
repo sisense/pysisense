@@ -1216,6 +1216,47 @@ class TestGetUnusedColumnsBulk:
         assert result["errors"][0]["ref"] == "NoSuchModel"
 
 
+class TestUnusedColumnsDashboardParsing:
+    """The usage side of get_unused_columns_bulk: a column cited by a dashboard is used."""
+
+    @staticmethod
+    def _am(tables, dim):
+        schema = {"oid": "dm123", "title": "MyModel"}
+        export = [{"title": "D", "filters": [], "widgets": [{"oid": "w1", "metadata": {"panels": [{"items": [{"jaql": {"dim": dim}}]}]}}]}]
+        return _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, schema),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}]),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
+                "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": "d1", "title": "D"}]),
+                "/api/v1/dashboards/export": FakeResponse(200, export),
+            }
+        )
+
+    @staticmethod
+    def _used(result):
+        return {(r["table"], r["column"]): r["used"] for r in result["results"]}
+
+    def test_one_bracket_reference_marks_the_column_used(self):
+        am = self._am([{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}]}], "[tbl.col1]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("tbl", "col1"): True, ("tbl", "col2"): False}
+
+    def test_two_bracket_reference_marks_the_column_used(self):
+        # Regression: [tbl].[col1] used to parse as ("tbl]", "[col1") and col1 read as unused.
+        am = self._am([{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}]}], "[tbl].[col1]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("tbl", "col1"): True, ("tbl", "col2"): False}
+
+    def test_table_name_starting_with_bracket_marks_the_column_used(self):
+        # Live-observed: a table renamed to "[region" is emitted as [[region.col]; strip("[]") lost the bracket.
+        am = self._am([{"name": "[region", "columns": [{"name": "r_name"}, {"name": "r_comment"}]}], "[[region.r_name]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("[region", "r_name"): True, ("[region", "r_comment"): False}
+
+    def test_dotted_column_name_resolves_against_the_schema(self):
+        # The dim has three dots; only the schema can say where the table ends.
+        am = self._am([{"name": "@trips", "columns": [{"name": '."pickup.'}, {"name": "fare"}]}], '[@trips.."pickup. (Calendar)]')
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("@trips", '."pickup.'): True, ("@trips", "fare"): False}
+
+
 # ---------------------------------------------------------------------------
 # get_all_dashboard_shares
 # ---------------------------------------------------------------------------

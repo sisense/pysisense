@@ -161,7 +161,7 @@ class TestLoadConfig:
 # JAQL dim parsing — _parse_dim_candidates / _parse_dim / _column_name_variants
 # ---------------------------------------------------------------------------
 
-from pysisense.utils import _column_name_variants, _parse_dim, _parse_dim_candidates  # noqa: E402
+from pysisense.utils import _column_name_variants, _extract_dashboard_columns, _parse_dim, _parse_dim_candidates, _split_dim  # noqa: E402
 
 
 class TestParseDimCandidates:
@@ -347,3 +347,128 @@ def test_old_strip_logic_ate_a_leading_bracket_from_a_real_table_name():
     of that table would have been reported unused. Pinned against the emitted dim."""
     assert "[[region.r_comment]".strip("[]").split(".", 1) == ["region", "r_comment"]
     assert _parse_dim_candidates("[[region.r_comment]") == [("[region", "r_comment")]
+
+
+# ---------------------------------------------------------------------------
+# _split_dim / _extract_dashboard_columns — the shared walk behind
+# Dashboard.get_dashboard_columns and AccessManagement.get_unused_columns_bulk
+# ---------------------------------------------------------------------------
+
+
+class TestSplitDim:
+    def test_ordinary_one_bracket_form(self):
+        assert _split_dim("[Orders.Amount]") == ("Orders", "Amount")
+
+    def test_two_bracket_form_no_longer_mangled(self):
+        assert _split_dim("[Orders].[Amount]") == ("Orders", "Amount")
+
+    def test_table_name_starting_with_bracket_survives(self):
+        assert _split_dim("[[region.r_comment]") == ("[region", "r_comment")
+
+    def test_dotted_names_resolve_against_known_columns(self):
+        dim = '[@trips.."tpep_pickup_datetime. (Calendar)]'
+        known = {("@trips", '."tpep_pickup_datetime.'), ("@trips", "fare_amount")}
+        assert _split_dim(dim, known) == ("@trips", '."tpep_pickup_datetime. (Calendar)')
+
+    def test_dotted_names_without_schema_fall_back_to_first_dot(self):
+        # Same reading the old first-dot split produced -- unchanged behaviour
+        # for callers that have no schema to consult.
+        assert _split_dim("[a.b.c]") == ("a", "b.c")
+
+    def test_known_columns_that_match_nothing_still_fall_back_to_first_dot(self):
+        assert _split_dim("[a.b.c]", {("x", "y")}) == ("a", "b.c")
+
+    def test_non_reference_strings_keep_legacy_behaviour(self):
+        assert _split_dim("Unknown.Table") == ("Unknown", "Table")
+        assert _split_dim("[justatable]") == ("justatable", "Unknown Column")
+        assert _split_dim("plain") == ("plain", "Unknown Column")
+
+
+# Shaped exactly like a live export (2026-09-03): dashboard filter with a
+# plain jaql, a dependent filter with levels (date, Calendar suffix), a pivot
+# row item, an indicator with a widget-level filter panel, a formula whose
+# columns live in `context`, an empty context, and an item with no dim.
+_EXPORT = {
+    "title": "fes_assistant",
+    "filters": [
+        {"jaql": {"dim": "[region.r_name]", "title": "r_name"}},
+        {"levels": [{"dim": '[@trips.."tpep_pickup_datetime. (Calendar)]'}, {"dim": "[@trips.tpep_dropoff_datetime (Calendar)]"}]},
+        "not-a-dict",
+    ],
+    "widgets": [
+        {"oid": "w-pivot", "type": "pivot2", "metadata": {"panels": [{"name": "rows", "items": [{"jaql": {"dim": "[region.r_name]"}}]}, {"name": "values", "items": []}]}},
+        {
+            "oid": "w-ind",
+            "type": "indicator",
+            "metadata": {
+                "panels": [
+                    {"name": "value", "items": [{"jaql": {"dim": "[region.r_regionkey]", "agg": "sum"}}]},
+                    {"name": "filters", "items": [{"jaql": {"dim": "[@trips.fare_amount]", "filter": {"members": ["-4"]}}}]},
+                ]
+            },
+        },
+        {
+            "oid": "w-formula",
+            "metadata": {
+                "panels": [
+                    {
+                        "items": [
+                            {"jaql": {"formula": "SUM([A]) / SUM([B])", "context": {"[A]": {"dim": "[@trips.fare_amount]"}, "[B]": {"dim": "[@trips.[trip_distance]"}, "junk": None}}},
+                            {"jaql": {"formula": "1", "context": {}}},
+                            {"jaql": {"title": "no dim here"}},
+                            {"jaql": {"dim": None}},
+                        ]
+                    }
+                ]
+            },
+        },
+        {"oid": "w-empty", "metadata": {}},
+        None,
+    ],
+    "layout": {"columns": []},
+}
+
+
+class TestExtractDashboardColumns:
+    def test_rows_in_document_order_with_source_and_widget_id(self):
+        rows = _extract_dashboard_columns(_EXPORT)
+        assert [(r["source"], r["widget_id"], r["table"], r["column"]) for r in rows] == [
+            ("filter", "N/A", "region", "r_name"),
+            ("filter", "N/A", "@trips", '."tpep_pickup_datetime. (Calendar)'),
+            ("filter", "N/A", "@trips", "tpep_dropoff_datetime (Calendar)"),
+            ("widget", "w-pivot", "region", "r_name"),
+            ("widget", "w-ind", "region", "r_regionkey"),
+            ("widget", "w-ind", "@trips", "fare_amount"),
+            ("widget", "w-formula", "@trips", "fare_amount"),
+            ("widget", "w-formula", "@trips", "[trip_distance"),
+            ("widget", "w-formula", "Unknown", "Table"),  # legacy placeholder for an item with no dim key
+        ]
+        assert all(r["dashboard_name"] == "fes_assistant" for r in rows)
+
+    def test_widget_id_is_the_widgets_own_oid_not_a_layout_position(self):
+        rows = _extract_dashboard_columns(_EXPORT)
+        assert {r["widget_id"] for r in rows if r["source"] == "widget"} == {"w-pivot", "w-ind", "w-formula"}
+
+    def test_dashboard_name_override(self):
+        assert _extract_dashboard_columns(_EXPORT, "override")[0]["dashboard_name"] == "override"
+
+    def test_explicit_none_dim_is_skipped_not_crashed(self):
+        # The old walkers did `"." in dim_value` on filter dims and crashed on None.
+        rows = _extract_dashboard_columns({"filters": [{"jaql": {"dim": None}}, {"levels": [{"dim": None}]}]})
+        assert rows == []
+
+    def test_calendar_suffix_left_on_column_for_callers(self):
+        rows = _extract_dashboard_columns({"filters": [{"levels": [{"dim": "[T.Date (Calendar)]"}]}]})
+        assert rows[0]["column"] == "Date (Calendar)"
+
+    def test_known_columns_pick_the_right_reading_for_dotted_names(self):
+        rows = _extract_dashboard_columns(_EXPORT, known_columns={("@trips", '."tpep_pickup_datetime.')})
+        assert ("@trips", '."tpep_pickup_datetime. (Calendar)') in {(r["table"], r["column"]) for r in rows}
+
+    def test_two_bracket_form_resolves(self):
+        rows = _extract_dashboard_columns({"widgets": [{"oid": "w", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[Orders].[Amount]"}}]}]}}]})
+        assert (rows[0]["table"], rows[0]["column"]) == ("Orders", "Amount")
+
+    def test_not_a_dict_yields_empty(self):
+        assert _extract_dashboard_columns(None) == []
+        assert _extract_dashboard_columns([]) == []

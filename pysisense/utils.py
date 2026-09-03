@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import yaml
@@ -375,3 +377,123 @@ def _parse_dim(dim):
     """
     candidates = _parse_dim_candidates(dim)
     return candidates[0] if len(candidates) == 1 else None
+
+
+_UNKNOWN_DIM = "Unknown.Table"
+
+
+def _split_dim(dim: str, known_columns: set[tuple[str, str]] | None = None) -> tuple[str, str]:
+    """Split a dashboard ``dim`` string into ``(table, column)`` for the column walkers.
+
+    Bracketed references go through ``_parse_dim_candidates``. A single
+    candidate is returned as is. When a name itself contains dots there are
+    several candidates: the first whose table and column exist in
+    ``known_columns`` wins (the ``" (Calendar)"`` suffix is tolerated), and
+    without a schema the first candidate is used, which is the reading the
+    old first-dot split produced for ordinary names. Strings that are not a
+    bracketed reference keep the old behaviour: split at the first dot, or
+    ``"Unknown Column"`` when there is none.
+
+    Parameters:
+        dim (str): The raw ``dim`` value from a dashboard export.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to choose between readings.
+
+    Returns:
+        tuple[str, str]: The ``(table, column)`` reading of the dim.
+    """
+    candidates = _parse_dim_candidates(dim)
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        if known_columns:
+            for table, column in candidates:
+                if any((table, variant) in known_columns for variant in _column_name_variants(column)):
+                    return table, column
+        return candidates[0]
+    text = dim.strip()
+    if len(text) >= 2 and text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    if "." in text:
+        table, column = text.split(".", 1)
+        return table, column
+    return text, "Unknown Column"
+
+
+def _extract_dashboard_columns(
+    dashboard: dict[str, Any],
+    dashboard_name: str | None = None,
+    known_columns: set[tuple[str, str]] | None = None,
+    logger: logging.Logger | None = None,
+) -> list[dict[str, Any]]:
+    """Walk an exported dashboard and list every column reference it contains.
+
+    Shared traversal behind ``Dashboard.get_dashboard_columns`` and
+    ``AccessManagement.get_unused_columns_bulk``. Reads dashboard filters
+    (plain ``jaql`` and dependent ``levels``) and every widget panel item,
+    descending into a formula's ``context`` for the columns it references.
+    Rows come back in document order and are not deduplicated; the
+    ``" (Calendar)"`` suffix Sisense adds to date dimensions is left on the
+    column so each caller can apply its own normalisation.
+
+    Parameters:
+        dashboard (dict[str, Any]): One dashboard as returned by the export endpoint.
+        dashboard_name (str | None): Title recorded on each row; defaults to the dashboard's own title.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to pick the right reading of a dim whose names contain dots.
+        logger (logging.Logger | None): Optional logger for step-by-step debug output.
+
+    Returns:
+        list[dict[str, Any]]: Rows with ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``), ``widget_id``, ``table`` and ``column``.
+    """
+    if not isinstance(dashboard, dict):
+        return []
+    name = dashboard_name if dashboard_name is not None else dashboard.get("title", "Unknown Dashboard")
+    rows: list[dict[str, Any]] = []
+
+    def add(source: str, widget_id: str, dim: Any, where: str) -> None:
+        if not isinstance(dim, str) or not dim:
+            if logger:
+                logger.debug(f"{where}: no usable 'dim' value, skipping.")
+            return
+        table, column = _split_dim(dim, known_columns)
+        rows.append({"dashboard_name": name, "source": source, "widget_id": widget_id, "table": table, "column": column})
+        if logger:
+            logger.debug(f"{where}: extracted table={table!r} column={column!r}")
+
+    filters = dashboard.get("filters") or []
+    if logger:
+        logger.debug(f"Dashboard '{name}': {len(filters)} filters")
+    for index, filter_ in enumerate(filters, start=1):
+        if not isinstance(filter_, dict):
+            continue
+        if "levels" in filter_:
+            for level in filter_.get("levels") or []:
+                if isinstance(level, dict):
+                    add("filter", "N/A", level.get("dim", _UNKNOWN_DIM), f"Filter {index} (levels)")
+        elif "jaql" in filter_:
+            jaql = filter_.get("jaql")
+            if isinstance(jaql, dict):
+                add("filter", "N/A", jaql.get("dim", _UNKNOWN_DIM), f"Filter {index} (jaql)")
+
+    widgets = dashboard.get("widgets") or []
+    if logger:
+        logger.debug(f"Dashboard '{name}': {len(widgets)} widgets")
+    for index, widget in enumerate(widgets, start=1):
+        if not isinstance(widget, dict):
+            continue
+        widget_id = widget.get("oid", "Unknown Widget")
+        metadata = widget.get("metadata")
+        panels = metadata.get("panels") if isinstance(metadata, dict) else None
+        for panel in panels or []:
+            items = panel.get("items") if isinstance(panel, dict) else None
+            for item in items or []:
+                jaql = item.get("jaql", {}) if isinstance(item, dict) else None
+                if not isinstance(jaql, dict):
+                    continue
+                context = jaql.get("context")
+                if "context" in jaql and isinstance(context, dict):
+                    for value in context.values():
+                        if isinstance(value, dict):
+                            add("widget", widget_id, value.get("dim", _UNKNOWN_DIM), f"Widget {index} (context)")
+                else:
+                    add("widget", widget_id, jaql.get("dim", _UNKNOWN_DIM), f"Widget {index}")
+    return rows

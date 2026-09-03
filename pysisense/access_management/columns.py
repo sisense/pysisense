@@ -4,6 +4,8 @@ from typing import Any
 
 from typing_extensions import deprecated
 
+from ..utils import _extract_dashboard_columns
+
 
 class ColumnsMixin:
     def get_datamodel_columns(self, datamodel_name: str) -> list[dict[str, Any]]:
@@ -174,6 +176,7 @@ class ColumnsMixin:
 
         total_datamodel_columns = len(all_columns)
         self.logger.info(f"Retrieved {total_datamodel_columns} columns from DataModel '{datamodel_name}'")
+        known_columns = {(entry.get("table"), entry.get("column")) for entry in all_columns}
 
         # Step 2: Fetch dashboards associated with this DataModel
         self.logger.info(f"Fetching dashboards linked to DataModel '{datamodel_name}'")
@@ -217,106 +220,24 @@ class ColumnsMixin:
                 self.logger.error(f"Failed to export dashboard with ID '{dashboard_id}'")
                 continue
 
-            dashboard = response.json()[0]
-            dashboard_name = dashboard["title"]
+            exported = response.json()
+            dashboard = exported[0] if isinstance(exported, list) and exported and isinstance(exported[0], dict) else None
+            if dashboard is None:
+                self.logger.error(f"Unexpected export structure for dashboard with ID '{dashboard_id}'")
+                continue
+            dashboard_name = dashboard.get("title", "Unknown Dashboard")
             self.logger.debug(f"Analyzing Dashboard '{dashboard_name}' (ID: {dashboard_id})")
 
-            # Extract columns from filters
-            filter_count = 0
-            self.logger.debug(f"Extracting columns from filters for dashboard '{dashboard_name}'")
-            if "filters" in dashboard:
-                total_filters = len(dashboard["filters"])
-                self.logger.debug(f"Total filters found: {total_filters}")
+            # Extract every column reference from filters and widgets (shared walk).
+            # known_columns lets a dim whose names contain dots resolve against the schema.
+            extracted = _extract_dashboard_columns(dashboard, dashboard_name, known_columns=known_columns, logger=self.logger)
+            dashboard_columns.extend(extracted)
 
-                for filter_index, filter in enumerate(dashboard["filters"], start=1):
-                    filter_count += 1
-                    self.logger.debug(f"Processing filter {filter_index}/{total_filters}")
-
-                    if "levels" in filter:
-                        levels_count = len(filter["levels"])
-                        self.logger.debug(f"Filter {filter_index}: Extracting {levels_count} levels")
-
-                        for level in filter["levels"]:
-                            dim_value = level.get("dim", "Unknown.Table")
-                            if "." in dim_value:
-                                table, column = dim_value.strip("[]").split(".", 1)
-                            else:
-                                table, column = dim_value.strip("[]"), "Unknown Column"
-
-                            dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
-
-                            self.logger.debug(f"Filter {filter_index}: Extracted from levels - Table: {table}, Column: {column}")
-
-                    elif "jaql" in filter:
-                        dim_value = filter["jaql"].get("dim", "Unknown.Table")
-                        if "." in dim_value:
-                            table, column = dim_value.strip("[]").split(".", 1)
-                        else:
-                            table, column = dim_value.strip("[]"), "Unknown Column"
-
-                        dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
-
-                        self.logger.debug(f"Filter {filter_index}: Extracted from JAQL - Table: {table}, Column: {column}")
-
-            self.logger.info(f"Processed {filter_count} filters for dashboard '{dashboard_name}'")
-
-            # Extract columns from widgets
-            widget_count = 0
-            column_count = 0
-            self.logger.debug(f"Extracting columns from widgets for dashboard '{dashboard_name}'")
-
-            total_widgets_in_dashboard = len(dashboard.get("widgets", []))
-            self.logger.debug(f"Total widgets found: {total_widgets_in_dashboard}")
-
-            for widget_index, widget in enumerate(dashboard.get("widgets", []), start=1):
-                widget_count += 1
-                widget_id = widget.get("oid", "Unknown Widget")
-                widget_title = widget.get("title", "Unnamed Widget")
-
-                self.logger.debug(f"Processing widget {widget_index}/{total_widgets_in_dashboard}: '{widget_title}' (ID: {widget_id})")
-
-                for panel in widget.get("metadata", {}).get("panels", []):
-                    for item in panel.get("items", []):
-                        jaql = item.get("jaql", {})
-
-                        # Extract columns from 'context' (Formula-based columns)
-                        if "context" in jaql and isinstance(jaql["context"], dict):
-                            if not jaql["context"]:
-                                self.logger.info(f"Widget {widget_index}: 'context' is an empty dict. Skipping context extraction.")
-                                continue
-
-                            for _, value in jaql["context"].items():
-                                dim_value = value.get("dim", "Unknown.Table")
-                                if "." in dim_value:
-                                    table, column = dim_value.strip("[]").split(".", 1)
-                                else:
-                                    table, column = dim_value.strip("[]"), "Unknown Column"
-
-                                dashboard_columns.append(
-                                    {"datamodel_name": datamodel_name, "dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column}
-                                )
-                                column_count += 1
-
-                                self.logger.debug(f"Widget {widget_index}: Extracted from context (Formula) - Table: {table}, Column: {column}")
-
-                        # Extract columns from 'dim' (Regular columns)
-                        else:
-                            dim_value = jaql.get("dim", "Unknown.Table")
-                            if not dim_value:
-                                self.logger.info(f"Widget {widget_index}: Missing 'dim' in jaql. Skipping item.")
-                                continue
-                            if "." in dim_value:
-                                table, column = dim_value.strip("[]").split(".", 1)
-                            else:
-                                table, column = dim_value.strip("[]"), "Unknown Column"
-
-                            dashboard_columns.append({"datamodel_name": datamodel_name, "dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column})
-                            column_count += 1
-
-                            self.logger.debug(f"Widget {widget_index}: Extracted from regular source - Table: {table}, Column: {column}")
-
+            filter_count = len(dashboard.get("filters") or [])
+            widget_count = len(dashboard.get("widgets") or [])
+            total_filters += filter_count
             total_widgets += widget_count
-            self.logger.info(f"Processed {widget_count} widgets and {filter_count} filters and extracted {column_count} columns for dashboard '{dashboard_name}'")
+            self.logger.info(f"Processed {widget_count} widgets and {filter_count} filters and extracted {len(extracted)} columns for dashboard '{dashboard_name}'")
 
         self.logger.info(f"Total filters processed: {total_filters}")
         self.logger.info(f"Total widgets processed: {total_widgets}")
