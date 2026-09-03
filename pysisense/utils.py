@@ -419,6 +419,65 @@ def _split_dim(dim: str, known_columns: set[tuple[str, str]] | None = None) -> t
     return text, "Unknown Column"
 
 
+def _match_known_column(candidates: list[tuple[str, str]], known_columns: set[tuple[str, str]]) -> tuple[str, str] | None:
+    """Return the schema's own ``(table, column)`` for the first candidate found in ``known_columns``.
+
+    Tries an exact match first and a case-insensitive match second, tolerating
+    the ``" (Calendar)"`` suffix on the candidate column. The tuple returned is
+    the schema's spelling, so a caller comparing against the schema matches.
+
+    Parameters:
+        candidates (list[tuple[str, str]]): ``(table, column)`` readings in order of preference.
+        known_columns (set[tuple[str, str]]): ``(table, column)`` pairs of the data model.
+
+    Returns:
+        tuple[str, str] | None: The matching schema pair, or ``None`` when nothing matches.
+    """
+    for table, column in candidates:
+        for variant in _column_name_variants(column):
+            if (table, variant) in known_columns:
+                return table, variant
+    lowered = {(table.lower(), column.lower()): (table, column) for table, column in known_columns if isinstance(table, str) and isinstance(column, str)}
+    for table, column in candidates:
+        for variant in _column_name_variants(column):
+            hit = lowered.get((table.lower(), variant.lower()))
+            if hit:
+                return hit
+    return None
+
+
+def _reference_from_jaql(node: dict[str, Any], known_columns: set[tuple[str, str]] | None = None) -> tuple[str, str] | None:
+    """Read the ``(table, column)`` a JAQL node refers to.
+
+    Sisense writes the table and column beside ``dim`` on nearly every node,
+    and those keys are authoritative: a table named ``T1.csv`` cannot be
+    recovered from ``[T1.csv.C1]`` by splitting at a dot. When present they
+    are used; ``dim`` is parsed only as a fallback. With ``known_columns`` the
+    explicit pair and every parser candidate are checked against the schema
+    first, so a case difference between the dashboard and the model resolves
+    to the model's spelling.
+
+    Parameters:
+        node (dict[str, Any]): A JAQL dict, possibly carrying ``dim``, ``table`` and ``column``.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model.
+
+    Returns:
+        tuple[str, str] | None: The reference, or ``None`` when the node carries no usable ``dim`` (a missing key still yields the legacy ``Unknown.Table`` placeholder).
+    """
+    table, column, dim = node.get("table"), node.get("column"), node.get("dim", _UNKNOWN_DIM)
+    explicit = (table, column) if isinstance(table, str) and table and isinstance(column, str) and column else None
+    if explicit is None and (not isinstance(dim, str) or not dim):
+        return None
+    if known_columns:
+        candidates = ([explicit] if explicit else []) + [c for c in (_parse_dim_candidates(dim) if isinstance(dim, str) else []) if c != explicit]
+        hit = _match_known_column(candidates, known_columns)
+        if hit:
+            return hit
+    if explicit:
+        return explicit
+    return _split_dim(dim, known_columns)
+
+
 def _extract_dashboard_columns(
     dashboard: dict[str, Any],
     dashboard_name: str | None = None,
@@ -431,6 +490,8 @@ def _extract_dashboard_columns(
     ``AccessManagement.get_unused_columns_bulk``. Reads dashboard filters
     (plain ``jaql`` and dependent ``levels``) and every widget panel item,
     descending into a formula's ``context`` for the columns it references.
+    Each node's explicit ``table`` and ``column`` keys are used when present
+    and its ``dim`` is parsed only as a fallback (see ``_reference_from_jaql``).
     Rows come back in document order and are not deduplicated; the
     ``" (Calendar)"`` suffix Sisense adds to date dimensions is left on the
     column so each caller can apply its own normalisation.
@@ -449,12 +510,13 @@ def _extract_dashboard_columns(
     name = dashboard_name if dashboard_name is not None else dashboard.get("title", "Unknown Dashboard")
     rows: list[dict[str, Any]] = []
 
-    def add(source: str, widget_id: str, dim: Any, where: str) -> None:
-        if not isinstance(dim, str) or not dim:
+    def add(source: str, widget_id: str, node: Any, where: str) -> None:
+        reference = _reference_from_jaql(node, known_columns) if isinstance(node, dict) else None
+        if reference is None:
             if logger:
-                logger.debug(f"{where}: no usable 'dim' value, skipping.")
+                logger.debug(f"{where}: no usable field reference, skipping.")
             return
-        table, column = _split_dim(dim, known_columns)
+        table, column = reference
         rows.append({"dashboard_name": name, "source": source, "widget_id": widget_id, "table": table, "column": column})
         if logger:
             logger.debug(f"{where}: extracted table={table!r} column={column!r}")
@@ -468,11 +530,11 @@ def _extract_dashboard_columns(
         if "levels" in filter_:
             for level in filter_.get("levels") or []:
                 if isinstance(level, dict):
-                    add("filter", "N/A", level.get("dim", _UNKNOWN_DIM), f"Filter {index} (levels)")
+                    add("filter", "N/A", level, f"Filter {index} (levels)")
         elif "jaql" in filter_:
             jaql = filter_.get("jaql")
             if isinstance(jaql, dict):
-                add("filter", "N/A", jaql.get("dim", _UNKNOWN_DIM), f"Filter {index} (jaql)")
+                add("filter", "N/A", jaql, f"Filter {index} (jaql)")
 
     widgets = dashboard.get("widgets") or []
     if logger:
@@ -493,7 +555,7 @@ def _extract_dashboard_columns(
                 if "context" in jaql and isinstance(context, dict):
                     for value in context.values():
                         if isinstance(value, dict):
-                            add("widget", widget_id, value.get("dim", _UNKNOWN_DIM), f"Widget {index} (context)")
+                            add("widget", widget_id, value, f"Widget {index} (context)")
                 else:
-                    add("widget", widget_id, jaql.get("dim", _UNKNOWN_DIM), f"Widget {index}")
+                    add("widget", widget_id, jaql, f"Widget {index}")
     return rows

@@ -1251,6 +1251,12 @@ class TestUnusedColumnsDashboardParsing:
         am = self._am([{"name": "[region", "columns": [{"name": "r_name"}, {"name": "r_comment"}]}], "[[region.r_name]")
         assert self._used(am.get_unused_columns_bulk("MyModel")) == {("[region", "r_name"): True, ("[region", "r_comment"): False}
 
+    def test_csv_table_name_marks_the_column_used(self):
+        # The common real case: CSV uploads are tables named "x.csv"; the old
+        # first-dot split read [T1.csv.C1] as table "T1" and marked C1 unused.
+        am = self._am([{"name": "T1.csv", "columns": [{"name": "C1"}, {"name": "C2"}]}], "[T1.csv.C1]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("T1.csv", "C1"): True, ("T1.csv", "C2"): False}
+
     def test_dotted_column_name_resolves_against_the_schema(self):
         # The dim has three dots; only the schema can say where the table ends.
         am = self._am([{"name": "@trips", "columns": [{"name": '."pickup.'}, {"name": "fare"}]}], '[@trips.."pickup. (Calendar)]')

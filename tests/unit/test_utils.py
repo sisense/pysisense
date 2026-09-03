@@ -161,7 +161,7 @@ class TestLoadConfig:
 # JAQL dim parsing — _parse_dim_candidates / _parse_dim / _column_name_variants
 # ---------------------------------------------------------------------------
 
-from pysisense.utils import _column_name_variants, _extract_dashboard_columns, _parse_dim, _parse_dim_candidates, _split_dim  # noqa: E402
+from pysisense.utils import _column_name_variants, _extract_dashboard_columns, _parse_dim, _parse_dim_candidates, _reference_from_jaql, _split_dim  # noqa: E402
 
 
 class TestParseDimCandidates:
@@ -462,8 +462,9 @@ class TestExtractDashboardColumns:
         assert rows[0]["column"] == "Date (Calendar)"
 
     def test_known_columns_pick_the_right_reading_for_dotted_names(self):
+        # With a schema the row carries the model's own spelling (no Calendar suffix).
         rows = _extract_dashboard_columns(_EXPORT, known_columns={("@trips", '."tpep_pickup_datetime.')})
-        assert ("@trips", '."tpep_pickup_datetime. (Calendar)') in {(r["table"], r["column"]) for r in rows}
+        assert ("@trips", '."tpep_pickup_datetime.') in {(r["table"], r["column"]) for r in rows}
 
     def test_two_bracket_form_resolves(self):
         rows = _extract_dashboard_columns({"widgets": [{"oid": "w", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[Orders].[Amount]"}}]}]}}]})
@@ -472,3 +473,52 @@ class TestExtractDashboardColumns:
     def test_not_a_dict_yields_empty(self):
         assert _extract_dashboard_columns(None) == []
         assert _extract_dashboard_columns([]) == []
+
+
+class TestReferenceFromJaql:
+    """Explicit table/column keys beat dim parsing; the schema beats both on spelling.
+
+    Census of 509 live dashboards (2026-09-03): 12,306 of 13,080 dim-bearing
+    nodes carry table+column; 82 of them, in 20 dashboards, name a table with
+    a dot in it (every CSV upload is called ``something.csv``) and were
+    misread by the first-dot split.
+    """
+
+    def test_explicit_keys_recover_a_dotted_table_name_without_a_schema(self):
+        node = {"dim": "[T1.csv.C1]", "table": "T1.csv", "column": "C1"}
+        assert _reference_from_jaql(node) == ("T1.csv", "C1")
+
+    def test_explicit_column_has_no_calendar_suffix(self):
+        node = {"dim": "[Orders.Date (Calendar)]", "table": "Orders", "column": "Date"}
+        assert _reference_from_jaql(node) == ("Orders", "Date")
+
+    def test_falls_back_to_dim_parsing_when_keys_are_absent(self):
+        assert _reference_from_jaql({"dim": "[Orders.Amount]"}) == ("Orders", "Amount")
+        assert _reference_from_jaql({"dim": "[Orders].[Amount]"}) == ("Orders", "Amount")
+
+    def test_schema_spelling_wins_on_a_case_mismatch(self):
+        # Live-observed: dim "[Category.Category]" with table "category".
+        node = {"dim": "[Category.Category]", "table": "category", "column": "Category"}
+        assert _reference_from_jaql(node, {("Category", "Category")}) == ("Category", "Category")
+        assert _reference_from_jaql(node) == ("category", "Category")  # no schema: as written
+
+    def test_schema_resolves_dotted_dim_when_keys_are_absent(self):
+        node = {"dim": "[T1.csv.C1]"}
+        assert _reference_from_jaql(node, {("T1.csv", "C1")}) == ("T1.csv", "C1")
+
+    def test_missing_dim_key_keeps_the_legacy_placeholder(self):
+        assert _reference_from_jaql({"title": "x"}) == ("Unknown", "Table")
+
+    def test_explicit_none_or_empty_dim_is_unusable(self):
+        assert _reference_from_jaql({"dim": None}) is None
+        assert _reference_from_jaql({"dim": ""}) is None
+
+    def test_partial_explicit_keys_do_not_count(self):
+        assert _reference_from_jaql({"dim": "[A.B]", "table": "A"}) == ("A", "B")
+        assert _reference_from_jaql({"dim": "[A.B]", "table": "", "column": "B"}) == ("A", "B")
+
+
+def test_walk_uses_explicit_keys_so_csv_tables_come_out_right():
+    export = {"widgets": [{"oid": "w", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[bank_churn_train.csv.Geography]", "table": "bank_churn_train.csv", "column": "Geography"}}]}]}}]}
+    rows = _extract_dashboard_columns(export)
+    assert (rows[0]["table"], rows[0]["column"]) == ("bank_churn_train.csv", "Geography")
