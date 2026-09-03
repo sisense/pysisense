@@ -17,6 +17,22 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **`get_unused_columns_bulk` and `get_dashboard_columns` no longer misread field references,
+  so columns that dashboards use are no longer reported unused.** Both walked the dashboard
+  with `dim.strip("[]").split(".", 1)`, which handles only `[Table.Column]` with plain names.
+  The `[Table].[Column]` form parsed as table `Table]` / column `[Column`, and a table or
+  column whose name begins with `[` or ends with `]` (Sisense enforces no naming restriction,
+  and emits such names raw as `[[region.col]`) lost the bracket — either way the column never
+  matched the schema and was marked unused. The two methods now share one traversal
+  (`_extract_dashboard_columns`) that reads the same places as before — dashboard filters,
+  dependent filter levels, widget panel items and formula `context` — and parses dims with a
+  permissive candidate parser; when a name itself contains dots, the model's own columns
+  decide where the table ends. The deprecated `get_unused_columns` alias inherits the fix.
+- `get_dashboard_columns` reported `widget_id` from the widget's position in the dashboard
+  layout, which is wrong for any layout with more than one column; it now reports the
+  widget's own `oid`.
+- A filter or panel item whose `dim` is `null` crashed both walkers with `TypeError`; it is
+  now skipped.
 - `update_user` with an unknown email raised `KeyError` instead of returning the standard
   failure dict — the 2.0 `get_user` failure dict is never empty, so the old `if not user`
   guard never fired.
