@@ -76,7 +76,7 @@ uv run pre-commit install
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets`, `load_config` |
-| `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PluginSnapshot`) — introspectable by downstream schema generators |
+| `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PerspectiveTableSpec`, `PluginSnapshot`) — introspectable by downstream schema generators |
 
 ### Package structure — mixin pattern
 
@@ -109,7 +109,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
-| | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `delete_perspective` (refuses the built-in Default) |
+| | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `create_perspective` (names in, `PerspectiveTableSpec` list; kept tables/columns only), `delete_perspective` (refuses the built-in Default) |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
-from ..utils import _extract_error_message
+from ..payloads import PerspectiveTableSpec
+from ..utils import _build_schema_index, _extract_error_message
 
 
 def _is_default_perspective(perspective: dict[str, Any]) -> bool:
@@ -197,3 +199,194 @@ class PerspectivesMixin:
             "datamodelOid": target.get("datamodelOid"),
             "datamodelTitle": target.get("datamodelTitle"),
         }
+
+    def create_perspective(
+        self,
+        datamodel: str,
+        name: str,
+        tables: list[PerspectiveTableSpec | str],
+        description: str = "",
+        ai_context: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a perspective over a data model, keeping only the named tables and columns.
+
+        A perspective is a metadata-only view: the root model and its data are
+        untouched, and everything not listed here is left out of the view. Table
+        and column names are resolved against the model's schema before anything
+        is sent, so a typo fails fast and nothing half-built is created. The
+        request is the one the Sisense UI sends (``POST /api/v2/perspectives``):
+        kept tables as ``include`` entries whose ``columnsDiff`` lists the kept
+        columns; tables and columns not kept are simply absent. After creation
+        the perspective is read back and compared with the request.
+
+        Parameters
+        ----------
+        datamodel : str
+            The root data model, as an ID or title.
+        name : str
+            Name for the new perspective. Must not already exist on that model.
+        tables : list[PerspectiveTableSpec | str]
+            Tables to keep. Each entry is ``{"table": name, "columns": [names] | "all"}``, or a
+            bare table name meaning all of its columns. Tables not listed are excluded.
+        description : str, optional
+            Description shown in Sisense. Default empty.
+        ai_context : str | None, optional
+            Free-text context for the AI assistant, stored on the perspective as ``aiContext``.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True, "oid", "name", "datamodelOid", "datamodelTitle", "description",
+            "tables": [{"table", "table_oid", "columns_kept", "columns_total"}],
+            "excluded_tables": [names], "warnings": [...]}`` on success — ``warnings`` is non-empty
+            only when the read-back differs from the request. On failure (unknown model, table or
+            column, a name already in use, or an API error), the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
+        """
+        if not isinstance(name, str) or not name.strip():
+            return self._fail("name is required.")
+        name = name.strip()
+        if isinstance(tables, (str, dict)):
+            tables = [tables]
+        if not isinstance(tables, list) or not tables:
+            return self._fail("tables must be a non-empty list of table names or {'table', 'columns'} specs.")
+
+        resolved = self.resolve_datamodel_reference(datamodel)
+        if not resolved.get("success"):
+            return self._fail(f"Data model '{datamodel}' could not be resolved: {resolved.get('error') or 'not found'}", status_code=resolved.get("status_code"))
+        datamodel_id, datamodel_title = resolved["datamodel_id"], resolved.get("datamodel_title")
+
+        schema_response = self.api_client.get(f"/api/v2/datamodels/{datamodel_id}/schema")
+        if schema_response is None or schema_response.status_code != 200:
+            failure = _extract_error_message(schema_response, f"Failed to read the schema of data model '{datamodel_title}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+        try:
+            schema = schema_response.json()
+        except Exception:
+            return self._fail(f"Failed to parse the schema of data model '{datamodel_title}'.")
+        index = _build_schema_index(schema)
+        if not index["tables"]:
+            return self._fail(f"Data model '{datamodel_title}' has no tables.")
+
+        existing = self.get_perspectives(datamodel=datamodel_id, include_default=True)
+        if isinstance(existing, dict):
+            return existing
+        if any(isinstance(p.get("name"), str) and p["name"].strip().lower() == name.lower() for p in existing):
+            return self._fail(f"A perspective named '{name}' already exists on data model '{datamodel_title}'.")
+
+        # Resolve the requested tables and columns to oids; collect every problem before failing.
+        problems: list[str] = []
+        kept: list[dict[str, Any]] = []
+        seen_tables: set[str] = set()
+        for spec in tables:
+            if isinstance(spec, str):
+                spec = {"table": spec}
+            if not isinstance(spec, dict) or not isinstance(spec.get("table"), str) or not spec["table"].strip():
+                problems.append(f"invalid table spec {spec!r}")
+                continue
+            table_name = spec["table"].strip()
+            table_oids = index["tables_by_name"].get(table_name.lower(), [])
+            if not table_oids:
+                problems.append(f"table '{table_name}' not found")
+                continue
+            table_oid = table_oids[0]
+            if table_oid in seen_tables:
+                problems.append(f"table '{table_name}' listed more than once")
+                continue
+            seen_tables.add(table_oid)
+            table = index["tables"][table_oid]
+            wanted = spec.get("columns", "all")
+            if isinstance(wanted, str) and wanted.strip().lower() == "all":
+                column_oids = list(table["columns"])
+            elif isinstance(wanted, list) and wanted:
+                column_oids = []
+                for column_name in wanted:
+                    column_oid = table["columns_by_name"].get(column_name.strip().lower()) if isinstance(column_name, str) else None
+                    if column_oid is None:
+                        problems.append(f"column '{column_name}' not found in table '{table_name}'")
+                    elif column_oid not in column_oids:
+                        column_oids.append(column_oid)
+            else:
+                problems.append(f"table '{table_name}': columns must be a non-empty list of names or 'all'")
+                continue
+            kept.append({"table": table["name"], "table_oid": table_oid, "column_oids": column_oids, "columns_total": len(table["columns"])})
+        if problems:
+            return self._fail(f"Cannot create perspective '{name}' on '{datamodel_title}': " + "; ".join(problems))
+
+        tenant = schema.get("tenant") if isinstance(schema, dict) else None
+        body: dict[str, Any] = {
+            "oid": str(uuid.uuid4()),
+            "name": name,
+            "datamodelOid": datamodel_id,
+            "parentOid": datamodel_id,
+            "tables": [{"oid": k["table_oid"], "diffType": "include", "columnsDiff": [{"oid": c, "enabled": True} for c in k["column_oids"]]} for k in kept],
+            "relations": [],
+            "fiscalYear": "system",
+            "shares": [],
+            "description": description or "",
+            "tags": [],
+        }
+        if isinstance(tenant, dict) and isinstance(tenant.get("_id"), str):
+            body["tenantId"] = tenant["_id"]
+        if ai_context is not None:
+            body["aiContext"] = ai_context
+
+        excluded = sorted(t["name"] for oid, t in index["tables"].items() if oid not in seen_tables and isinstance(t.get("name"), str))
+        self.logger.debug(f"Creating perspective '{name}' on '{datamodel_title}': keeping {len(kept)} tables, excluding {len(excluded)}")
+        response = self.api_client.post("/api/v2/perspectives", data=body)
+        if response is None or response.status_code not in (200, 201):
+            failure = _extract_error_message(response, f"Failed to create perspective '{name}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+        created_oid = body["oid"]
+        try:
+            created = response.json()
+            if isinstance(created, dict) and isinstance(created.get("oid"), str):
+                created_oid = created["oid"]
+        except Exception:
+            self.logger.debug("Create response carried no JSON body; using the requested oid.")
+
+        # Read back and compare with what was asked for.
+        warnings: list[str] = []
+        readback = self.api_client.get(f"/api/v2/perspectives/{created_oid}")
+        if readback is None or readback.status_code != 200:
+            warnings.append("created, but the perspective could not be read back for verification")
+        else:
+            try:
+                stored = readback.json()
+                stored_tables = {
+                    t.get("oid"): {c.get("oid") for c in (t.get("columnsDiff") or []) if isinstance(c, dict) and c.get("enabled", True)} for t in (stored.get("tables") or []) if isinstance(t, dict)
+                }
+                for k in kept:
+                    stored_cols = stored_tables.get(k["table_oid"])
+                    if stored_cols is None:
+                        warnings.append(f"table '{k['table']}' is missing from the created perspective")
+                    elif stored_cols != set(k["column_oids"]):
+                        warnings.append(f"table '{k['table']}': {len(stored_cols)} columns stored, {len(k['column_oids'])} requested")
+                for extra in set(stored_tables) - seen_tables:
+                    warnings.append(f"the created perspective carries an unrequested table (oid {extra})")
+            except Exception:
+                warnings.append("created, but the read-back response could not be parsed")
+        for w in warnings:
+            self.logger.warning(f"Perspective '{name}': {w}")
+        self.logger.info(f"Created perspective '{name}' (oid={created_oid}) on data model '{datamodel_title}' with {len(kept)} tables")
+        return {
+            "success": True,
+            "oid": created_oid,
+            "name": name,
+            "datamodelOid": datamodel_id,
+            "datamodelTitle": datamodel_title,
+            "description": body["description"],
+            "tables": [{"table": k["table"], "table_oid": k["table_oid"], "columns_kept": len(k["column_oids"]), "columns_total": k["columns_total"]} for k in kept],
+            "excluded_tables": excluded,
+            "warnings": warnings,
+        }
+
+    def _fail(self, message: str, status_code: int | None = None) -> dict[str, Any]:
+        """Log and return a standard failure dict for the perspective methods."""
+        failure: dict[str, Any] = {"ok": False, "error": message}
+        if status_code is not None:
+            failure["status_code"] = status_code
+        self.logger.error(message)
+        return failure

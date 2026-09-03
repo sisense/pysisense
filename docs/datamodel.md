@@ -753,3 +753,21 @@ Deletes a perspective by name or ID via `DELETE /api/v2/perspectives/{oid}`. The
 **Returns:**
 
 - `dict`: `{"success": True, "message": "...", "oid", "name", "datamodelOid", "datamodelTitle"}` on success. On failure (not found, ambiguous, a default perspective, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `create_perspective(datamodel, name, tables, description="", ai_context=None)`
+
+Creates a perspective over a data model, keeping only the named tables and columns, via `POST /api/v2/perspectives`. A perspective is a metadata-only view: the root model and its data are untouched, and everything not listed is left out of the view. Table and column names are resolved against the model's schema before anything is sent, so a typo fails fast and nothing half-built is created. The request is the one the Sisense UI sends: kept tables as `include` entries whose `columnsDiff` lists the kept columns; tables and columns not kept are simply absent. After creation the perspective is read back and compared with the request.
+
+**Parameters:**
+
+- `datamodel` (str): The root data model, as an ID or title.
+- `name` (str): Name for the new perspective. Must not already exist on that model.
+- `tables` (list of `PerspectiveTableSpec` or str): Tables to keep. Each entry is `{"table": name, "columns": [names] | "all"}`, or a bare table name meaning all of its columns. Tables not listed are excluded.
+- `description` (str, optional): Description shown in Sisense.
+- `ai_context` (str, optional): Free-text context for the AI assistant, stored on the perspective as `aiContext`.
+
+**Returns:**
+
+- `dict`: `{"success": True, "oid", "name", "datamodelOid", "datamodelTitle", "description", "tables": [{"table", "table_oid", "columns_kept", "columns_total"}], "excluded_tables": [names], "warnings": [...]}` on success — `warnings` is non-empty only when the read-back differs from the request. On failure (unknown model, table or column, a name already in use, or an API error), the standard error dict `{"ok": False, "error": "..."}`.

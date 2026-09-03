@@ -1305,3 +1305,134 @@ class TestDeletePerspective:
     def test_no_response_returns_error_dict(self):
         dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [_P_OPS]), "/api/v2/datamodels/schema": FakeResponse(200, [])}, delete_responses={"/api/v2/perspectives/": None})
         assert dm.delete_perspective("Ops")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# create_perspective
+# ---------------------------------------------------------------------------
+
+_FES_SCHEMA = {
+    "oid": "dm-a",
+    "title": "Model A",
+    "tenant": {"_id": "tenant-1"},
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    {
+                        "oid": "t-trips",
+                        "name": "@trips",
+                        "type": "base",
+                        "columns": [{"oid": "c-fare", "name": "fare_amount"}, {"oid": "c-pick", "name": '."tpep_pickup_datetime.'}, {"oid": "c-zip", "name": "pickup_zip"}],
+                    },
+                    {"oid": "t-region", "name": "region", "type": "base", "columns": [{"oid": "c-rname", "name": "r_name"}, {"oid": "c-rkey", "name": "r_regionkey"}]},
+                    {"oid": "t-unused", "name": "Unused", "type": "base", "columns": [{"oid": "c-u", "name": "u"}]},
+                    None,
+                ]
+            },
+        }
+    ],
+    "relations": [],
+}
+
+
+class _RecordingClient(FakeApiClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.posted: list[tuple[str, dict]] = []
+
+    def post(self, url, data=None, **kwargs):
+        self.posted.append((url, data))
+        return super().post(url, data=data, **kwargs)
+
+
+def _make_creator(post_status=201, readback=None, existing=None, schema=_FES_SCHEMA):
+    client = _RecordingClient(
+        get_responses={
+            "/api/v2/datamodels/dm-a/schema": FakeResponse(200, schema),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}]),
+            "/api/v2/perspectives": FakeResponse(200, existing if existing is not None else [_P_DEFAULT_A]),
+        },
+        post_responses={"/api/v2/perspectives": FakeResponse(post_status, {"oid": "server-oid"} if post_status == 201 else {"message": "boom"})},
+        logger=FakeLogger(),
+    )
+    client._get["/api/v2/perspectives/server-oid"] = FakeResponse(200, readback) if readback is not None else FakeResponse(404, {})
+    return DataModel(api_client=client), client
+
+
+class TestCreatePerspective:
+    def _readback(self):
+        return {
+            "oid": "server-oid",
+            "name": "P",
+            "tables": [
+                {"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-pick", "enabled": True}]},
+                {"oid": "t-region", "diffType": "include", "columnsDiff": [{"oid": "c-rname", "enabled": True}, {"oid": "c-rkey", "enabled": True}]},
+            ],
+        }
+
+    def test_builds_the_ui_payload_from_names(self):
+        dm, client = _make_creator(readback=self._readback())
+        result = dm.create_perspective("dm-a", "P", [{"table": "@TRIPS", "columns": ["fare_amount", '."tpep_pickup_datetime.']}, "region"], description="d", ai_context="ctx")
+        assert result["success"] is True and result["warnings"] == []
+        assert result["oid"] == "server-oid" and result["datamodelTitle"] == "Model A"
+        assert result["tables"] == [
+            {"table": "@trips", "table_oid": "t-trips", "columns_kept": 2, "columns_total": 3},
+            {"table": "region", "table_oid": "t-region", "columns_kept": 2, "columns_total": 2},
+        ]
+        assert result["excluded_tables"] == ["Unused"]
+        url, body = client.posted[0]
+        assert url == "/api/v2/perspectives"
+        assert body["name"] == "P" and body["datamodelOid"] == "dm-a" and body["parentOid"] == "dm-a" and body["tenantId"] == "tenant-1"
+        assert body["description"] == "d" and body["aiContext"] == "ctx" and body["relations"] == [] and body["shares"] == [] and body["fiscalYear"] == "system"
+        assert body["tables"] == [
+            {"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-pick", "enabled": True}]},
+            {"oid": "t-region", "diffType": "include", "columnsDiff": [{"oid": "c-rname", "enabled": True}, {"oid": "c-rkey", "enabled": True}]},
+        ]
+        assert len(body["oid"]) == 36  # client-generated uuid, as the UI does
+
+    def test_ai_context_omitted_when_not_given(self):
+        dm, client = _make_creator(readback=self._readback())
+        dm.create_perspective("dm-a", "P", ["@trips", "region"])
+        assert "aiContext" not in client.posted[0][1]
+
+    def test_unknown_table_and_column_fail_fast_before_posting(self):
+        dm, client = _make_creator()
+        result = dm.create_perspective("dm-a", "P", ["nope", {"table": "region", "columns": ["r_name", "zzz"]}])
+        assert result["ok"] is False and "table 'nope' not found" in result["error"] and "column 'zzz' not found in table 'region'" in result["error"]
+        assert client.posted == []
+
+    def test_duplicate_name_on_the_model_is_refused(self):
+        dm, client = _make_creator(existing=[_P_DEFAULT_A, {"oid": "x", "name": "p", "parentOid": "dm-a", "datamodelOid": "dm-a"}])
+        result = dm.create_perspective("dm-a", "P", ["region"])
+        assert result["ok"] is False and "already exists" in result["error"] and client.posted == []
+
+    def test_unresolvable_model(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
+        assert dm.create_perspective("nope", "P", ["region"])["ok"] is False
+
+    def test_api_failure_returns_error_dict(self):
+        dm, _ = _make_creator(post_status=500)
+        result = dm.create_perspective("dm-a", "P", ["region"])
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_readback_mismatch_is_a_warning_not_a_failure(self):
+        short = self._readback()
+        short["tables"][0]["columnsDiff"] = short["tables"][0]["columnsDiff"][:1]
+        dm, _ = _make_creator(readback=short)
+        result = dm.create_perspective("dm-a", "P", ["@trips", "region"])
+        assert result["success"] is True
+        assert any("@trips" in w and "stored" in w for w in result["warnings"])
+
+    def test_readback_unavailable_is_a_warning(self):
+        dm, _ = _make_creator()
+        result = dm.create_perspective("dm-a", "P", ["region"])
+        assert result["success"] is True and any("read back" in w for w in result["warnings"])
+
+    def test_input_validation(self):
+        dm, _ = _make_creator()
+        assert dm.create_perspective("dm-a", "", ["region"])["ok"] is False
+        assert dm.create_perspective("dm-a", "P", [])["ok"] is False
+        assert dm.create_perspective("dm-a", "P", [{"table": "region", "columns": []}])["ok"] is False
+        assert dm.create_perspective("dm-a", "P", ["region", "REGION"])["ok"] is False

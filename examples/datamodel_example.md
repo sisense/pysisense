@@ -806,3 +806,27 @@ result = datamodel.delete_perspective("no-such-perspective")
 if result.get("ok") is False:
     print(result["error"])
 ```
+
+## Example 35: Create a Perspective
+
+```python
+# Keep two columns of @trips and every column of region; every other table is left out.
+result = datamodel.create_perspective(
+    "fes_assistant",
+    "trips_for_chatbot",
+    [
+        {"table": "@trips", "columns": ["fare_amount", "tpep_dropoff_datetime"]},
+        "region",  # a bare name keeps all of its columns
+    ],
+    description="Only what the dashboards use",
+    ai_context="Taxi trips joined to regions; revenue is fare_amount.",
+)
+# {"success": True, "oid": "...", "name": "trips_for_chatbot", "datamodelOid": "...", "datamodelTitle": "fes_assistant",
+#  "tables": [{"table": "@trips", "table_oid": "...", "columns_kept": 2, "columns_total": 6},
+#             {"table": "region", "table_oid": "...", "columns_kept": 3, "columns_total": 3}],
+#  "excluded_tables": [], "warnings": []}
+
+# Typos fail before anything is created
+bad = datamodel.create_perspective("fes_assistant", "oops", [{"table": "region", "columns": ["r_name", "zzz"]}])
+# {"ok": False, "error": "Cannot create perspective 'oops' on 'fes_assistant': column 'zzz' not found in table 'region'"}
+```

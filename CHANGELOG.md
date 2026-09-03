@@ -27,6 +27,11 @@ All notable changes to `pysisense` are documented here. The format follows
   name or `oid`, in one method; each object also carries `datamodelTitle`. Perspectives are metadata-only views over a root data model that
   keep a subset of its tables and columns. The hidden per-model `Default` perspective is skipped
   unless asked for. Unknown references return the standard error dict plus `missing` and `results`.
+- **`DataModel.create_perspective(datamodel, name, tables, description="", ai_context=None)`** — create a
+  perspective from table and column **names** (`PerspectiveTableSpec` list, or bare table names for all
+  columns); resolved against the schema before anything is sent, refuses a duplicate name, reads the
+  result back and reports any mismatch in `warnings`. Sends the request the Sisense UI sends: kept tables
+  as `include` entries listing only kept columns. `ai_context` fills the perspective's `aiContext`.
 - **`DataModel.delete_perspective(perspective, datamodel=None)`** — delete a perspective by name or
   `oid`; the root model is untouched, the built-in `Default` is refused, and a name shared by several
   models must be disambiguated with `datamodel`.
