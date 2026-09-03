@@ -6,6 +6,20 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`get_dashboard_columns` and `get_unused_columns_bulk` now see the whole dashboard.** The
+  shared walk (`_extract_dashboard_references`) reads, in addition to dashboard filters and
+  widget panel items: default filters, measured filters (`filter.by`), **drill hierarchies**
+  (2,357 field references across 509 dashboards on one instance that were never counted),
+  widget drill history, formulas nested inside formulas at any depth, conditional-formatting
+  expressions, `jaql.dimension` wrappers, drill chains (`parent`/`through`), the `query.metadata`
+  block some widgets carry, and table-widget headers — plus a safety net that keeps and flags a
+  reference found anywhere else. Rows keep their shape; `source` gains the value `"hierarchy"`.
+  `get_unused_columns_bulk` no longer counts widgets or filters that point at a different
+  datasource than the model being analysed (a third of widgets on one instance did). A panel
+  item with no `dim` no longer yields a fabricated `Unknown` / `Table` row.
+
 ### Added
 
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a

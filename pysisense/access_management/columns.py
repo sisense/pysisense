@@ -161,9 +161,11 @@ class ColumnsMixin:
 
         Compares every available column against the columns referenced in the
         dashboards associated with the DataModel. Coverage includes dashboard
-        filters (dashboard-level, widget, and dependent filters) and widget
-        panels (row, values, column panels, and measured filters). Raises
-        ``ValueError`` when no columns are found for the model.
+        and default filters (plain, dependent and measured), drill hierarchies,
+        widget panels (including nested formulas, conditional formatting and
+        drill chains), drill history, widget query metadata and table headers;
+        widgets and filters that point at a different datasource are not
+        counted. Raises ``ValueError`` when no columns are found for the model.
         """
         self.logger.info(f"Starting analysis for unused columns in DataModel: {datamodel_name}")
 
@@ -230,7 +232,7 @@ class ColumnsMixin:
 
             # Extract every column reference from filters and widgets (shared walk).
             # known_columns lets a dim whose names contain dots resolve against the schema.
-            extracted = _extract_dashboard_columns(dashboard, dashboard_name, known_columns=known_columns, logger=self.logger)
+            extracted = _extract_dashboard_columns(dashboard, dashboard_name, known_columns=known_columns, logger=self.logger, datasource=datamodel_name)
             dashboard_columns.extend(extracted)
 
             filter_count = len(dashboard.get("filters") or [])

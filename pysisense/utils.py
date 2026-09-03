@@ -478,84 +478,248 @@ def _reference_from_jaql(node: dict[str, Any], known_columns: set[tuple[str, str
     return _split_dim(dim, known_columns)
 
 
+def _datasource_title(datasource: Any) -> str | None:
+    """Return the comparable title of a datasource reference, or ``None``.
+
+    Accepts the ``datasource`` dict Sisense writes on dashboards, widgets and
+    filters (``title``, ``fullname`` such as ``live:name`` or ``LocalHost/name``),
+    or a bare title string.
+
+    Parameters:
+        datasource (Any): A datasource dict, a title string, or anything else.
+
+    Returns:
+        str | None: The title, lower-cased and stripped, or ``None`` when there is none.
+    """
+    if isinstance(datasource, str):
+        title = datasource
+    elif isinstance(datasource, dict):
+        title = datasource.get("title")
+        if not isinstance(title, str) or not title:
+            fullname = datasource.get("fullname")
+            title = fullname.replace("/", ":").rsplit(":", 1)[-1] if isinstance(fullname, str) else None
+    else:
+        return None
+    title = title.strip().lower() if isinstance(title, str) else None
+    return title or None
+
+
+def _iter_dim_nodes(node: Any, datasource: Any, path: str):
+    """Yield ``(node, datasource, path)`` for every dict under ``node`` that carries a field reference.
+
+    A node counts when it has a non-empty string ``dim`` or explicit string
+    ``table`` and ``column`` keys. Descent is generic (every dict and list
+    child), so formulas nested inside formulas, ``filter.by`` measures,
+    ``dimension`` wrappers and drill chains are all reached. The nearest
+    enclosing ``datasource`` dict is carried down so each reference knows
+    which model it belongs to.
+
+    Parameters:
+        node (Any): The subtree to scan.
+        datasource (Any): The datasource inherited from the enclosing scope.
+        path (str): JSON-path-like label of ``node`` for diagnostics.
+    """
+    if isinstance(node, dict):
+        own = node.get("datasource")
+        if isinstance(own, dict):
+            datasource = own
+        dim = node.get("dim")
+        table, column = node.get("table"), node.get("column")
+        if (isinstance(dim, str) and dim) or (isinstance(table, str) and table and isinstance(column, str) and column):
+            yield node, datasource, path
+        for key, value in node.items():
+            if isinstance(value, (dict, list)):
+                yield from _iter_dim_nodes(value, datasource, f"{path}.{key}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _iter_dim_nodes(value, datasource, f"{path}[{index}]")
+
+
+def _extract_dashboard_references(
+    dashboard: dict[str, Any],
+    dashboard_name: str | None = None,
+    known_columns: set[tuple[str, str]] | None = None,
+    logger: logging.Logger | None = None,
+    datasource: Any = None,
+) -> dict[str, Any]:
+    """Walk an exported dashboard and collect every field reference, with diagnostics.
+
+    The one traversal behind ``Dashboard.get_dashboard_columns``,
+    ``AccessManagement.get_unused_columns_bulk`` and the perspective
+    analysis. It reads dashboard filters and default filters (plain ``jaql``,
+    dependent ``levels`` and ``filter.by`` measures), drill hierarchies, and
+    for each widget its panel items (with nested formula ``context``,
+    ``originalJaql``, conditional-format expressions and drill chains), its
+    drill history, its ``query.metadata`` block and its table-state headers.
+    A safety net then scans the whole document for references at locations
+    not listed above and keeps them, flagged, rather than dropping them.
+
+    Each reference's table and column come from the node's explicit keys when
+    present and from parsing ``dim`` otherwise (see ``_reference_from_jaql``).
+    When ``datasource`` is given, references that belong to a different
+    datasource (a widget or filter pointing at another model) are skipped and
+    reported instead of counted; a node without any datasource information
+    inherits its parent's and is kept.
+
+    Parameters:
+        dashboard (dict[str, Any]): One dashboard as returned by the export endpoint.
+        dashboard_name (str | None): Title recorded on each row; defaults to the dashboard's own title.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to resolve dims whose names contain dots and to adopt the model's spelling.
+        logger (logging.Logger | None): Optional logger for step-by-step debug output.
+        datasource (Any): Title string or datasource dict to keep references for; ``None`` keeps every reference.
+
+    Returns:
+        dict[str, Any]: ``{"rows", "issues", "skipped_widgets", "stats"}``.
+            ``rows`` are ``{"dashboard_name", "source", "widget_id", "table", "column"}`` with
+            ``source`` one of ``"filter"``, ``"hierarchy"``, ``"widget"``, in document order and not
+            deduplicated. ``issues`` are ``{"severity", "kind", "widget_id", "path", "detail"}``.
+            ``skipped_widgets`` lists widgets left out because of their datasource. ``stats`` carries counts.
+    """
+    result: dict[str, Any] = {"rows": [], "issues": [], "skipped_widgets": [], "stats": {}}
+    if not isinstance(dashboard, dict):
+        return result
+    name = dashboard_name if dashboard_name is not None else dashboard.get("title", "Unknown Dashboard")
+    rows: list[dict[str, Any]] = result["rows"]
+    issues: list[dict[str, Any]] = result["issues"]
+    wanted = _datasource_title(datasource)
+    dashboard_ds = dashboard.get("datasource") if isinstance(dashboard.get("datasource"), dict) else None
+    visited: set[int] = set()
+
+    def issue(severity: str, kind: str, widget_id: str, path: str, detail: str) -> None:
+        issues.append({"severity": severity, "kind": kind, "widget_id": widget_id, "path": path, "detail": detail})
+        if logger:
+            logger.debug(f"{kind} at {path}: {detail}")
+
+    def belongs(node_ds: Any) -> bool:
+        if wanted is None:
+            return True
+        title = _datasource_title(node_ds)
+        return title is None or title == wanted
+
+    def add(source: str, widget_id: str, node: dict[str, Any], node_ds: Any, path: str) -> None:
+        visited.add(id(node))
+        if not belongs(node_ds):
+            issue("info", "reference_other_datasource", widget_id, path, f"belongs to datasource {_datasource_title(node_ds)!r}, not counted")
+            return
+        reference = _reference_from_jaql(node, known_columns)
+        if reference is None:
+            issue("warning", "unreadable_dim", widget_id, path, f"dim {node.get('dim')!r} carries no usable field reference")
+            return
+        dim = node.get("dim")
+        explicit = isinstance(node.get("table"), str) and isinstance(node.get("column"), str)
+        if not explicit and isinstance(dim, str):
+            candidates = _parse_dim_candidates(dim)
+            if not candidates:
+                issue("error", "unreadable_dim", widget_id, path, f"dim {dim!r} is not a bracketed field reference; read as {reference!r}")
+            elif len(candidates) > 1 and not (known_columns and _match_known_column(candidates, known_columns)):
+                issue("warning", "ambiguous_dim", widget_id, path, f"dim {dim!r} has {len(candidates)} readings; took {reference!r}")
+        table, column = reference
+        rows.append({"dashboard_name": name, "source": source, "widget_id": widget_id, "table": table, "column": column})
+
+    def scan(source: str, widget_id: str, root: Any, inherited_ds: Any, path: str) -> None:
+        for node, node_ds, node_path in _iter_dim_nodes(root, inherited_ds, path):
+            add(source, widget_id, node, node_ds, node_path)
+
+    # Dashboard-level filters, default filters, drill hierarchies
+    for key in ("filters", "defaultFilters"):
+        entries = dashboard.get(key) or []
+        for index, entry in enumerate(entries):
+            if isinstance(entry, dict):
+                scan("filter", "N/A", entry, dashboard_ds, f"$.{key}[{index}]")
+    hierarchies = dashboard.get("hierarchies") or []
+    for index, hierarchy in enumerate(hierarchies):
+        if isinstance(hierarchy, dict):
+            scan("hierarchy", "N/A", hierarchy, dashboard_ds, f"$.hierarchies[{index}]")
+
+    # Widgets
+    widgets = dashboard.get("widgets") or []
+    widgets_scanned = 0
+    for index, widget in enumerate(widgets):
+        if not isinstance(widget, dict):
+            continue
+        widget_id = widget.get("oid", "Unknown Widget")
+        widget_path = f"$.widgets[{index}]"
+        widget_ds = widget.get("datasource") if isinstance(widget.get("datasource"), dict) else dashboard_ds
+        if not belongs(widget_ds):
+            result["skipped_widgets"].append({"widget_id": widget_id, "title": widget.get("title"), "type": widget.get("type"), "datasource": _datasource_title(widget_ds)})
+            issue("info", "widget_other_datasource", widget_id, widget_path, f"widget datasource {_datasource_title(widget_ds)!r} is not {wanted!r}; skipped")
+            for node, _ds, _path in _iter_dim_nodes(widget, widget_ds, widget_path):
+                visited.add(id(node))
+            continue
+        widgets_scanned += 1
+        widget_type = widget.get("type")
+        if isinstance(widget_type, str) and widget_type.lower() == "blox":
+            issue("warning", "blox_widget", widget_id, widget_path, "BloX widgets can reference fields inside actions and templates that cannot be verified")
+        script = widget.get("script")
+        if isinstance(script, str) and script.strip():
+            issue("warning", "script_present", widget_id, widget_path + ".script", "widget script may reference fields; not analysed")
+        metadata = widget.get("metadata") if isinstance(widget.get("metadata"), dict) else {}
+        for panel_index, panel in enumerate(metadata.get("panels") or []):
+            if isinstance(panel, dict):
+                scan("widget", widget_id, panel.get("items"), widget_ds, f"{widget_path}.metadata.panels[{panel_index}].items")
+        scan("widget", widget_id, metadata.get("drillHistory"), widget_ds, f"{widget_path}.metadata.drillHistory")
+        query = widget.get("query")
+        if isinstance(query, dict):
+            scan("widget", widget_id, query.get("metadata"), widget_ds, f"{widget_path}.query.metadata")
+        style = widget.get("style")
+        if isinstance(style, dict) and isinstance(style.get("tableState"), dict):
+            scan("widget", widget_id, style["tableState"].get("headers"), widget_ds, f"{widget_path}.style.tableState.headers")
+
+    script = dashboard.get("script")
+    if isinstance(script, str) and script.strip():
+        issue("warning", "script_present", "N/A", "$.script", "dashboard script may reference fields; not analysed")
+
+    # Safety net: any reference at a location not listed above is kept and flagged.
+    unclassified = 0
+    for node, node_ds, path in _iter_dim_nodes(dashboard, dashboard_ds, "$"):
+        if id(node) in visited:
+            continue
+        unclassified += 1
+        widget_id = "N/A"
+        if path.startswith("$.widgets["):
+            try:
+                widget_id = widgets[int(path[len("$.widgets[") : path.index("]")])].get("oid", "Unknown Widget")
+            except (ValueError, IndexError, AttributeError):
+                widget_id = "Unknown Widget"
+        issue("warning", "unclassified_location", widget_id, path, "field reference at an unexpected location; kept")
+        add("widget" if path.startswith("$.widgets[") else "filter", widget_id, node, node_ds, path)
+
+    result["stats"] = {
+        "filters": len(dashboard.get("filters") or []),
+        "default_filters": len(dashboard.get("defaultFilters") or []),
+        "hierarchies": len(hierarchies),
+        "widgets": len(widgets),
+        "widgets_scanned": widgets_scanned,
+        "widgets_skipped": len(result["skipped_widgets"]),
+        "unclassified": unclassified,
+        "rows": len(rows),
+    }
+    if logger:
+        logger.debug(f"Dashboard '{name}': {result['stats']}")
+    return result
+
+
 def _extract_dashboard_columns(
     dashboard: dict[str, Any],
     dashboard_name: str | None = None,
     known_columns: set[tuple[str, str]] | None = None,
     logger: logging.Logger | None = None,
+    datasource: Any = None,
 ) -> list[dict[str, Any]]:
     """Walk an exported dashboard and list every column reference it contains.
 
-    Shared traversal behind ``Dashboard.get_dashboard_columns`` and
-    ``AccessManagement.get_unused_columns_bulk``. Reads dashboard filters
-    (plain ``jaql`` and dependent ``levels``) and every widget panel item,
-    descending into a formula's ``context`` for the columns it references.
-    Each node's explicit ``table`` and ``column`` keys are used when present
-    and its ``dim`` is parsed only as a fallback (see ``_reference_from_jaql``).
-    Rows come back in document order and are not deduplicated; the
-    ``" (Calendar)"`` suffix Sisense adds to date dimensions is left on the
-    column so each caller can apply its own normalisation.
+    Thin wrapper over ``_extract_dashboard_references`` returning only the
+    rows, for callers that do not need the diagnostics. See that function
+    for what is read and how datasource filtering behaves.
 
     Parameters:
         dashboard (dict[str, Any]): One dashboard as returned by the export endpoint.
         dashboard_name (str | None): Title recorded on each row; defaults to the dashboard's own title.
-        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to pick the right reading of a dim whose names contain dots.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model.
         logger (logging.Logger | None): Optional logger for step-by-step debug output.
+        datasource (Any): Title string or datasource dict to keep references for; ``None`` keeps every reference.
 
     Returns:
-        list[dict[str, Any]]: Rows with ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``), ``widget_id``, ``table`` and ``column``.
+        list[dict[str, Any]]: Rows with ``dashboard_name``, ``source`` (``"filter"``, ``"hierarchy"`` or ``"widget"``), ``widget_id``, ``table`` and ``column``.
     """
-    if not isinstance(dashboard, dict):
-        return []
-    name = dashboard_name if dashboard_name is not None else dashboard.get("title", "Unknown Dashboard")
-    rows: list[dict[str, Any]] = []
-
-    def add(source: str, widget_id: str, node: Any, where: str) -> None:
-        reference = _reference_from_jaql(node, known_columns) if isinstance(node, dict) else None
-        if reference is None:
-            if logger:
-                logger.debug(f"{where}: no usable field reference, skipping.")
-            return
-        table, column = reference
-        rows.append({"dashboard_name": name, "source": source, "widget_id": widget_id, "table": table, "column": column})
-        if logger:
-            logger.debug(f"{where}: extracted table={table!r} column={column!r}")
-
-    filters = dashboard.get("filters") or []
-    if logger:
-        logger.debug(f"Dashboard '{name}': {len(filters)} filters")
-    for index, filter_ in enumerate(filters, start=1):
-        if not isinstance(filter_, dict):
-            continue
-        if "levels" in filter_:
-            for level in filter_.get("levels") or []:
-                if isinstance(level, dict):
-                    add("filter", "N/A", level, f"Filter {index} (levels)")
-        elif "jaql" in filter_:
-            jaql = filter_.get("jaql")
-            if isinstance(jaql, dict):
-                add("filter", "N/A", jaql, f"Filter {index} (jaql)")
-
-    widgets = dashboard.get("widgets") or []
-    if logger:
-        logger.debug(f"Dashboard '{name}': {len(widgets)} widgets")
-    for index, widget in enumerate(widgets, start=1):
-        if not isinstance(widget, dict):
-            continue
-        widget_id = widget.get("oid", "Unknown Widget")
-        metadata = widget.get("metadata")
-        panels = metadata.get("panels") if isinstance(metadata, dict) else None
-        for panel in panels or []:
-            items = panel.get("items") if isinstance(panel, dict) else None
-            for item in items or []:
-                jaql = item.get("jaql", {}) if isinstance(item, dict) else None
-                if not isinstance(jaql, dict):
-                    continue
-                context = jaql.get("context")
-                if "context" in jaql and isinstance(context, dict):
-                    for value in context.values():
-                        if isinstance(value, dict):
-                            add("widget", widget_id, value, f"Widget {index} (context)")
-                else:
-                    add("widget", widget_id, jaql, f"Widget {index}")
-    return rows
+    return _extract_dashboard_references(dashboard, dashboard_name, known_columns, logger, datasource)["rows"]
