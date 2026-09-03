@@ -27,6 +27,9 @@ All notable changes to `pysisense` are documented here. The format follows
   name or `oid`, in one method; each object also carries `datamodelTitle`. Perspectives are metadata-only views over a root data model that
   keep a subset of its tables and columns. The hidden per-model `Default` perspective is skipped
   unless asked for. Unknown references return the standard error dict plus `missing` and `results`.
+- **`DataModel.delete_perspective(perspective, datamodel=None)`** — delete a perspective by name or
+  `oid`; the root model is untouched, the built-in `Default` is refused, and a name shared by several
+  models must be disambiguated with `datamodel`.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;

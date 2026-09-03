@@ -1263,3 +1263,45 @@ class TestGetPerspectives:
 
     def test_empty_instance_returns_empty_list(self):
         assert _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [])}).get_perspectives() == []
+
+
+class TestDeletePerspective:
+    def _dm(self, delete_status=204, perspectives=_PERSPECTIVES):
+        return _make_dm(
+            get_responses={
+                "/api/v2/perspectives": FakeResponse(200, perspectives),
+                "/api/v2/datamodels/dm-a/schema": FakeResponse(200, {"oid": "dm-a", "title": "Model A"}),
+                "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}, {"oid": "dm-b", "title": "Model B"}]),
+            },
+            delete_responses={"/api/v2/perspectives/": FakeResponse(delete_status, None if delete_status == 204 else {"message": "boom"})},
+        )
+
+    def test_deletes_by_name_and_reports_what_was_deleted(self):
+        result = self._dm().delete_perspective("company sales")
+        assert result == {"success": True, "message": "Perspective 'Company Sales' deleted.", "oid": "p-sales", "name": "Company Sales", "datamodelOid": "dm-a", "datamodelTitle": "Model A"}
+
+    def test_deletes_by_oid(self):
+        assert self._dm().delete_perspective("p-ops")["success"] is True
+
+    def test_unknown_reference_is_the_lookup_error(self):
+        result = self._dm().delete_perspective("nope")
+        assert result["ok"] is False and result["missing"] == ["nope"]
+
+    def test_default_perspective_is_refused(self):
+        result = self._dm().delete_perspective("p-def-a")
+        assert result["ok"] is False and "Default" in result["error"]
+
+    def test_same_name_on_two_models_requires_datamodel(self):
+        twin = {"oid": "p-sales-b", "name": "Company Sales", "parentOid": "dm-b", "datamodelOid": "dm-b", "tables": []}
+        dm = self._dm(perspectives=[_P_SALES, twin])
+        result = dm.delete_perspective("Company Sales")
+        assert result["ok"] is False and "several data models" in result["error"] and "Model A" in result["error"]
+        assert dm.delete_perspective("Company Sales", datamodel="dm-a")["oid"] == "p-sales"
+
+    def test_api_failure_returns_error_dict(self):
+        result = self._dm(delete_status=500).delete_perspective("Ops")
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_no_response_returns_error_dict(self):
+        dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [_P_OPS]), "/api/v2/datamodels/schema": FakeResponse(200, [])}, delete_responses={"/api/v2/perspectives/": None})
+        assert dm.delete_perspective("Ops")["ok"] is False

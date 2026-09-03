@@ -738,3 +738,18 @@ Retrieves perspectives — all of them, those of one data model, or specific one
 **Returns:**
 
 - `list` or `dict`: Perspective objects as Sisense returns them, plus `datamodelTitle` (the root model's title, `None` if it could not be looked up). Key fields: `oid`, `name`, `description`, `datamodelOid` (the root model), `parentOid`, and `tables` — a list of `{"oid", "diffType", "columnsDiff": [{"oid", "enabled"}]}` keyed by table and column oids (`columnsDiff` lists the kept columns). An empty list means nothing matched the filters. When one or more requested references do not exist, the standard error dict `{"ok": False, "error": "..."}` is returned, additionally carrying `missing` (the unresolved references) and `results` (the ones that were found). An API failure or an unresolvable `datamodel` returns the standard error dict.
+
+* * * * *
+
+### `delete_perspective(perspective, datamodel=None)`
+
+Deletes a perspective by name or ID via `DELETE /api/v2/perspectives/{oid}`. The root data model and its data are untouched — only the metadata-only view is removed. A model's hidden `Default` perspective is never deleted. When the same name exists on more than one model, `datamodel` must say which one.
+
+**Parameters:**
+
+- `perspective` (str): The perspective's name (case-insensitive) or `oid`.
+- `datamodel` (str, optional): Root data model (ID or title) to disambiguate a name that exists on several models.
+
+**Returns:**
+
+- `dict`: `{"success": True, "message": "...", "oid", "name", "datamodelOid", "datamodelTitle"}` on success. On failure (not found, ambiguous, a default perspective, or an API error), the standard error dict `{"ok": False, "error": "..."}`.

@@ -789,3 +789,20 @@ result = datamodel.get_perspectives(["Company Sales", "no-such-perspective"])
 if result.get("ok") is False:
     print(result["error"], "| missing:", result["missing"], "| found:", len(result["results"]))
 ```
+
+## Example 34: Delete a Perspective
+
+```python
+# By name (case-insensitive) or by oid. The root model and its data are untouched.
+result = datamodel.delete_perspective("Company Sales")
+# {"success": True, "message": "Perspective 'Company Sales' deleted.", "oid": "...", "name": "Company Sales",
+#  "datamodelOid": "...", "datamodelTitle": "Sample ECommerce"}
+
+# If the same name exists on two models, say which one
+result = datamodel.delete_perspective("Company Sales", datamodel="Sample ECommerce")
+
+# The built-in Default perspective is refused, and unknown names return the standard error dict
+result = datamodel.delete_perspective("no-such-perspective")
+if result.get("ok") is False:
+    print(result["error"])
+```
