@@ -781,8 +781,8 @@ several = datamodel.get_perspectives(["Company Sales", "9674a154-0bc5-4bf2-b88b-
 
 # Each object is what Sisense returns: oid, name, datamodelOid, and tables keyed by
 # table/column oids, e.g. {"oid": ..., "diffType": "include", "columnsDiff": [{"oid": ..., "enabled": True}]}
-for perspective in ecommerce_perspectives:
-    print(perspective["name"], len(perspective["tables"]), "tables kept")
+for perspective in all_perspectives:
+    print(perspective["datamodelTitle"], "->", perspective["name"], len(perspective["tables"]), "tables kept")
 
 # Unknown names fail loudly and still hand back what was found
 result = datamodel.get_perspectives(["Company Sales", "no-such-perspective"])

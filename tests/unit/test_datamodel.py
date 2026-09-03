@@ -1184,6 +1184,7 @@ def _make_dm_with_perspectives(perspectives=_PERSPECTIVES, **extra_get):
         get_responses={
             "/api/v2/perspectives": FakeResponse(200, perspectives),
             "/api/v2/datamodels/dm-a/schema": FakeResponse(200, {"oid": "dm-a", "title": "Model A"}),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}, {"oid": "dm-b", "title": "Model B"}, None]),
             **extra_get,
         }
     )
@@ -1214,6 +1215,15 @@ class TestGetPerspectives:
     def test_lookup_by_name_is_case_insensitive_and_returns_the_object(self):
         result = _make_dm_with_perspectives().get_perspectives("company sales")
         assert result == [_P_SALES]
+
+    def test_each_perspective_carries_its_root_model_title(self):
+        result = _make_dm_with_perspectives().get_perspectives()
+        assert [(p["name"], p["datamodelTitle"]) for p in result] == [("Company Sales", "Model A"), ("Ops", "Model B")]
+
+    def test_model_title_lookup_failure_does_not_fail_the_call(self):
+        dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [_P_SALES]), "/api/v2/datamodels/schema": FakeResponse(500, {})})
+        result = dm.get_perspectives()
+        assert result[0]["oid"] == "p-sales" and result[0]["datamodelTitle"] is None
 
     def test_lookup_by_oid(self):
         assert _make_dm_with_perspectives().get_perspectives("p-ops") == [_P_OPS]

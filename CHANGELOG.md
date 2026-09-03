@@ -24,7 +24,7 @@ All notable changes to `pysisense` are documented here. The format follows
 
 - **`DataModel.get_perspectives(perspectives=None, datamodel=None, include_default=False)`** — list
   every perspective on the instance, those built over one root model, or look specific ones up by
-  name or `oid`, in one method. Perspectives are metadata-only views over a root data model that
+  name or `oid`, in one method; each object also carries `datamodelTitle`. Perspectives are metadata-only views over a root data model that
   keep a subset of its tables and columns. The hidden per-model `Default` perspective is skipped
   unless asked for. Unknown references return the standard error dict plus `missing` and `results`.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a

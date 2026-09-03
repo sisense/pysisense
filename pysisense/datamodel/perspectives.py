@@ -15,6 +15,29 @@ def _is_default_perspective(perspective: dict[str, Any]) -> bool:
 
 
 class PerspectivesMixin:
+    def _attach_datamodel_titles(self, perspectives: list[dict[str, Any]]) -> None:
+        """Add ``datamodelTitle`` to each perspective from one lookup of the data model list.
+
+        Sisense's perspective objects carry only ``datamodelOid``. This resolves every
+        oid to its title with a single ``GET /api/v2/datamodels/schema`` call. A failed
+        lookup leaves ``datamodelTitle`` as ``None`` rather than failing the caller.
+        """
+        if not perspectives:
+            return
+        titles: dict[str, str] = {}
+        response = self.api_client.get("/api/v2/datamodels/schema")
+        if response is not None and response.status_code == 200:
+            try:
+                for model in response.json() or []:
+                    if isinstance(model, dict) and isinstance(model.get("oid"), str):
+                        titles[model["oid"]] = model.get("title")
+            except Exception:
+                self.logger.debug("Could not parse the data model list while resolving perspective model titles.")
+        else:
+            self.logger.debug("Could not fetch the data model list while resolving perspective model titles.")
+        for perspective in perspectives:
+            perspective["datamodelTitle"] = titles.get(perspective.get("datamodelOid"))
+
     def get_perspectives(
         self,
         perspectives: str | list[str] | None = None,
@@ -44,7 +67,8 @@ class PerspectivesMixin:
         Returns
         -------
         list[dict[str, Any]] | dict[str, Any]
-            Perspective objects as Sisense returns them. Key fields: ``oid``, ``name``,
+            Perspective objects as Sisense returns them, plus ``datamodelTitle`` (the root
+            model's title, ``None`` if it could not be looked up). Key fields: ``oid``, ``name``,
             ``description``, ``datamodelOid`` (the root model), ``parentOid``, and
             ``tables`` — a list of ``{"oid", "diffType", "columnsDiff": [{"oid", "enabled"}]}``
             keyed by table and column oids. An empty list means nothing matched the
@@ -92,6 +116,7 @@ class PerspectivesMixin:
         candidates = [p for p in payload if isinstance(p, dict)]
         if datamodel_id is not None:
             candidates = [p for p in candidates if p.get("datamodelOid") == datamodel_id]
+        self._attach_datamodel_titles(candidates)
 
         if not requested:
             results = candidates if include_default else [p for p in candidates if not _is_default_perspective(p)]
