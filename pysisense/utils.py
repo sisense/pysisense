@@ -249,3 +249,129 @@ def convert_utc_to_local(utc_str):
         return local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
     except Exception as e:
         return f"Invalid timestamp: {utc_str} - {str(e)}"
+
+
+# ---------------------------------------------------------------------------
+# JAQL column-reference parsing (shared by the dashboard and access_management
+# facades; lives here because `dashboard` imports `access_management`, so a
+# helper hosted in either package and imported by the other is a cycle).
+# ---------------------------------------------------------------------------
+
+# A date column used at a calendar level arrives as "[Orders.Date (Calendar)]".
+_CALENDAR_SUFFIX = " (Calendar)"
+
+# Separator of the two-bracket dim form "[Table].[Column]".
+_TWO_BRACKET_SEPARATOR = "]."
+
+
+def _parse_dim_candidates(dim):
+    """
+    Returns every plausible (table, column) reading of a JAQL ``dim`` string.
+
+    Sisense writes column references two ways — ``[Table.Column]`` and
+    ``[Table].[Column]`` — and table or column names may themselves contain
+    dots, leading dots, single or double quotes, and even square brackets
+    (``[Sales [EU].Amount]``, ``[trips].[."tpep_pickup_datetime]``). No grammar
+    can split such names reliably, so this parser is deliberately permissive:
+    it strips exactly one outer bracket pair, then offers a candidate for every
+    possible split point, and leaves the real decision to resolution against the
+    data model's actual table and column names. It never refuses a bracketed
+    dim for containing odd characters, and it never mangles a name the way the
+    old ``strip("[]").split(".", 1)`` did (which turned ``[Orders].[Amount]``
+    into ``("Orders]", "[Amount")``).
+
+    Candidate order is deterministic: the two-bracket reading first (split at
+    each ``].[``), then single-bracket readings at each dot, left to right.
+    Column names are returned as written; use ``_column_name_variants`` to also
+    try the ``" (Calendar)"``-stripped form.
+
+    Parameters:
+        dim: the ``dim`` value from a JAQL node (any type; non-strings yield [])
+
+    Returns:
+        list[tuple[str, str]]: candidates, or [] when the value is not a
+        bracketed reference with a separator at all (``"Orders.Amount"``,
+        ``"[Orders]"``, ``""``, ``None``).
+    """
+    if not isinstance(dim, str):
+        return []
+    text = dim.strip()
+    if len(text) < 3 or not (text.startswith("[") and text.endswith("]")):
+        return []
+
+    inner = text[1:-1]
+    candidates = []
+
+    # Two-bracket form. Names may contain "].[" only pathologically, so every
+    # occurrence is offered as a split rather than assuming the first. The dot
+    # inside each separator is remembered so the dot pass below does not offer
+    # it again as a bogus single-bracket split ("Orders]" / "[Amount").
+    separator = _TWO_BRACKET_SEPARATOR + "["
+    separator_dots = set()
+    start = 0
+    while True:
+        index = inner.find(separator, start)
+        if index == -1:
+            break
+        separator_dots.add(index + 1)
+        table, column = inner[:index], inner[index + len(separator) :]
+        if table and column:
+            candidates.append((table, column))
+        start = index + 1
+
+    # "].[" is Sisense's explicit separator: when present, every other dot is
+    # part of a name (a leading-dot column like "[trips].[.tpep]" must not be
+    # re-split at that dot), so the single-bracket pass is skipped entirely.
+    if separator_dots:
+        return candidates
+
+    # Single-bracket form: a candidate per dot position. Consecutive dots yield
+    # a leading-dot name on one side ("[trips..tpep]" -> ("trips", ".tpep")).
+    for index, char in enumerate(inner):
+        if char != ".":
+            continue
+        table, column = inner[:index], inner[index + 1 :]
+        if table and column and (table, column) not in candidates:
+            candidates.append((table, column))
+
+    return candidates
+
+
+def _column_name_variants(column):
+    """
+    Returns the schema column names a dashboard column reference may denote.
+
+    A date column used at a calendar level is written ``"Date (Calendar)"`` in
+    the dashboard while the schema column is just ``"Date"``. Both are returned,
+    raw first, so a column literally named ``"X (Calendar)"`` still resolves.
+
+    Parameters:
+        column (str): the column part of a parsed dim
+
+    Returns:
+        list[str]: one or two names to try, raw form first.
+    """
+    variants = [column]
+    if column.endswith(_CALENDAR_SUFFIX):
+        stripped = column[: -len(_CALENDAR_SUFFIX)]
+        if stripped and stripped != column:
+            variants.append(stripped)
+    return variants
+
+
+def _parse_dim(dim):
+    """
+    Returns the single (table, column) reading of ``dim``, or None.
+
+    None means unparseable or ambiguous — never a best guess. Callers that need
+    a definite answer for an ambiguous dim must resolve
+    ``_parse_dim_candidates`` against the real schema.
+
+    Parameters:
+        dim: the ``dim`` value from a JAQL node
+
+    Returns:
+        tuple[str, str] | None
+    """
+    candidates = _parse_dim_candidates(dim)
+    return candidates[0] if len(candidates) == 1 else None
