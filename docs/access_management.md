@@ -370,7 +370,7 @@ Identifies unused columns in a DataModel by comparing against dashboard usage.
 
 Runs unused-column analysis for one or more data models and returns a combined per-model outcome.
 
-A column counts as used when any dashboard on the model references it — in a dashboard filter (plain or dependent levels), a widget panel item, or a formula's `context`. Both `[Table.Column]` and `[Table].[Column]` references are understood, and names may contain any character; when a name itself contains dots, the model's own columns decide where the table name ends.
+A column counts as used when any dashboard on the model references it — in a dashboard or default filter (plain, dependent levels or measured), a drill hierarchy, a widget panel item (including nested formulas, conditional formatting and drill chains), widget drill history, widget query metadata or table headers. Widgets and filters that point at a different datasource are not counted. Each reference's table and column are taken from the explicit keys Sisense writes beside `dim`; `dim` is parsed only as a fallback, and both `[Table.Column]` and `[Table].[Column]` forms are understood. Names may contain any character; when a name itself contains dots and only `dim` is available, the model's own columns decide where the table name ends.
 
 It accepts data model references (IDs or titles), resolves each one via
 `Datamodel.resolve_datamodel_reference`, runs the unused-column analysis for
