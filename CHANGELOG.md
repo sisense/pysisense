@@ -43,6 +43,17 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **`get_datamodel_columns` no longer returns nothing for models whose per-dataset endpoints fail, and
+  no longer crashes on `null` schema entries.** It read `/schema/datasets` then `/datasets/{id}/tables`;
+  live-observed, that path answers "Elasticube not found" for some models while the full schema is
+  available, and a `null` in a column list raised `AttributeError`. It now reads the full schema in one
+  call (identical rows on every comparable model), falls back to the per-dataset endpoints only when
+  that yields nothing, and skips malformed entries. `get_unused_columns_bulk` inherits both fixes.
+- **`get_unused_columns_bulk` now finds dashboards that reach the model only through a widget.** It
+  discovered dashboards with the listing's `datasourceTitle` filter, which matches a dashboard's own
+  datasource only; live-reproduced, a dashboard built on model B with a widget and a filter on model A
+  was never examined for A, so the columns they used were reported unused. Discovery is now the same
+  as `get_dashboards_by_datasource` (dashboard- and widget-level matches, case-insensitive).
 - **`get_unused_columns_bulk` and `get_dashboard_columns` no longer misread field references,
   so columns that dashboards use are no longer reported unused.** Both read a field as
   `dim.strip("[]").split(".", 1)`, which assumes the table name has no dot. Any table with a
