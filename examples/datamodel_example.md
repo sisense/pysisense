@@ -765,3 +765,27 @@ shares = [{"partyId": "group_oid_here", "type": "group", "permission": "a"}]
 response = datamodel.update_datamodel_permissions_live("live-datamodel-oid", shares)
 print(response)
 ```
+
+## Example 33: List and Look Up Perspectives
+
+```python
+# Every real perspective on the instance (the hidden per-model "Default" ones are skipped)
+all_perspectives = datamodel.get_perspectives()
+
+# Perspectives built over one root model (ID or title)
+ecommerce_perspectives = datamodel.get_perspectives(datamodel="Sample ECommerce")
+
+# Specific perspectives by name or oid — one string or a list
+sales = datamodel.get_perspectives("Company Sales")
+several = datamodel.get_perspectives(["Company Sales", "9674a154-0bc5-4bf2-b88b-0064f50db2e9"])
+
+# Each object is what Sisense returns: oid, name, datamodelOid, and tables keyed by
+# table/column oids, e.g. {"oid": ..., "diffType": "include", "columnsDiff": [{"oid": ..., "enabled": True}]}
+for perspective in ecommerce_perspectives:
+    print(perspective["name"], len(perspective["tables"]), "tables kept")
+
+# Unknown names fail loudly and still hand back what was found
+result = datamodel.get_perspectives(["Company Sales", "no-such-perspective"])
+if result.get("ok") is False:
+    print(result["error"], "| missing:", result["missing"], "| found:", len(result["results"]))
+```

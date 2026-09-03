@@ -1167,3 +1167,89 @@ class TestImportDatamodelSchema:
         result = dm.import_datamodel_schema({"title": "SalesCube"})
         assert result["already_exists"] is False
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_perspectives
+# ---------------------------------------------------------------------------
+
+_P_DEFAULT_A = {"oid": "p-def-a", "name": "Default", "isDefault": True, "parentOid": None, "datamodelOid": "dm-a", "tables": []}
+_P_SALES = {"oid": "p-sales", "name": "Company Sales", "parentOid": "dm-a", "datamodelOid": "dm-a", "tables": [{"oid": "t1", "diffType": "include", "columnsDiff": [{"oid": "c1", "enabled": True}]}]}
+_P_OPS = {"oid": "p-ops", "name": "Ops", "parentOid": "dm-b", "datamodelOid": "dm-b", "tables": []}
+_PERSPECTIVES = [_P_DEFAULT_A, _P_SALES, None, _P_OPS, "junk"]
+
+
+def _make_dm_with_perspectives(perspectives=_PERSPECTIVES, **extra_get):
+    return _make_dm(
+        get_responses={
+            "/api/v2/perspectives": FakeResponse(200, perspectives),
+            "/api/v2/datamodels/dm-a/schema": FakeResponse(200, {"oid": "dm-a", "title": "Model A"}),
+            **extra_get,
+        }
+    )
+
+
+class TestGetPerspectives:
+    def test_no_arguments_lists_real_perspectives_only(self):
+        result = _make_dm_with_perspectives().get_perspectives()
+        assert [p["oid"] for p in result] == ["p-sales", "p-ops"]
+
+    def test_include_default(self):
+        result = _make_dm_with_perspectives().get_perspectives(include_default=True)
+        assert [p["oid"] for p in result] == ["p-def-a", "p-sales", "p-ops"]
+
+    def test_filter_by_datamodel_id(self):
+        result = _make_dm_with_perspectives().get_perspectives(datamodel="dm-a")
+        assert [p["oid"] for p in result] == ["p-sales"]
+
+    def test_filter_by_datamodel_with_default(self):
+        result = _make_dm_with_perspectives().get_perspectives(datamodel="dm-a", include_default=True)
+        assert [p["oid"] for p in result] == ["p-def-a", "p-sales"]
+
+    def test_unresolvable_datamodel_is_an_error(self):
+        dm = _make_dm_with_perspectives(**{"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
+        result = dm.get_perspectives(datamodel="nope")
+        assert result["ok"] is False and "nope" in result["error"]
+
+    def test_lookup_by_name_is_case_insensitive_and_returns_the_object(self):
+        result = _make_dm_with_perspectives().get_perspectives("company sales")
+        assert result == [_P_SALES]
+
+    def test_lookup_by_oid(self):
+        assert _make_dm_with_perspectives().get_perspectives("p-ops") == [_P_OPS]
+
+    def test_lookup_list_mixed_and_deduplicated(self):
+        result = _make_dm_with_perspectives().get_perspectives(["Company Sales", "p-sales", "Ops"])
+        assert [p["oid"] for p in result] == ["p-sales", "p-ops"]
+
+    def test_explicit_request_can_name_a_default_perspective(self):
+        assert _make_dm_with_perspectives().get_perspectives("p-def-a") == [_P_DEFAULT_A]
+
+    def test_lookup_scoped_by_datamodel(self):
+        result = _make_dm_with_perspectives().get_perspectives("Ops", datamodel="dm-a")
+        assert result["ok"] is False and result["missing"] == ["Ops"] and result["results"] == []
+
+    def test_missing_reference_fails_loudly_but_returns_what_was_found(self):
+        result = _make_dm_with_perspectives().get_perspectives(["Company Sales", "no-such"])
+        assert result["ok"] is False
+        assert "no-such" in result["error"]
+        assert result["missing"] == ["no-such"]
+        assert result["results"] == [_P_SALES]
+
+    def test_empty_reference_input_is_an_error(self):
+        assert _make_dm_with_perspectives().get_perspectives("")["ok"] is False
+        assert _make_dm_with_perspectives().get_perspectives([])["ok"] is False
+
+    def test_api_failure_returns_error_dict(self):
+        dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(500, {"message": "boom"})})
+        result = dm.get_perspectives()
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_no_response_returns_error_dict(self):
+        assert _make_dm(get_responses={"/api/v2/perspectives": None}).get_perspectives()["ok"] is False
+
+    def test_unexpected_structure_returns_error_dict(self):
+        assert _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, {"not": "a list"})}).get_perspectives()["ok"] is False
+
+    def test_empty_instance_returns_empty_list(self):
+        assert _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [])}).get_perspectives() == []

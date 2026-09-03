@@ -722,3 +722,19 @@ Only supported for live-type data models. For extract models use `update_datasec
 **Returns:**
 
 -   `dict`: API response body on success, or `{"ok": False, "error": "..."}` on failure.
+
+* * * * *
+
+### `get_perspectives(perspectives=None, datamodel=None, include_default=False)`
+
+Retrieves perspectives — all of them, those of one data model, or specific ones by name or ID. A perspective is a metadata-only view over a root data model that keeps a subset of its tables and columns. One method covers listing and lookup so callers need a single tool: no arguments returns every real perspective on the instance; `datamodel` narrows to one root model; `perspectives` picks specific ones. Sisense creates a hidden `Default` perspective for every model — those are left out unless `include_default` is true or one is requested explicitly.
+
+**Parameters:**
+
+- `perspectives` (str or list of str, optional): One perspective reference or a list of them, each a name (case-insensitive) or an `oid`. `None` returns all.
+- `datamodel` (str, optional): Root data model to restrict to, as an ID or title.
+- `include_default` (bool, optional): Include the auto-generated `Default` perspectives when listing. Defaults to `False`.
+
+**Returns:**
+
+- `list` or `dict`: Perspective objects as Sisense returns them. Key fields: `oid`, `name`, `description`, `datamodelOid` (the root model), `parentOid`, and `tables` — a list of `{"oid", "diffType", "columnsDiff": [{"oid", "enabled"}]}` keyed by table and column oids (`columnsDiff` lists the kept columns). An empty list means nothing matched the filters. When one or more requested references do not exist, the standard error dict `{"ok": False, "error": "..."}` is returned, additionally carrying `missing` (the unresolved references) and `results` (the ones that were found). An API failure or an unresolvable `datamodel` returns the standard error dict.
