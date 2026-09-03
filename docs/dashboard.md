@@ -430,3 +430,17 @@ Finds every dashboard that uses a data model, including dashboards linked only t
 **Returns:**
 
 - `list` or `dict`: One row per matching dashboard with `dashboard_id`, `title`, `owner` (user id), `owner_email`, `datasource_title` (the dashboard's own datasource), `match` (`"dashboard"` or `"widget"`), `folder_id` and `last_updated`. Dashboard-level matches come first. An empty list means no dashboard uses the model. On failure, the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `duplicate_dashboard(dashboard)`
+
+Creates a staging copy of a dashboard with a marker in its title. Exports the dashboard and imports it with Sisense's own `duplicate` action (`POST /api/v1/dashboards/import/bulk?action=duplicate`), which creates a new dashboard (new id) carrying the widgets, filters, hierarchies and shares of the original. The copy is titled `<original title>_perspective_stage`, so staging copies stand out in the dashboard list and are easy to find and remove later (use `rename_dashboard` for a different name). The copy lands at the root folder. The original is not modified.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard to copy, as an ID or title.
+
+**Returns:**
+
+- `dict`: `{"success": True, "dashboard_id", "title", "source_dashboard_id", "source_title", "widget_count"}` for the new copy. On failure (source not found, export or import failed, or the import reported the dashboard as failed), the standard error dict `{"ok": False, "error": "..."}`.

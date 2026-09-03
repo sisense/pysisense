@@ -448,12 +448,7 @@ print(json.dumps(result, indent=4))
 
 ---
 
-## Notes
-
-- Adjust parameters as needed for your environment.
-- For more details, refer to the documentation in the `docs/` folder.
-
-## Example 1: Find Every Dashboard That Uses a Data Model
+## Example 23: Find Every Dashboard That Uses a Data Model
 
 ```python
 # By title or model oid. Dashboards whose own datasource is the model come first
@@ -470,3 +465,20 @@ rows = dashboard.get_dashboards_by_datasource("Sample ECommerce", deep=True)
 if isinstance(rows, dict) and rows.get("ok") is False:
     print(rows["error"])
 ```
+
+## Example 24: Duplicate a Dashboard as a Staging Copy
+
+```python
+# The copy carries a marker so it is easy to find later: "Sales Overview_perspective_stage"
+copy = dashboard.duplicate_dashboard("Sales Overview")
+# {"success": True, "dashboard_id": "<new id>", "title": "Sales Overview_perspective_stage",
+#  "source_dashboard_id": "<original id>", "source_title": "Sales Overview", "widget_count": 7}
+
+# Need a different name? Rename the copy afterwards
+dashboard.rename_dashboard(copy["dashboard_id"], "Sales Overview (test)")
+```
+
+## Notes
+
+- Adjust parameters as needed for your environment.
+- For more details, refer to the documentation in the `docs/` folder.

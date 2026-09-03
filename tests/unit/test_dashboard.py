@@ -1099,3 +1099,67 @@ class TestGetDashboardsByDatasource:
 
     def test_empty_reference_is_an_error(self):
         assert _make_discovery().get_dashboards_by_datasource("")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# duplicate_dashboard
+# ---------------------------------------------------------------------------
+
+_EXPORTED = {"oid": "src1", "title": "Sales Report", "filters": [], "widgets": [{"oid": "w1"}, {"oid": "w2"}], "layout": {}}
+
+
+class _RecordingDashClient(FakeApiClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.posted: list[tuple[str, object]] = []
+        self.patched: list[tuple[str, object]] = []
+
+    def post(self, url, data=None, **kwargs):
+        self.posted.append((url, data))
+        return super().post(url, data=data, **kwargs)
+
+    def patch(self, url, data=None, **kwargs):
+        self.patched.append((url, data))
+        return super().patch(url, data=data, **kwargs)
+
+
+def _make_duplicator(import_response=None, import_status=200, export=_EXPORTED):
+    created = {"oid": "new1", "title": "Sales Report_perspective_stage", "parentFolder": None, "widgets": [{"oid": "a"}, {"oid": "b"}]}
+    body = import_response if import_response is not None else {"succeded": [created], "failed": []}
+    client = _RecordingDashClient(
+        get_responses={
+            "/api/v1/dashboards/src1": FakeResponse(200, [{"oid": "src1", "title": "Sales Report"}]),
+            "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": "src1", "title": "Sales Report"}]),
+            "/api/v1/dashboards/export": FakeResponse(200, [export]),
+        },
+        post_responses={"/api/v1/dashboards/import/bulk": FakeResponse(import_status, body)},
+        logger=FakeLogger(),
+    )
+    return Dashboard(api_client=client), client
+
+
+class TestDuplicateDashboard:
+    def test_exports_retitles_and_imports_with_duplicate_action(self):
+        dash, client = _make_duplicator()
+        result = dash.duplicate_dashboard("src1")
+        assert result == {"success": True, "dashboard_id": "new1", "title": "Sales Report_perspective_stage", "source_dashboard_id": "src1", "source_title": "Sales Report", "widget_count": 2}
+        url, payload = client.posted[0]
+        assert url == "/api/v1/dashboards/import/bulk?action=duplicate"
+        assert payload[0]["title"] == "Sales Report_perspective_stage" and payload[0]["widgets"] == _EXPORTED["widgets"]
+
+    def test_unknown_source_is_an_error(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/nope": FakeResponse(404, {}), "/api/v1/dashboards/admin": FakeResponse(200, [])})
+        assert dash.duplicate_dashboard("nope")["ok"] is False
+
+    def test_import_failure_status_is_an_error(self):
+        dash, _ = _make_duplicator(import_status=500, import_response={"message": "boom"})
+        assert dash.duplicate_dashboard("src1")["ok"] is False
+
+    def test_import_reporting_failed_is_an_error(self):
+        dash, _ = _make_duplicator(import_response={"succeded": [], "failed": [{"title": "Sales Report_perspective_stage", "error": "quota"}]})
+        result = dash.duplicate_dashboard("src1")
+        assert result["ok"] is False and "quota" in result["error"]
+
+    def test_import_returning_only_the_source_oid_is_an_error(self):
+        dash, _ = _make_duplicator(import_response={"succeded": [{"oid": "src1"}], "failed": []})
+        assert dash.duplicate_dashboard("src1")["ok"] is False

@@ -659,3 +659,65 @@ class DashboardCoreMixin:
         rows.sort(key=lambda r: (r["match"] != "dashboard", (r["title"] or "").lower()))
         self.logger.info(f"Found {len(rows)} dashboards on datasource '{wanted_title}' ({sum(r['match'] == 'widget' for r in rows)} via widgets only)")
         return rows
+
+    def duplicate_dashboard(self, dashboard: str) -> dict[str, Any]:
+        """Create a staging copy of a dashboard with a marker in its title.
+
+        Exports the dashboard and imports it with Sisense's own ``duplicate``
+        action, which creates a new dashboard (new id) carrying the widgets,
+        filters, hierarchies and shares of the original. The copy is titled
+        ``<original title>_perspective_stage`` so staging copies stand out in the
+        dashboard list and are easy to find and remove later (use
+        ``rename_dashboard`` for a different name). The copy lands at the root
+        folder. The original is not modified.
+
+        Parameters
+        ----------
+        dashboard : str
+            The dashboard to copy, as an ID or title.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True, "dashboard_id", "title", "source_dashboard_id", "source_title",
+            "widget_count"}`` for the new copy. On failure (source not found, export or import
+            failed, or the import reported the dashboard as failed), the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
+        """
+        ref = self.resolve_dashboard_reference(dashboard)
+        if not ref.get("success"):
+            failure = {"ok": False, "error": f"Dashboard '{dashboard}' could not be resolved: {ref.get('error') or 'not found'}", "status_code": ref.get("status_code")}
+            self.logger.error(failure["error"])
+            return failure
+        source_id = ref["dashboard_id"]
+
+        exported = self.export_dashboard(source_id)
+        if not isinstance(exported, dict) or exported.get("ok") is False or ("error" in exported and "title" not in exported):
+            return exported if isinstance(exported, dict) else {"ok": False, "error": f"Unexpected export result for dashboard '{source_id}'."}
+        source_title = exported.get("title") or ref.get("dashboard_title") or ""
+        copy_title = f"{source_title}_perspective_stage"
+
+        copy = dict(exported)
+        copy["title"] = copy_title
+        self.logger.debug(f"Duplicating dashboard '{source_title}' ({source_id}) as '{copy_title}'")
+        result = self.import_dashboards_bulk([copy], action="duplicate")
+        if not isinstance(result, dict) or result.get("ok") is False:
+            return result if isinstance(result, dict) else {"ok": False, "error": "Unexpected import result while duplicating the dashboard."}
+        succeeded = [d for d in (result.get("succeded") or result.get("succeeded") or []) if isinstance(d, dict)]
+        created = next((d for d in succeeded if isinstance(d.get("oid"), str) and d["oid"] != source_id), None)
+        if created is None:
+            failed = result.get("failed") or []
+            failure = {"ok": False, "error": f"Duplicating dashboard '{source_title}' produced no new dashboard." + (f" Import reported: {failed}" if failed else "")}
+            self.logger.error(failure["error"])
+            return failure
+
+        widget_count = len(exported.get("widgets") or [])  # the import response lists widgets separately
+        self.logger.info(f"Duplicated dashboard '{source_title}' ({source_id}) as '{copy_title}' ({created['oid']}) with {widget_count} widgets")
+        return {
+            "success": True,
+            "dashboard_id": created["oid"],
+            "title": created.get("title") or copy_title,
+            "source_dashboard_id": source_id,
+            "source_title": source_title,
+            "widget_count": widget_count,
+        }

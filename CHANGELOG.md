@@ -39,6 +39,10 @@ All notable changes to `pysisense` are documented here. The format follows
   model, by title or oid, including dashboards linked only through a widget (`match: "widget"`), from
   one listing call; `deep=True` also exports dashboards with an empty widget-datasource summary.
   Rows carry the owner's email, folder and last-updated time.
+- **`Dashboard.duplicate_dashboard(dashboard)`** — staging copy of a dashboard via export + import with
+  Sisense's `duplicate` action; the copy is titled `<original>_perspective_stage` so staging copies are
+  easy to find and remove. Returns the new id, both titles and
+  the widget count.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;
