@@ -171,13 +171,15 @@ Adds or updates sharing settings for a dashboard.
 
 Extracts distinct columns used in a dashboard (filters and widgets).
 
+Reads dashboard filters (plain and dependent-level filters) and every widget panel item, including the columns a formula references through its `context`. Both `[Table.Column]` and `[Table].[Column]` references are understood, and table or column names may contain any character — Sisense enforces no naming restriction. The `" (Calendar)"` suffix Sisense adds to date dimensions is ignored when deduplicating.
+
 **Parameters:**
 
 -   `dashboard_name` (str): Name of the dashboard.
 
 **Returns:**
 
--   `list` or `dict`: List of unique table/column combinations with metadata. An empty list means the dashboard genuinely references no columns. On failure (dashboard not found, or the export failed or could not be parsed), the standard error dict `{"ok": False, "error": "..."}`.
+-   `list` or `dict`: List of unique table/column combinations. Each row carries `dashboard_name`, `source` (`"filter"` or `"widget"`), `widget_id` (the widget's own `oid`, or `"N/A"` for a dashboard filter), `table`, and `column`. An empty list means the dashboard genuinely references no columns. On failure (dashboard not found, or the export failed or could not be parsed), the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 

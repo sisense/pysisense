@@ -407,6 +407,33 @@ class TestGetDashboardColumns:
         )
         result = dash.get_dashboard_columns("Sales Report")
         assert isinstance(result, list)
+        # [orders].[amount] is the two-bracket form; the old strip("[]").split(".")
+        # read it as table "orders]" / column "[amount".
+        assert result == [{"dashboard_name": "Sales Report", "source": "widget", "widget_id": "Unknown Widget", "table": "orders", "column": "amount"}]
+
+    def test_widget_id_comes_from_the_widget_oid_and_calendar_dedupes(self):
+        export_data = [
+            {
+                "title": "Sales Report",
+                "filters": [{"levels": [{"dim": "[orders.Date (Calendar)]"}]}],
+                "widgets": [
+                    {"oid": "w1", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[orders.Date]"}}]}]}},
+                    {"oid": "w2", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[[region.r_name]"}}]}]}},
+                ],
+                "layout": {"columns": [{"cells": [{"subcells": [{"elements": [{"widgetid": "layout-says-otherwise"}]}]}]}]},
+            }
+        ]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/export": FakeResponse(200, export_data),
+            }
+        )
+        result = dash.get_dashboard_columns("Sales Report")
+        assert [(r["source"], r["widget_id"], r["table"], r["column"]) for r in result] == [
+            ("filter", "N/A", "orders", "Date (Calendar)"),  # w1's [orders.Date] dedupes against it
+            ("widget", "w2", "[region", "r_name"),  # table name starting with "[" survives
+        ]
 
 
 # ---------------------------------------------------------------------------

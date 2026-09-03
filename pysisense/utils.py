@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import yaml
@@ -249,3 +251,249 @@ def convert_utc_to_local(utc_str):
         return local_time.strftime("%Y-%m-%d %H:%M:%S %Z")
     except Exception as e:
         return f"Invalid timestamp: {utc_str} - {str(e)}"
+
+
+# ---------------------------------------------------------------------------
+# JAQL column-reference parsing (shared by the dashboard and access_management
+# facades; lives here because `dashboard` imports `access_management`, so a
+# helper hosted in either package and imported by the other is a cycle).
+# ---------------------------------------------------------------------------
+
+# A date column used at a calendar level arrives as "[Orders.Date (Calendar)]".
+_CALENDAR_SUFFIX = " (Calendar)"
+
+# Separator of the two-bracket dim form "[Table].[Column]".
+_TWO_BRACKET_SEPARATOR = "]."
+
+
+def _parse_dim_candidates(dim):
+    """
+    Returns every plausible (table, column) reading of a JAQL ``dim`` string.
+
+    Sisense writes column references two ways — ``[Table.Column]`` and
+    ``[Table].[Column]`` — and table or column names may themselves contain
+    dots, leading dots, single or double quotes, and even square brackets
+    (``[Sales [EU].Amount]``, ``[trips].[."tpep_pickup_datetime]``). No grammar
+    can split such names reliably, so this parser is deliberately permissive:
+    it strips exactly one outer bracket pair, then offers a candidate for every
+    possible split point, and leaves the real decision to resolution against the
+    data model's actual table and column names. It never refuses a bracketed
+    dim for containing odd characters, and it never mangles a name the way the
+    old ``strip("[]").split(".", 1)`` did (which turned ``[Orders].[Amount]``
+    into ``("Orders]", "[Amount")``).
+
+    Candidate order is deterministic: the two-bracket reading first (split at
+    each ``].[``), then single-bracket readings at each dot, left to right.
+    Column names are returned as written; use ``_column_name_variants`` to also
+    try the ``" (Calendar)"``-stripped form.
+
+    Parameters:
+        dim: the ``dim`` value from a JAQL node (any type; non-strings yield [])
+
+    Returns:
+        list[tuple[str, str]]: candidates, or [] when the value is not a
+        bracketed reference with a separator at all (``"Orders.Amount"``,
+        ``"[Orders]"``, ``""``, ``None``).
+    """
+    if not isinstance(dim, str):
+        return []
+    text = dim.strip()
+    if len(text) < 3 or not (text.startswith("[") and text.endswith("]")):
+        return []
+
+    inner = text[1:-1]
+    candidates = []
+
+    # Two-bracket form. Names may contain "].[" only pathologically, so every
+    # occurrence is offered as a split rather than assuming the first. The dot
+    # inside each separator is remembered so the dot pass below does not offer
+    # it again as a bogus single-bracket split ("Orders]" / "[Amount").
+    separator = _TWO_BRACKET_SEPARATOR + "["
+    separator_dots = set()
+    start = 0
+    while True:
+        index = inner.find(separator, start)
+        if index == -1:
+            break
+        separator_dots.add(index + 1)
+        table, column = inner[:index], inner[index + len(separator) :]
+        if table and column:
+            candidates.append((table, column))
+        start = index + 1
+
+    # "].[" is Sisense's explicit separator: when present, every other dot is
+    # part of a name (a leading-dot column like "[trips].[.tpep]" must not be
+    # re-split at that dot), so the single-bracket pass is skipped entirely.
+    if separator_dots:
+        return candidates
+
+    # Single-bracket form: a candidate per dot position. Consecutive dots yield
+    # a leading-dot name on one side ("[trips..tpep]" -> ("trips", ".tpep")).
+    for index, char in enumerate(inner):
+        if char != ".":
+            continue
+        table, column = inner[:index], inner[index + 1 :]
+        if table and column and (table, column) not in candidates:
+            candidates.append((table, column))
+
+    return candidates
+
+
+def _column_name_variants(column):
+    """
+    Returns the schema column names a dashboard column reference may denote.
+
+    A date column used at a calendar level is written ``"Date (Calendar)"`` in
+    the dashboard while the schema column is just ``"Date"``. Both are returned,
+    raw first, so a column literally named ``"X (Calendar)"`` still resolves.
+
+    Parameters:
+        column (str): the column part of a parsed dim
+
+    Returns:
+        list[str]: one or two names to try, raw form first.
+    """
+    variants = [column]
+    if column.endswith(_CALENDAR_SUFFIX):
+        stripped = column[: -len(_CALENDAR_SUFFIX)]
+        if stripped and stripped != column:
+            variants.append(stripped)
+    return variants
+
+
+def _parse_dim(dim):
+    """
+    Returns the single (table, column) reading of ``dim``, or None.
+
+    None means unparseable or ambiguous — never a best guess. Callers that need
+    a definite answer for an ambiguous dim must resolve
+    ``_parse_dim_candidates`` against the real schema.
+
+    Parameters:
+        dim: the ``dim`` value from a JAQL node
+
+    Returns:
+        tuple[str, str] | None
+    """
+    candidates = _parse_dim_candidates(dim)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+_UNKNOWN_DIM = "Unknown.Table"
+
+
+def _split_dim(dim: str, known_columns: set[tuple[str, str]] | None = None) -> tuple[str, str]:
+    """Split a dashboard ``dim`` string into ``(table, column)`` for the column walkers.
+
+    Bracketed references go through ``_parse_dim_candidates``. A single
+    candidate is returned as is. When a name itself contains dots there are
+    several candidates: the first whose table and column exist in
+    ``known_columns`` wins (the ``" (Calendar)"`` suffix is tolerated), and
+    without a schema the first candidate is used, which is the reading the
+    old first-dot split produced for ordinary names. Strings that are not a
+    bracketed reference keep the old behaviour: split at the first dot, or
+    ``"Unknown Column"`` when there is none.
+
+    Parameters:
+        dim (str): The raw ``dim`` value from a dashboard export.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to choose between readings.
+
+    Returns:
+        tuple[str, str]: The ``(table, column)`` reading of the dim.
+    """
+    candidates = _parse_dim_candidates(dim)
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        if known_columns:
+            for table, column in candidates:
+                if any((table, variant) in known_columns for variant in _column_name_variants(column)):
+                    return table, column
+        return candidates[0]
+    text = dim.strip()
+    if len(text) >= 2 and text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    if "." in text:
+        table, column = text.split(".", 1)
+        return table, column
+    return text, "Unknown Column"
+
+
+def _extract_dashboard_columns(
+    dashboard: dict[str, Any],
+    dashboard_name: str | None = None,
+    known_columns: set[tuple[str, str]] | None = None,
+    logger: logging.Logger | None = None,
+) -> list[dict[str, Any]]:
+    """Walk an exported dashboard and list every column reference it contains.
+
+    Shared traversal behind ``Dashboard.get_dashboard_columns`` and
+    ``AccessManagement.get_unused_columns_bulk``. Reads dashboard filters
+    (plain ``jaql`` and dependent ``levels``) and every widget panel item,
+    descending into a formula's ``context`` for the columns it references.
+    Rows come back in document order and are not deduplicated; the
+    ``" (Calendar)"`` suffix Sisense adds to date dimensions is left on the
+    column so each caller can apply its own normalisation.
+
+    Parameters:
+        dashboard (dict[str, Any]): One dashboard as returned by the export endpoint.
+        dashboard_name (str | None): Title recorded on each row; defaults to the dashboard's own title.
+        known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to pick the right reading of a dim whose names contain dots.
+        logger (logging.Logger | None): Optional logger for step-by-step debug output.
+
+    Returns:
+        list[dict[str, Any]]: Rows with ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``), ``widget_id``, ``table`` and ``column``.
+    """
+    if not isinstance(dashboard, dict):
+        return []
+    name = dashboard_name if dashboard_name is not None else dashboard.get("title", "Unknown Dashboard")
+    rows: list[dict[str, Any]] = []
+
+    def add(source: str, widget_id: str, dim: Any, where: str) -> None:
+        if not isinstance(dim, str) or not dim:
+            if logger:
+                logger.debug(f"{where}: no usable 'dim' value, skipping.")
+            return
+        table, column = _split_dim(dim, known_columns)
+        rows.append({"dashboard_name": name, "source": source, "widget_id": widget_id, "table": table, "column": column})
+        if logger:
+            logger.debug(f"{where}: extracted table={table!r} column={column!r}")
+
+    filters = dashboard.get("filters") or []
+    if logger:
+        logger.debug(f"Dashboard '{name}': {len(filters)} filters")
+    for index, filter_ in enumerate(filters, start=1):
+        if not isinstance(filter_, dict):
+            continue
+        if "levels" in filter_:
+            for level in filter_.get("levels") or []:
+                if isinstance(level, dict):
+                    add("filter", "N/A", level.get("dim", _UNKNOWN_DIM), f"Filter {index} (levels)")
+        elif "jaql" in filter_:
+            jaql = filter_.get("jaql")
+            if isinstance(jaql, dict):
+                add("filter", "N/A", jaql.get("dim", _UNKNOWN_DIM), f"Filter {index} (jaql)")
+
+    widgets = dashboard.get("widgets") or []
+    if logger:
+        logger.debug(f"Dashboard '{name}': {len(widgets)} widgets")
+    for index, widget in enumerate(widgets, start=1):
+        if not isinstance(widget, dict):
+            continue
+        widget_id = widget.get("oid", "Unknown Widget")
+        metadata = widget.get("metadata")
+        panels = metadata.get("panels") if isinstance(metadata, dict) else None
+        for panel in panels or []:
+            items = panel.get("items") if isinstance(panel, dict) else None
+            for item in items or []:
+                jaql = item.get("jaql", {}) if isinstance(item, dict) else None
+                if not isinstance(jaql, dict):
+                    continue
+                context = jaql.get("context")
+                if "context" in jaql and isinstance(context, dict):
+                    for value in context.values():
+                        if isinstance(value, dict):
+                            add("widget", widget_id, value.get("dim", _UNKNOWN_DIM), f"Widget {index} (context)")
+                else:
+                    add("widget", widget_id, jaql.get("dim", _UNKNOWN_DIM), f"Widget {index}")
+    return rows
