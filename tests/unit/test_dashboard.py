@@ -1006,3 +1006,96 @@ class TestAddDashboardScriptOwnershipRestored:
         assert len(change_owner_calls) == 2
         share_restore_calls = [u for u in client.post_urls if "shares/dashboard" in u]
         assert len(share_restore_calls) >= 1
+
+
+# ---------------------------------------------------------------------------
+# get_dashboards_by_datasource
+# ---------------------------------------------------------------------------
+
+_DS = lambda title: {"title": title, "fullname": f"LocalHost/{title}", "live": False}  # noqa: E731
+_LISTING = [
+    {
+        "oid": "d1",
+        "title": "Sales Overview",
+        "owner": "u1",
+        "parentFolder": "f1",
+        "lastUpdated": "2026-01-01T00:00:00Z",
+        "datasource": _DS("Sample ECommerce"),
+        "widgetsDatasources": [_DS("Sample ECommerce")],
+    },
+    {"oid": "d1", "title": "Sales Overview", "owner": "u1", "datasource": _DS("Sample ECommerce"), "widgetsDatasources": []},  # the listing repeats oids
+    {"oid": "d2", "title": "Mixed", "owner": "u2", "datasource": _DS("Other Model"), "widgetsDatasources": [_DS("Other Model"), _DS("sample ecommerce")]},
+    {"oid": "d3", "title": "Unrelated", "owner": "u2", "datasource": _DS("Other Model"), "widgetsDatasources": [_DS("Other Model")]},
+    {"oid": "d4", "title": "No Summary", "owner": "u1", "datasource": _DS("Other Model"), "widgetsDatasources": []},
+    {
+        "oid": "d5",
+        "title": "Live",
+        "owner": "u1",
+        "datasource": {"title": "Sample ECommerce", "id": "live:Sample ECommerce", "fullname": "live:Sample ECommerce", "live": True},
+        "widgetsDatasources": None,
+    },
+    None,
+]
+_USERS = [{"_id": "u1", "email": "one@example.com"}, {"_id": "u2", "email": "two@example.com"}]
+
+
+def _make_discovery(listing=_LISTING, export=None, users=_USERS, **extra):
+    responses = {"/api/v1/dashboards/admin": FakeResponse(200, listing), "/api/v1/users": FakeResponse(200, users), **extra}
+    if export is not None:
+        responses["/api/v1/dashboards/export"] = FakeResponse(200, export)
+    return _make_dash(get_responses=responses)
+
+
+class TestGetDashboardsByDatasource:
+    def test_matches_dashboard_level_and_widget_level_case_insensitively(self):
+        rows = _make_discovery().get_dashboards_by_datasource("sample ecommerce")
+        assert [(r["dashboard_id"], r["match"]) for r in rows] == [("d5", "dashboard"), ("d1", "dashboard"), ("d2", "widget")]
+
+    def test_rows_carry_owner_email_folder_and_timestamps(self):
+        row = next(r for r in _make_discovery().get_dashboards_by_datasource("Sample ECommerce") if r["dashboard_id"] == "d1")
+        assert row == {
+            "dashboard_id": "d1",
+            "title": "Sales Overview",
+            "owner": "u1",
+            "owner_email": "one@example.com",
+            "datasource_title": "Sample ECommerce",
+            "match": "dashboard",
+            "folder_id": "f1",
+            "last_updated": "2026-01-01T00:00:00Z",
+        }
+
+    def test_duplicate_listing_rows_collapse_to_one(self):
+        rows = _make_discovery().get_dashboards_by_datasource("Sample ECommerce")
+        assert [r["dashboard_id"] for r in rows].count("d1") == 1
+
+    def test_accepts_a_model_oid_by_resolving_its_title(self):
+        dash = _make_discovery(**{"/api/v2/datamodels/abc-oid/schema": FakeResponse(200, {"oid": "abc-oid", "title": "Sample ECommerce"})})
+        assert len(dash.get_dashboards_by_datasource("abc-oid")) == 3
+
+    def test_deep_scan_exports_only_unsummarized_dashboards(self):
+        export = [{"oid": "d4", "widgets": [{"oid": "w", "datasource": _DS("Sample ECommerce")}]}]
+        rows = _make_discovery(export=export).get_dashboards_by_datasource("Sample ECommerce", deep=True)
+        assert ("d4", "widget") in [(r["dashboard_id"], r["match"]) for r in rows]
+
+    def test_without_deep_the_unsummarized_dashboard_is_not_found(self):
+        rows = _make_discovery().get_dashboards_by_datasource("Sample ECommerce")
+        assert "d4" not in [r["dashboard_id"] for r in rows]
+
+    def test_no_match_is_an_empty_list(self):
+        assert _make_discovery().get_dashboards_by_datasource("Nobody Uses Me") == []
+
+    def test_owner_lookup_failure_leaves_email_none(self):
+        rows = _make_discovery(users=None).get_dashboards_by_datasource("Sample ECommerce")
+        assert rows and all(r["owner_email"] is None for r in rows)
+
+    def test_listing_failure_returns_error_dict(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(500, {"message": "boom"})})
+        result = dash.get_dashboards_by_datasource("Sample ECommerce")
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_deep_export_failure_returns_error_dict(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, _LISTING), "/api/v1/dashboards/export": None})
+        assert dash.get_dashboards_by_datasource("Sample ECommerce", deep=True)["ok"] is False
+
+    def test_empty_reference_is_an_error(self):
+        assert _make_discovery().get_dashboards_by_datasource("")["ok"] is False

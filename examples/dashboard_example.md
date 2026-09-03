@@ -452,3 +452,21 @@ print(json.dumps(result, indent=4))
 
 - Adjust parameters as needed for your environment.
 - For more details, refer to the documentation in the `docs/` folder.
+
+## Example 1: Find Every Dashboard That Uses a Data Model
+
+```python
+# By title or model oid. Dashboards whose own datasource is the model come first
+# (match "dashboard"); dashboards that only reach it through a widget follow (match "widget").
+rows = dashboard.get_dashboards_by_datasource("Sample ECommerce")
+for row in rows:
+    print(row["match"], row["title"], row["owner_email"], row["dashboard_id"])
+
+# Thorough mode: also export dashboards whose widget-datasource summary is empty
+# and inspect their widgets directly. Slower, but leaves nothing to the listing.
+rows = dashboard.get_dashboards_by_datasource("Sample ECommerce", deep=True)
+
+# An empty list means no dashboard uses the model; failures are the standard error dict
+if isinstance(rows, dict) and rows.get("ok") is False:
+    print(rows["error"])
+```

@@ -727,6 +727,79 @@ def _extract_dashboard_columns(
     return _extract_dashboard_references(dashboard, dashboard_name, known_columns, logger, datasource)["rows"]
 
 
+def _discover_dashboards_on_datasource(api_client: Any, logger: logging.Logger | None, datasource_title: str, deep: bool = False) -> dict[str, Any]:
+    """Find every dashboard that uses a datasource, from the admin listing (plus an optional deep scan).
+
+    Shared by ``Dashboard.get_dashboards_by_datasource`` and the unused-columns
+    check. Reads ``GET /api/v1/dashboards/admin`` once, collapses repeated oids,
+    and matches each dashboard on its own ``datasource`` (``"dashboard"``) or on
+    any entry of its ``widgetsDatasources`` summary (``"widget"``), comparing
+    titles case-insensitively. With ``deep`` true, dashboards whose summary is
+    empty are exported in batches of 20 and their widgets inspected directly.
+
+    Parameters:
+        api_client (Any): The shared ``SisenseClient``.
+        logger (logging.Logger | None): Logger for debug output.
+        datasource_title (str): Title of the datasource (data model) to look for.
+        deep (bool): Export dashboards with an empty widget-datasource summary and inspect their widgets.
+
+    Returns:
+        dict[str, Any]: ``{"matches": {oid: "dashboard" | "widget"}, "dashboards": {oid: listing_entry}}``
+            on success, or the standard ``{"ok": False, "error": ...}`` dict on failure.
+    """
+    wanted = _datasource_title(datasource_title)
+    response = api_client.get("/api/v1/dashboards/admin", params={"dashboardType": "owner"})
+    if response is None or response.status_code != 200:
+        return _extract_error_message(response, "Failed to list dashboards", api_client)
+    try:
+        listing = response.json()
+    except Exception:
+        return {"ok": False, "error": "Failed to parse the dashboard listing."}
+    if not isinstance(listing, list):
+        return {"ok": False, "error": "Unexpected dashboard listing structure."}
+
+    dashboards: dict[str, dict[str, Any]] = {}
+    for entry in listing:
+        if isinstance(entry, dict) and isinstance(entry.get("oid"), str):
+            dashboards.setdefault(entry["oid"], entry)  # the listing can repeat an oid
+
+    matches: dict[str, str] = {}
+    unsummarized: list[str] = []
+    for oid, entry in dashboards.items():
+        if _datasource_title(entry.get("datasource")) == wanted:
+            matches[oid] = "dashboard"
+            continue
+        summary = entry.get("widgetsDatasources")
+        if isinstance(summary, list) and summary:
+            if any(_datasource_title(ds) == wanted for ds in summary if isinstance(ds, dict)):
+                matches[oid] = "widget"
+        else:
+            unsummarized.append(oid)
+
+    if deep and unsummarized:
+        if logger:
+            logger.debug(f"Deep scan: exporting {len(unsummarized)} dashboards with no widget-datasource summary")
+        for start in range(0, len(unsummarized), 20):
+            batch = unsummarized[start : start + 20]
+            export = api_client.get("/api/v1/dashboards/export", params={"dashboardIds": ",".join(batch), "adminAccess": "true"})
+            if export is None or export.status_code != 200:
+                return _extract_error_message(export, "Failed to export dashboards for the deep scan", api_client)
+            try:
+                exported = export.json()
+            except Exception:
+                return {"ok": False, "error": "Failed to parse a dashboard export during the deep scan."}
+            for dashboard in exported if isinstance(exported, list) else []:
+                if not isinstance(dashboard, dict):
+                    continue
+                for widget in dashboard.get("widgets") or []:
+                    if isinstance(widget, dict) and _datasource_title(widget.get("datasource")) == wanted:
+                        matches[dashboard.get("oid")] = "widget"
+                        break
+    if logger:
+        logger.debug(f"Discovered {len(matches)} dashboards on datasource '{datasource_title}' ({sum(m == 'widget' for m in matches.values())} via widgets only)")
+    return {"matches": matches, "dashboards": dashboards}
+
+
 # ---------------------------------------------------------------------------
 # Column dependencies inside a data model: what a set of columns needs to work.
 # Pure functions over a /datamodels/{oid}/schema payload. Used by the perspective

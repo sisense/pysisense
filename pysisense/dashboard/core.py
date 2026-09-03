@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..utils import _extract_error_message
+from ..utils import _discover_dashboards_on_datasource, _extract_error_message
 
 
 class DashboardCoreMixin:
@@ -573,3 +573,89 @@ class DashboardCoreMixin:
         result = response.json() if response.content else {"succeded": [], "failed": []}
         self.logger.info(f"Dashboard import request completed for {len(dashboards)} dashboard(s).")
         return result
+
+    def _resolve_datasource_title(self, datamodel: str) -> str:
+        """Return the datasource title for a data model reference (title or model oid).
+
+        Dashboards reference their datasource by title, so an oid is looked up via
+        ``GET /api/v2/datamodels/{oid}/schema``; anything that does not resolve is
+        used as a title as given.
+        """
+        response = self.api_client.get(f"/api/v2/datamodels/{datamodel}/schema")
+        if response is not None and response.status_code == 200:
+            try:
+                title = response.json().get("title")
+                if isinstance(title, str) and title.strip():
+                    return title
+            except Exception:
+                self.logger.debug(f"Could not parse the schema response while resolving '{datamodel}' to a title.")
+        return datamodel
+
+    def get_dashboards_by_datasource(self, datamodel: str, deep: bool = False) -> list[dict[str, Any]] | dict[str, Any]:
+        """Find every dashboard that uses a data model, including dashboards linked only through a widget.
+
+        Reads the admin dashboard listing once and matches each dashboard two
+        ways: its own ``datasource`` (match ``"dashboard"``), or any datasource in
+        its ``widgetsDatasources`` summary (match ``"widget"``) — a dashboard built
+        on model A with one widget on model B is found for both models. Titles
+        are compared case-insensitively. With ``deep=True``, dashboards whose
+        ``widgetsDatasources`` summary is empty are exported in batches and their
+        widgets inspected directly, closing the one gap the listing leaves.
+
+        Parameters
+        ----------
+        datamodel : str
+            The data model, as a title or an oid.
+        deep : bool, optional
+            Also export dashboards with an empty widget-datasource summary and inspect their
+            widgets. Slower (one export call per 20 such dashboards). Default ``False``.
+
+        Returns
+        -------
+        list[dict[str, Any]] | dict[str, Any]
+            One row per matching dashboard: ``dashboard_id``, ``title``, ``owner`` (user id),
+            ``owner_email``, ``datasource_title`` (the dashboard's own datasource),
+            ``match`` (``"dashboard"`` or ``"widget"``), ``folder_id`` and ``last_updated``.
+            An empty list means no dashboard uses the model. On failure, the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
+        """
+        if not isinstance(datamodel, str) or not datamodel.strip():
+            failure = {"ok": False, "error": "datamodel is required (title or oid)."}
+            self.logger.error(failure["error"])
+            return failure
+        wanted_title = self._resolve_datasource_title(datamodel.strip())
+        self.logger.debug(f"Discovering dashboards on datasource '{wanted_title}' (deep={deep})")
+        discovered = _discover_dashboards_on_datasource(self.api_client, self.logger, wanted_title, deep=deep)
+        if discovered.get("ok") is False:
+            self.logger.error(discovered["error"])
+            return discovered
+        matches: dict[str, str] = discovered["matches"]
+        dashboards: dict[str, dict[str, Any]] = discovered["dashboards"]
+
+        owner_emails: dict[str, str] = {}
+        if matches:
+            users = self.api_client.get("/api/v1/users")
+            if users is not None and users.status_code == 200:
+                try:
+                    owner_emails = {u["_id"]: u.get("email") for u in users.json() if isinstance(u, dict) and u.get("_id")}
+                except Exception:
+                    self.logger.debug("Could not parse the user list while resolving dashboard owners.")
+
+        rows = []
+        for oid, match in matches.items():
+            entry = dashboards.get(oid) or {}
+            rows.append(
+                {
+                    "dashboard_id": oid,
+                    "title": entry.get("title"),
+                    "owner": entry.get("owner"),
+                    "owner_email": owner_emails.get(entry.get("owner")),
+                    "datasource_title": (entry.get("datasource") or {}).get("title") if isinstance(entry.get("datasource"), dict) else None,
+                    "match": match,
+                    "folder_id": entry.get("parentFolder"),
+                    "last_updated": entry.get("lastUpdated"),
+                }
+            )
+        rows.sort(key=lambda r: (r["match"] != "dashboard", (r["title"] or "").lower()))
+        self.logger.info(f"Found {len(rows)} dashboards on datasource '{wanted_title}' ({sum(r['match'] == 'widget' for r in rows)} via widgets only)")
+        return rows

@@ -77,7 +77,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk`, `get_dashboards_by_datasource` (dashboard- and widget-level matches; optional deep scan) |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |

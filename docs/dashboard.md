@@ -415,3 +415,18 @@ Searches for all widgets matching a given type across one or more dashboards.
 **Returns:**
 
 -   `list[dict]`: Match records, each containing `dashboard_id`, `dashboard_title`, `widget_id`, `widget_title`, and `widget_type`. Returns an empty list when no matches are found.
+
+* * * * *
+
+### `get_dashboards_by_datasource(datamodel, deep=False)`
+
+Finds every dashboard that uses a data model, including dashboards linked only through a widget. Reads the admin dashboard listing once and matches each dashboard two ways: its own `datasource` (match `"dashboard"`), or any datasource in its `widgetsDatasources` summary (match `"widget"`) — a dashboard built on model A with one widget on model B is found for both models. Titles are compared case-insensitively. With `deep=True`, dashboards whose `widgetsDatasources` summary is empty are exported in batches of 20 and their widgets inspected directly, closing the one gap the listing leaves.
+
+**Parameters:**
+
+- `datamodel` (str): The data model, as a title or an oid.
+- `deep` (bool, optional): Also export dashboards with an empty widget-datasource summary and inspect their widgets. Slower. Defaults to `False`.
+
+**Returns:**
+
+- `list` or `dict`: One row per matching dashboard with `dashboard_id`, `title`, `owner` (user id), `owner_email`, `datasource_title` (the dashboard's own datasource), `match` (`"dashboard"` or `"widget"`), `folder_id` and `last_updated`. Dashboard-level matches come first. An empty list means no dashboard uses the model. On failure, the standard error dict `{"ok": False, "error": "..."}`.

@@ -30,6 +30,10 @@ All notable changes to `pysisense` are documented here. The format follows
 - **`DataModel.delete_perspective(perspective, datamodel=None)`** — delete a perspective by name or
   `oid`; the root model is untouched, the built-in `Default` is refused, and a name shared by several
   models must be disambiguated with `datamodel`.
+- **`Dashboard.get_dashboards_by_datasource(datamodel, deep=False)`** — every dashboard that uses a
+  model, by title or oid, including dashboards linked only through a widget (`match: "widget"`), from
+  one listing call; `deep=True` also exports dashboards with an empty widget-datasource summary.
+  Rows carry the owner's email, folder and last-updated time.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;
