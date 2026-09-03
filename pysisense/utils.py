@@ -1,9 +1,11 @@
 import json
 import logging
 import os
+import re
+from collections import deque
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 import yaml
@@ -723,3 +725,365 @@ def _extract_dashboard_columns(
         list[dict[str, Any]]: Rows with ``dashboard_name``, ``source`` (``"filter"``, ``"hierarchy"`` or ``"widget"``), ``widget_id``, ``table`` and ``column``.
     """
     return _extract_dashboard_references(dashboard, dashboard_name, known_columns, logger, datasource)["rows"]
+
+
+# ---------------------------------------------------------------------------
+# Column dependencies inside a data model: what a set of columns needs to work.
+# Pure functions over a /datamodels/{oid}/schema payload. Used by the perspective
+# analysis; every ambiguity resolves toward keeping more, and anything that
+# cannot be resolved is reported as an issue rather than dropped.
+# ---------------------------------------------------------------------------
+
+_ColumnKey = tuple[str, str]  # (table_oid, column_oid)
+
+_TWO_PART_TOKEN = re.compile(r"\[([^\[\]]+)\]\s*\.\s*\[([^\[\]]+)\]")
+_ONE_PART_TOKEN = re.compile(r"\[([^\[\]]+)\]")
+_WORD_TOKEN = re.compile(r"(?<![\w\[\]'\"])([A-Za-z_][A-Za-z0-9_]*)(?![\w\]'\"])")
+_SQL_FROM_JOIN = re.compile(
+    r"\b(?:from|join)\s+(?:\[([^\]]+)\]|([A-Za-z_][\w.]*))(?:\s+(?:as\s+)?(?!on\b|where\b|join\b|left\b|right\b|inner\b|outer\b|full\b|cross\b|group\b|order\b|limit\b|union\b|select\b)([A-Za-z_]\w*))?",
+    re.IGNORECASE,
+)
+_SQL_QUALIFIED = re.compile(r"(?:\[([^\]]+)\]|([A-Za-z_]\w*))\s*\.\s*(?:\[([^\]]+)\]|([A-Za-z_]\w*))")
+_SQL_SELECT_STAR = re.compile(r"\bselect\s+(?:distinct\s+)?(?:\w+\s*\.\s*)?\*", re.IGNORECASE)
+_SQL_COMPLEX = re.compile(r"\bwith\b|\(\s*select\b", re.IGNORECASE)
+_FORMULA_WORDS_TO_IGNORE = {"case", "when", "then", "else", "end", "and", "or", "not", "in", "is", "null", "true", "false", "like", "between"}
+
+
+def _build_schema_index(schema: dict[str, Any]) -> dict[str, Any]:
+    """Index a data model schema by table and column oid for fast, name-tolerant lookups.
+
+    Parameters
+    ----------
+    schema : dict[str, Any]
+        The payload of ``GET /api/v2/datamodels/{oid}/schema``.
+
+    Returns
+    -------
+    dict[str, Any]
+        ``{"tables": {table_oid: {...}}, "tables_by_name": {lower_name: [table_oid]}, "relations": [...]}``.
+        Each table entry carries ``oid``, ``name``, ``type``, ``dataset``, ``sql`` (custom-table SQL or
+        ``None``), ``columns`` (``{column_oid: {"oid", "name", "expression", "is_custom"}}``) and
+        ``columns_by_name`` (``{lower_name: column_oid}``). ``relations`` is a list of
+        ``(table_oid, column_oid)`` groups, one per relation. Entries that are not dicts are skipped.
+    """
+    tables: dict[str, dict[str, Any]] = {}
+    tables_by_name: dict[str, list[str]] = {}
+    if not isinstance(schema, dict):
+        return {"tables": tables, "tables_by_name": tables_by_name, "relations": []}
+    for dataset in schema.get("datasets") or []:
+        if not isinstance(dataset, dict):
+            continue
+        dataset_schema = dataset.get("schema") if isinstance(dataset.get("schema"), dict) else {}
+        for table in dataset_schema.get("tables") or []:
+            if not isinstance(table, dict) or not isinstance(table.get("oid"), str):
+                continue
+            expression = table.get("expression")
+            sql = expression.get("expression") if isinstance(expression, dict) else expression if isinstance(expression, str) else None
+            columns: dict[str, dict[str, Any]] = {}
+            columns_by_name: dict[str, str] = {}
+            for column in table.get("columns") or []:
+                if not isinstance(column, dict) or not isinstance(column.get("oid"), str):
+                    continue
+                entry = {
+                    "oid": column["oid"],
+                    "name": column.get("name"),
+                    "expression": column.get("expression") if isinstance(column.get("expression"), str) else None,
+                    "is_custom": bool(column.get("isCustom")),
+                }
+                columns[column["oid"]] = entry
+                if isinstance(entry["name"], str):
+                    columns_by_name.setdefault(entry["name"].strip().lower(), column["oid"])
+            name = table.get("name")
+            tables[table["oid"]] = {
+                "oid": table["oid"],
+                "name": name,
+                "type": table.get("type"),
+                "dataset": dataset.get("oid"),
+                "sql": sql if isinstance(sql, str) and sql.strip() else None,
+                "columns": columns,
+                "columns_by_name": columns_by_name,
+            }
+            if isinstance(name, str):
+                tables_by_name.setdefault(name.strip().lower(), []).append(table["oid"])
+    relations: list[list[_ColumnKey]] = []
+    for relation in schema.get("relations") or []:
+        if not isinstance(relation, dict):
+            continue
+        group: list[_ColumnKey] = []
+        for end in relation.get("columns") or []:
+            if isinstance(end, dict) and isinstance(end.get("table"), str) and isinstance(end.get("column"), str):
+                group.append((end["table"], end["column"]))
+        if len(group) >= 2:
+            relations.append(group)
+    return {"tables": tables, "tables_by_name": tables_by_name, "relations": relations}
+
+
+def _compute_dependency_closure(
+    index: dict[str, Any],
+    used: set[_ColumnKey],
+    *,
+    join_paths: bool = True,
+    custom_columns: bool = True,
+    custom_tables: bool = True,
+    custom_table_columns: Literal["all", "parsed"] = "all",
+) -> dict[str, Any]:
+    """Compute everything a set of columns depends on beyond the columns themselves.
+
+    Runs three closures to a fixpoint over the retained set: join paths between
+    every pair of retained tables (both join columns of every edge on every
+    shortest path, and the intermediate tables), custom-column formulas
+    (the columns they read), and custom-table SQL (the tables and columns it
+    selects from). Each retained entry carries the reasons it was kept.
+
+    Parameters
+    ----------
+    index : dict[str, Any]
+        The result of ``_build_schema_index``.
+    used : set[tuple[str, str]]
+        ``(table_oid, column_oid)`` pairs dashboards use directly.
+    join_paths : bool, optional
+        Retain join columns and intermediate tables between used tables. Default ``True``.
+    custom_columns : bool, optional
+        Retain the columns a retained custom column's formula reads. Default ``True``.
+    custom_tables : bool, optional
+        Retain what a retained custom table's SQL selects from. Default ``True``.
+    custom_table_columns : {"all", "parsed"}, optional
+        ``"all"`` keeps every column of every table a custom table's SQL references;
+        ``"parsed"`` keeps only the columns the SQL names (``select *`` still keeps all).
+
+    Returns
+    -------
+    dict[str, Any]
+        ``{"retained": {(table_oid, column_oid): [reason, ...]}, "tables": {table_oid: [reason, ...]},
+        "join_paths": [{"from", "to", "tables"}], "issues": [{"severity", "kind", "detail"}], "options": {...}}``.
+        ``retained`` holds dependency columns only (never the ``used`` input); ``tables`` lists tables
+        kept for a table-level reason — an intermediate table on a join path or the source table of a
+        custom table — with their reasons, whether or not they also have retained columns.
+        A reason is ``{"reason", "required_by", "detail"}``.
+    """
+    tables: dict[str, dict[str, Any]] = index.get("tables") or {}
+    retained: dict[_ColumnKey, list[dict[str, Any]]] = {}
+    extra_tables: dict[str, list[dict[str, Any]]] = {}
+    issues: list[dict[str, Any]] = []
+    join_path_report: list[dict[str, Any]] = []
+    used = {key for key in used if key[0] in tables}
+
+    def keep(key: _ColumnKey, reason: str, required_by: Any, detail: str) -> bool:
+        if key in used or key[0] not in tables or key[1] not in tables[key[0]]["columns"]:
+            return False
+        reasons = retained.setdefault(key, [])
+        if any(r["reason"] == reason and r["required_by"] == required_by for r in reasons):
+            return False
+        reasons.append({"reason": reason, "required_by": required_by, "detail": detail})
+        return True
+
+    def keep_table(table_oid: str, reason: str, required_by: Any, detail: str) -> None:
+        reasons = extra_tables.setdefault(table_oid, [])
+        if not any(r["reason"] == reason and r["required_by"] == required_by for r in reasons):
+            reasons.append({"reason": reason, "required_by": required_by, "detail": detail})
+
+    def issue(severity: str, kind: str, detail: str) -> None:
+        if not any(i["kind"] == kind and i["detail"] == detail for i in issues):
+            issues.append({"severity": severity, "kind": kind, "detail": detail})
+
+    def retained_tables() -> set[str]:
+        return {t for t, _ in used} | {t for t, _ in retained} | set(extra_tables)
+
+    def endpoint_tables() -> set[str]:
+        # Tables needed in their own right: used, or retained for a reason other
+        # than lying on a join path. Only these are joined to each other.
+        needed = {t for t, _ in used}
+        needed |= {t for (t, _), reasons in retained.items() if any(r["reason"] != "join_column" for r in reasons)}
+        needed |= {t for t, reasons in extra_tables.items() if any(r["reason"] != "join_path_table" for r in reasons)}
+        return needed
+
+    seen_paths: set[tuple[str, str]] = set()
+    processed_columns: set[_ColumnKey] = set()
+    processed_tables: set[str] = set()
+
+    for _ in range(50):  # fixpoint; each pass only adds
+        changed = False
+        if join_paths:
+            changed |= _close_join_paths(index, endpoint_tables(), keep, keep_table, issue, join_path_report, seen_paths)
+        if custom_columns:
+            for key in sorted((set(used) | set(retained)) - processed_columns):
+                processed_columns.add(key)
+                changed |= _close_custom_column(index, key, keep, issue)
+        if custom_tables:
+            for table_oid in sorted(retained_tables() - processed_tables):
+                processed_tables.add(table_oid)
+                changed |= _close_custom_table(index, table_oid, custom_table_columns, keep, keep_table, issue)
+        if not changed:
+            break
+    else:
+        issue("warning", "closure_not_converged", "dependency closure stopped after 50 passes")
+
+    return {
+        "retained": retained,
+        "tables": extra_tables,
+        "join_paths": join_path_report,
+        "issues": issues,
+        "options": {"join_paths": join_paths, "custom_columns": custom_columns, "custom_tables": custom_tables, "custom_table_columns": custom_table_columns},
+    }
+
+
+def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, seen_paths) -> bool:
+    """Retain the join columns on every shortest path between each pair of needed tables.
+
+    ``tables_needed`` are the endpoint tables only; a table that lies on a path
+    is kept as an intermediate but never becomes an endpoint itself.
+    """
+    tables = index["tables"]
+    adjacency: dict[str, dict[str, list[tuple[_ColumnKey, _ColumnKey]]]] = {}
+    for group in index.get("relations") or []:
+        for a in group:
+            for b in group:
+                if a[0] != b[0] and a[0] in tables and b[0] in tables:
+                    adjacency.setdefault(a[0], {}).setdefault(b[0], []).append((a, b))
+    changed = False
+    needed = sorted(t for t in tables_needed if t in tables)
+    for i, source in enumerate(needed):
+        distances = _bfs(adjacency, source)
+        for target in needed[i + 1 :]:
+            if (source, target) in seen_paths:
+                continue
+            seen_paths.add((source, target))
+            if target not in distances:
+                issue("info", "tables_not_joined", f"no relation path between '{tables[source]['name']}' and '{tables[target]['name']}'")
+                continue
+            back = _bfs(adjacency, target)
+            total = distances[target]
+            on_path = {t for t in distances if t in back and distances[t] + back[t] == total}
+            for u in on_path:
+                for v, pairs in adjacency.get(u, {}).items():
+                    if v in on_path and distances.get(v) == distances[u] + 1:
+                        for a, b in pairs:
+                            label = f"join {tables[a[0]]['name']} -> {tables[b[0]]['name']} on the path {tables[source]['name']} .. {tables[target]['name']}"
+                            changed |= keep(a, "join_column", (source, target), label)
+                            changed |= keep(b, "join_column", (source, target), label)
+            for t in on_path - set(needed):
+                keep_table(t, "join_path_table", (source, target), f"intermediate table between '{tables[source]['name']}' and '{tables[target]['name']}'")
+                changed = True
+            report.append({"from": source, "to": target, "tables": sorted(on_path, key=lambda t: distances[t])})
+    return changed
+
+
+def _bfs(adjacency, start) -> dict[str, int]:
+    distances = {start: 0}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbour in adjacency.get(node, {}):
+            if neighbour not in distances:
+                distances[neighbour] = distances[node] + 1
+                queue.append(neighbour)
+    return distances
+
+
+def _find_table(index, name: str) -> list[str]:
+    return index["tables_by_name"].get(name.strip().lower(), [])
+
+
+def _close_custom_column(index, key: _ColumnKey, keep, issue) -> bool:
+    """Retain the columns a custom column's formula reads (``[Col]``, ``[Table].[Col]`` or bare names)."""
+    tables = index["tables"]
+    table = tables[key[0]]
+    column = table["columns"][key[1]]
+    expression = column.get("expression")
+    if not expression:
+        return False
+    changed = False
+    label = f"read by custom column '{table['name']}'.'{column['name']}'"
+    rest = expression
+    for match in _TWO_PART_TOKEN.finditer(expression):
+        table_name, column_name = match.group(1), match.group(2)
+        targets = _find_table(index, table_name)
+        if not targets:
+            issue("warning", "custom_column_token_unresolved", f"{label}: table '{table_name}' not found")
+            continue
+        for target in targets:
+            column_oid = tables[target]["columns_by_name"].get(column_name.strip().lower())
+            if column_oid:
+                changed |= keep((target, column_oid), "custom_column_expression", key, label)
+            else:
+                issue("warning", "custom_column_token_unresolved", f"{label}: column '{table_name}'.'{column_name}' not found")
+    rest = _TWO_PART_TOKEN.sub(" ", rest)
+    for match in _ONE_PART_TOKEN.finditer(rest):
+        name = match.group(1)
+        column_oid = table["columns_by_name"].get(name.strip().lower())
+        if column_oid:
+            changed |= keep((key[0], column_oid), "custom_column_expression", key, label)
+            continue
+        for target in _find_table(index, name):
+            for other_oid in tables[target]["columns"]:
+                changed |= keep((target, other_oid), "custom_column_expression", key, f"{label}: whole table '{name}' referenced")
+        if not _find_table(index, name):
+            issue("warning", "custom_column_token_unresolved", f"{label}: '[{name}]' matches no column of the table and no table")
+    rest = _ONE_PART_TOKEN.sub(" ", rest)
+    rest = re.sub(r"'[^']*'|\"[^\"]*\"", " ", rest)
+    for match in _WORD_TOKEN.finditer(rest):
+        word = match.group(1)
+        if word.lower() in _FORMULA_WORDS_TO_IGNORE:
+            continue
+        column_oid = table["columns_by_name"].get(word.lower())
+        if column_oid:
+            changed |= keep((key[0], column_oid), "custom_column_expression", key, f"{label}: bare name '{word}'")
+    return changed
+
+
+def _close_custom_table(index, table_oid: str, mode: str, keep, keep_table, issue) -> bool:
+    """Retain what a custom table's SQL selects from."""
+    tables = index["tables"]
+    table = tables[table_oid]
+    sql = table.get("sql")
+    if not sql:
+        return False
+    changed = False
+    label = f"selected by custom table '{table['name']}'"
+    if _SQL_COMPLEX.search(sql):
+        issue("warning", "custom_table_sql_complex", f"{label}: SQL uses WITH or a nested SELECT; parsed heuristically")
+    aliases: dict[str, str] = {}
+    referenced: list[str] = []
+    for match in _SQL_FROM_JOIN.finditer(sql):
+        name = match.group(1) or match.group(2)
+        alias = match.group(3)
+        targets = _find_table(index, name)
+        if not targets:
+            issue("error", "custom_table_sql_unresolved", f"{label}: table '{name}' not found in the model")
+            continue
+        for target in targets:
+            referenced.append(target)
+            aliases[name.strip().lower()] = target
+            if alias:
+                aliases[alias.lower()] = target
+    if not referenced:
+        if not _SQL_FROM_JOIN.search(sql):
+            issue("warning", "custom_table_sql_no_source", f"{label}: no FROM/JOIN source found")
+        return changed
+    keep_all = mode == "all" or bool(_SQL_SELECT_STAR.search(sql))
+    for target in referenced:
+        keep_table(target, "custom_table_source", table_oid, label)
+        changed = True
+        if keep_all:
+            for column_oid in tables[target]["columns"]:
+                changed |= keep((target, column_oid), "custom_table_source", table_oid, label)
+    if not keep_all:
+        for match in _SQL_QUALIFIED.finditer(sql):
+            qualifier = (match.group(1) or match.group(2) or "").strip().lower()
+            column_name = (match.group(3) or match.group(4) or "").strip().lower()
+            target = aliases.get(qualifier)
+            if target is None:
+                continue
+            column_oid = tables[target]["columns_by_name"].get(column_name)
+            if column_oid:
+                changed |= keep((target, column_oid), "custom_table_source", table_oid, label)
+            else:
+                issue("warning", "custom_table_sql_column_unresolved", f"{label}: column '{column_name}' not found in '{tables[target]['name']}'")
+        if len(referenced) == 1:
+            target = referenced[0]
+            unqualified = _SQL_QUALIFIED.sub(" ", sql)
+            for match in _ONE_PART_TOKEN.finditer(unqualified):
+                column_oid = tables[target]["columns_by_name"].get(match.group(1).strip().lower())
+                if column_oid:
+                    changed |= keep((target, column_oid), "custom_table_source", table_oid, label)
+    return changed
