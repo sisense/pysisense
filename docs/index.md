@@ -19,7 +19,7 @@ The documentation is organized by feature/module. Click on any section to learn 
   [Blox Examples](../examples/blox_example.md)
 
 - [Dashboard](dashboard.md)  
-  Read, export, share, change ownership, and manage widgets on dashboards.
+  Read, export, share, change ownership, and manage widgets on dashboards; find dashboards by data model, duplicate one, change the datasource it queries, and validate every widget's query.
   [Dashboard Examples](../examples/dashboard_example.md)
 
 - [Folder](folder.md)  
@@ -27,7 +27,7 @@ The documentation is organized by feature/module. Click on any section to learn 
   [Folder Examples](../examples/folder_example.md)
 
 - [Data Model](datamodel.md)  
-  Inspect datasets, tables, columns, and schema definitions.
+  Inspect datasets, tables, columns, and schema definitions; list, create, delete, and analyze perspectives.
   [Data Model Examples](../examples/datamodel_example.md)
 
 - [Migration](migration.md)  

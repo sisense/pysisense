@@ -448,6 +448,88 @@ print(json.dumps(result, indent=4))
 
 ---
 
+## Example 23: Find Every Dashboard That Uses a Data Model
+
+```python
+# By title or model oid. Dashboards whose own datasource is the model come first
+# (match "dashboard"); dashboards that only reach it through a widget follow (match "widget").
+rows = dashboard.get_dashboards_by_datasource("Sample ECommerce")
+for row in rows:
+    print(row["match"], row["title"], row["owner_email"], row["dashboard_id"])
+
+# Thorough mode: also export dashboards whose widget-datasource summary is empty
+# and inspect their widgets directly. Slower, but leaves nothing to the listing.
+rows = dashboard.get_dashboards_by_datasource("Sample ECommerce", deep=True)
+
+# An empty list means no dashboard uses the model; failures are the standard error dict
+if isinstance(rows, dict) and rows.get("ok") is False:
+    print(rows["error"])
+```
+
+## Example 24: Duplicate a Dashboard
+
+```python
+# The copy carries a marker so it is easy to find later: "Sales Overview_perspective_stage"
+copy = dashboard.duplicate_dashboard("Sales Overview")
+# {"success": True, "dashboard_id": "<new id>", "title": "Sales Overview_perspective_stage",
+#  "source_dashboard_id": "<original id>", "source_title": "Sales Overview", "widget_count": 7}
+
+# Need a different name? Rename the copy afterwards
+dashboard.rename_dashboard(copy["dashboard_id"], "Sales Overview (test)")
+```
+
+## Example 25: Change a Dashboard's Datasource to a Perspective
+
+```python
+# Point a dashboard at a perspective; widgets and filters on the old datasource follow,
+# widgets on other datasources are untouched.
+result = dashboard.replace_datasource("Sales Overview_perspective_stage", "sales_perspective")
+# {"success": True, "dashboard_id": "...", "title": "Sales Overview_perspective_stage",
+#  "previous_datasource": {"title": "Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", ...},
+#  "new_datasource": {"title": "sales_perspective", ...}, "widgets_updated": 6, "widgets_unchanged": ["Other Model"], "published": True}
+
+# Revert: the previous datasource's title is all that is needed
+dashboard.replace_datasource(result["dashboard_id"], result["previous_datasource"]["title"])
+
+# Only some widgets are on the model being replaced? Name it.
+dashboard.replace_datasource("Mixed Board", "sales_perspective", from_datasource="Sample ECommerce")
+
+# Not the owner and not an admin? Sisense accepts the call but changes nothing; the failure dict says who can.
+# {"ok": False, "error": "Sisense accepted the request but dashboard 'Mixed Board' still shows datasource 'Sample ECommerce'; ...", "owner": "jane@example.com"}
+```
+
+## Example 26: Delete a Dashboard Safely
+
+```python
+copy = dashboard.duplicate_dashboard("Sales Overview")
+
+# Both the id and the exact title are required; a mismatch is refused, nothing is deleted
+dashboard.delete_dashboard(copy["dashboard_id"], copy["title"])
+# {"success": True, "message": "Dashboard 'Sales Overview_perspective_stage' deleted.", "dashboard_id": "...",
+#  "title": "Sales Overview_perspective_stage", "owner": "you@example.com"}
+
+dashboard.delete_dashboard(copy["dashboard_id"], "Sales Overview")
+# {"ok": False, "error": "Refusing to delete dashboard '...': its title is 'Sales Overview_perspective_stage', not 'Sales Overview'."}
+```
+
+## Example 27: Check That Every Widget on a Dashboard Still Answers
+
+```python
+report = dashboard.validate_dashboard_queries("Sales Overview")
+# {"dashboard_id": "...", "title": "Sales Overview", "datasource": "Sample ECommerce", "all_passed": True,
+#  "counts": {"ok": 6, "failed": 0, "unreachable": 0, "skipped": 1},
+#  "widgets": [{"widget_id": "...", "title": "Revenue", "type": "indicator", "datasource": "Sample ECommerce",
+#               "status": "ok", "error": None, "seconds": 0.3}, ...]}
+
+# Would the dashboard still work on another model or a perspective? Nothing is changed.
+# A widget using a field the perspective left out is reported straight away:
+report = dashboard.validate_dashboard_queries("Sales Overview", datasource="commerce_by_country")
+for widget in report["widgets"]:
+    if widget["status"] == "failed":
+        print(widget["title"], "->", widget["error"])
+        # Revenue by Brand -> not found in 'commerce_by_country': [Brand.Brand]
+```
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

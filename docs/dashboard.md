@@ -273,12 +273,12 @@ Renames a dashboard by PATCHing ``title`` on ``/api/dashboards/{dashboard_id}``.
 
 ### `publish_dashboard(dashboard_id, admin_access=True, force=False)`
 
-Publishes (republishes) a dashboard via ``POST /api/v1/dashboards/{dashboard_id}/publish``. Defaults to ``adminAccess=true`` for admin-token preflight republish.
+Publishes (republishes) a dashboard via ``POST /api/v1/dashboards/{dashboard_id}/publish``. The call is sent as the caller first; if it is refused with 403 and `admin_access` is true, it is retried with ``adminAccess=true``, which some Sisense versions honour for an admin token that is not the owner. Versions that reject the flag (422) yield the original 403, so the caller learns that only the owner can publish.
 
 **Parameters:**
 
 - `dashboard_id` (str): Dashboard ``oid``.
-- `admin_access` (bool, optional): Append ``adminAccess=true``. Default `True`.
+- `admin_access` (bool, optional): Retry with ``adminAccess=true`` when the plain call is refused. Default `True`.
 - `force` (bool, optional): Append ``force=true``. Default `False`.
 
 **Returns:**
@@ -415,3 +415,79 @@ Searches for all widgets matching a given type across one or more dashboards.
 **Returns:**
 
 -   `list[dict]`: Match records, each containing `dashboard_id`, `dashboard_title`, `widget_id`, `widget_title`, and `widget_type`. Returns an empty list when no matches are found.
+
+* * * * *
+
+### `get_dashboards_by_datasource(datamodel, deep=False)`
+
+Finds every dashboard that uses a data model, including dashboards linked only through a widget. Reads the admin dashboard listing once and matches each dashboard two ways: its own `datasource` (match `"dashboard"`), or any datasource in its `widgetsDatasources` summary (match `"widget"`) — a dashboard built on model A with one widget on model B is found for both models. Titles are compared case-insensitively. With `deep=True`, dashboards whose `widgetsDatasources` summary is empty are exported in batches of 20 and their widgets inspected directly, closing the one gap the listing leaves.
+
+**Parameters:**
+
+- `datamodel` (str): The data model, as an ID or title.
+- `deep` (bool, optional): Also export dashboards with an empty widget-datasource summary and inspect their widgets. Slower. Defaults to `False`.
+
+**Returns:**
+
+- `list` or `dict`: One row per matching dashboard with `dashboard_id`, `title`, `owner` (user id), `owner_email`, `datasource_title` (the dashboard's own datasource), `match` (`"dashboard"` or `"widget"`), `folder_id` and `last_updated`. Dashboard-level matches come first. An empty list means no dashboard uses the model. On failure, the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `duplicate_dashboard(dashboard)`
+
+Creates a copy of a dashboard, titled with a marker so copies are easy to find. Exports the dashboard and imports it with Sisense's `duplicate` action (`POST /api/v1/dashboards/import/bulk?action=duplicate`), which creates a new dashboard (new id) carrying the widgets, filters, hierarchies and shares of the original. The copy is titled `<original title>_perspective_stage`, so copies made for testing stand out in the dashboard list and are easy to find and remove later; rename it afterwards for a different name. The copy lands at the root folder. The original is not modified.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard to copy, as an ID or title.
+
+**Returns:**
+
+- `dict`: `{"success": True, "dashboard_id", "title", "source_dashboard_id", "source_title", "widget_count"}` for the new copy. On failure (source not found, export or import failed, or the import reported the dashboard as failed), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `replace_datasource(dashboard, datasource, from_datasource=None, publish=True)`
+
+Changes the datasource a dashboard queries — for example from a data model to a perspective built over it. Sends `POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...` with the new datasource object. Sisense then rewrites the dashboard and every widget and filter that used the old datasource; widgets on other datasources are left alone. The old datasource defaults to the dashboard's own; pass `from_datasource` to change a datasource that only some widgets use. Sisense accepts the call from a non-owner but silently changes nothing, so the call is sent as the owner first and the dashboard read back; if it did not change, the call is repeated with admin access (which lets an admin token change dashboards it does not own) and read back again. If it still did not change, the failure dict carries the dashboard's `owner`. Once the change has applied the dashboard is republished so shared viewers see it; a failed publish is reported in the result, not treated as a failed swap — on Sisense versions where only the owner may publish, the result carries `owner`. The new datasource is looked up in the perspectives list first and, if it is a perspective, addressed through its root model (Sisense's datasource catalogue does not reliably list perspectives); otherwise it is taken from the datasource catalogue as a data model.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard, as an ID or title.
+- `datasource` (str): Title of the new datasource: a data model or a perspective.
+- `from_datasource` (str, optional): Title of the datasource being replaced. Default: the dashboard's own datasource.
+- `publish` (bool, optional): Republish the dashboard after the change so shared viewers see it. Defaults to `True`.
+
+**Returns:**
+
+- `dict`: `{"success": True, "dashboard_id", "title", "previous_datasource", "new_datasource", "widgets_updated", "widgets_unchanged", "published"}`, returned only once the read-back shows the new datasource — `published` is `False` (with `publish_error`, and `owner` when only the owner may publish) when the republish failed or was not requested; `previous_datasource` is the full old object, so the change can be reverted with another `replace_datasource` call; `widgets_unchanged` lists the datasource titles of widgets that were on something else. On failure (unknown dashboard or datasource, a change that did not apply as owner or admin, or an API error), the standard error dict `{"ok": False, "error": "..."}`; when the change did not apply, `owner` (email, or id) says who owns the dashboard.
+
+* * * * *
+
+### `delete_dashboard(dashboard_id, title)`
+
+Deletes a dashboard via `DELETE /api/v1/dashboards/{dashboard_id}`, but only if both its ID and its title match. The dashboard is read first and its stored title compared with `title` exactly; a wrong or stale id, or a dashboard renamed since it was listed, is refused instead of deleted.
+
+**Parameters:**
+
+- `dashboard_id` (str): The dashboard's 24-character `oid`.
+- `title` (str): The dashboard's exact current title.
+
+**Returns:**
+
+- `dict`: `{"success": True, "message": "...", "dashboard_id", "title", "owner"}` on success. On failure (not found, title mismatch, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `validate_dashboard_queries(dashboard, datasource=None)`
+
+Runs every widget's query and reports which widgets answer, fail, or cannot be queried. Reads the dashboard's widgets and filters, builds each widget's query the way the widget itself does — its own fields plus the dashboard filters that apply to it (plain, dependent-level and background restrictions, honouring a widget's "ignore dashboard filters" settings; filters on another datasource are left out) — and runs it through `POST /api/datasources/{name}/jaql` with a row count of one. Widget slot names are mapped to the panel names the query endpoint understands (`rows`, `columns`, `measures`, `scope`). Nothing on the dashboard is modified. With `datasource` given, widgets and filters that use the dashboard's own datasource are run against that datasource instead, which answers "would this dashboard still work on that model or perspective" without changing anything. Before running, each widget's fields are checked against what that datasource exposes — a perspective's kept columns, or a model's columns — and a widget that references a missing field is reported `failed` with the missing dims listed, since the query engine does not answer for such a query.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard, as an ID or title.
+- `datasource` (str, optional): Title of a data model or perspective to run the queries against in place of the dashboard's own datasource. Default: each widget runs against its own datasource.
+
+**Returns:**
+
+- `dict`: `{"dashboard_id", "title", "datasource", "all_passed", "counts": {"ok", "failed", "unreachable", "skipped"}, "widgets": [...]}`. Each widget entry carries `widget_id`, `title`, `type`, `datasource`, `status` — `"ok"` (answered), `"failed"` (Sisense returned an error, in `error`), `"unreachable"` (no answer within the client's read timeout, in `error`) or `"skipped"` (nothing to query, reason in `error`) — and `seconds`. `all_passed` is true when no widget failed or was unreachable. Cold queries on a slow instance can exceed the client's default read timeout and show as `unreachable`; raise the client's `timeout` setting for validation runs where that happens. On failure to read the dashboard or resolve `datasource`, the standard error dict `{"ok": False, "error": "..."}`.

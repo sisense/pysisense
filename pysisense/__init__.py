@@ -1,4 +1,4 @@
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 
 # Core classes
 from .access_management import AccessManagement
@@ -24,6 +24,7 @@ from .payloads import (
     MeasurePayload,
     NotebookCreatePayload,
     NotebookUpdatePayload,
+    PerspectiveTableSpec,
     PluginSnapshot,
     RedShiftConnectionParams,
     UpdateUserPayload,
@@ -92,6 +93,7 @@ __all__ = [
     "MeasurePayload",
     "NotebookCreatePayload",
     "NotebookUpdatePayload",
+    "PerspectiveTableSpec",
     "PluginSnapshot",
     "RedShiftConnectionParams",
     "UpdateUserPayload",

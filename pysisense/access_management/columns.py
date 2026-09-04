@@ -4,15 +4,19 @@ from typing import Any
 
 from typing_extensions import deprecated
 
-from ..utils import _extract_dashboard_columns
+from ..utils import _discover_dashboards_on_datasource, _extract_dashboard_columns
 
 
 class ColumnsMixin:
     def get_datamodel_columns(self, datamodel_name: str) -> list[dict[str, Any]]:
-        """Retrieve columns from a DataModel by collecting them from its datasets and tables.
+        """Retrieve every column of a DataModel as flat ``table`` / ``column`` rows.
 
-        Resolves the DataModel ID by title, then walks its datasets and tables
-        to gather every column.
+        Resolves the DataModel by title, then reads its full schema
+        (``GET /api/v2/datamodels/{oid}/schema``) in one call and flattens every
+        table's columns. If that read yields nothing, falls back to walking the
+        per-dataset ``/schema/datasets/{id}/tables`` endpoints, which some models
+        answer when the full schema does not. Entries that are not well-formed
+        (a ``null`` in a table or column list) are skipped rather than crashing.
 
         Parameters
         ----------
@@ -26,104 +30,99 @@ class ColumnsMixin:
             ``datamodel_name``, ``table``, and ``column``. An empty list is
             returned if the DataModel cannot be found or has no columns.
         """
-        all_columns = []
-
         self.logger.info(f"Fetching columns for DataModel: {datamodel_name}")
 
         # Step 1: Get DataModel ID
-        self.logger.debug(f"Fetching DataModel ID for '{datamodel_name}'")
-        schema_url = f"/api/v2/datamodels/schema?title={datamodel_name}"
-        response = self.api_client.get(schema_url)
-
+        response = self.api_client.get("/api/v2/datamodels/schema", params={"title": datamodel_name})
         if not response or response.status_code != 200:
             self.logger.error(f"Failed to fetch DataModel schema for '{datamodel_name}'")
             return []
-
-        response_data = response.json()
-
-        # Endpoint is already filtered by title; just extract the oid
+        try:
+            response_data = response.json()
+        except Exception:
+            self.logger.exception(f"Failed to parse DataModel schema response for '{datamodel_name}'")
+            return []
         if isinstance(response_data, list):
-            first_match = next(
-                (x for x in response_data if isinstance(x, dict) and x.get("oid")),
-                None,
-            )
+            first_match = next((x for x in response_data if isinstance(x, dict) and x.get("oid")), None)
             datamodel_id = first_match.get("oid") if first_match else None
         elif isinstance(response_data, dict):
             datamodel_id = response_data.get("oid")
         else:
             datamodel_id = None
-
         if not datamodel_id:
             self.logger.error(f"DataModel '{datamodel_name}' not found.")
             return []
-
         self.logger.info(f"DataModel ID for '{datamodel_name}': {datamodel_id}")
 
-        # Step 2: Get DataSets
-        self.logger.debug(f"Fetching DataSets for DataModel ID '{datamodel_id}'")
-        dataset_url = f"/api/v2/datamodels/{datamodel_id}/schema/datasets"
-        response = self.api_client.get(dataset_url)
-
-        if not response or response.status_code != 200:
-            self.logger.error(f"Failed to fetch DataSet schema for DataModel ID '{datamodel_id}'")
-            return []
-
-        response_data = response.json()
-        dataset_ids = [x.get("oid") for x in response_data if isinstance(x, dict) and "oid" in x]
-
-        if not dataset_ids:
-            self.logger.warning(f"No datasets found for DataModel '{datamodel_name}' (ID: {datamodel_id}).")
-            return []
-
-        total_datasets = len(dataset_ids)
-        self.logger.info(f"Found {total_datasets} datasets for DataModel '{datamodel_name}': {dataset_ids}")
-
-        # Step 3: Loop through datasets and collect columns from tables
-        total_tables = 0
-        total_columns = 0
-
-        for dataset_index, dataset_id in enumerate(dataset_ids, start=1):
-            self.logger.debug(f"Processing DataSet {dataset_index}/{total_datasets}: Fetching tables for DataSet ID '{dataset_id}'")
-
-            table_url = f"{dataset_url}/{dataset_id}/tables"
-            response = self.api_client.get(table_url)
-
-            if not response or response.status_code != 200:
-                self.logger.error(f"Failed to fetch tables for DataSet ID '{dataset_id}'")
-                continue
-
-            tables = response.json()
-            dataset_table_count = len(tables)
-            total_tables += dataset_table_count
-            self.logger.info(f"Dataset {dataset_index}: Found {dataset_table_count} tables in DataSet ID '{dataset_id}'")
-
-            for table in tables:
+        def rows_from_tables(tables: Any, where: str) -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for table in tables if isinstance(tables, list) else []:
+                if not isinstance(table, dict):
+                    self.logger.warning(f"Skipping a malformed table entry in {where}.")
+                    continue
                 table_name = table.get("name")
                 if not table_name:
-                    self.logger.warning(f"Table in DataSet ID '{dataset_id}' has no name. Skipping.")
+                    self.logger.warning(f"Table in {where} has no name. Skipping.")
                     continue
-
                 columns = table.get("columns")
-                if not columns or not isinstance(columns, list):
-                    self.logger.warning(f"Table '{table_name}' in DataSet ID '{dataset_id}' has no columns. Skipping.")
+                if not isinstance(columns, list) or not columns:
+                    self.logger.warning(f"Table '{table_name}' in {where} has no columns. Skipping.")
                     continue
-
-                table_column_count = len(columns)
-                total_columns += table_column_count
-                self.logger.debug(f"Table '{table_name}' contains {table_column_count} columns")
-
                 for column in columns:
-                    column_name = column.get("name")
-                    if not column_name:
-                        self.logger.warning(f"A column in table '{table_name}' has no name. Skipping.")
+                    if not isinstance(column, dict) or not column.get("name"):
+                        self.logger.warning(f"A column in table '{table_name}' is malformed or has no name. Skipping.")
                         continue
+                    rows.append({"datamodel_id": datamodel_id, "datamodel_name": datamodel_name, "table": table_name, "column": column["name"]})
+            return rows
 
-                    all_columns.append({"datamodel_id": datamodel_id, "datamodel_name": datamodel_name, "table": table_name, "column": column_name})
+        # Step 2: Read the full schema in one call
+        all_columns: list[dict[str, Any]] = []
+        full = self.api_client.get(f"/api/v2/datamodels/{datamodel_id}/schema")
+        if full is not None and full.status_code == 200:
+            try:
+                payload = full.json()
+            except Exception:
+                payload = None
+                self.logger.exception(f"Failed to parse the full schema for DataModel ID '{datamodel_id}'")
+            if isinstance(payload, dict):
+                for dataset in payload.get("datasets") or []:
+                    if not isinstance(dataset, dict):
+                        continue
+                    schema = dataset.get("schema") if isinstance(dataset.get("schema"), dict) else {}
+                    all_columns.extend(rows_from_tables(schema.get("tables"), f"dataset '{dataset.get('oid')}'"))
+        else:
+            self.logger.debug(f"Full schema read failed for DataModel ID '{datamodel_id}'; falling back to the per-dataset endpoints.")
 
-        # Step 4: Final logging
-        self.logger.info(f"DataModel '{datamodel_name}': Processed {total_datasets} datasets, {total_tables} tables, and {total_columns} columns.")
-        self.logger.debug(f"Final collected column data: {all_columns}")
+        # Step 3: Fallback — walk datasets and tables
+        if not all_columns:
+            dataset_url = f"/api/v2/datamodels/{datamodel_id}/schema/datasets"
+            response = self.api_client.get(dataset_url)
+            if not response or response.status_code != 200:
+                self.logger.error(f"Failed to fetch DataSet schema for DataModel ID '{datamodel_id}'")
+                return []
+            try:
+                datasets = response.json()
+            except Exception:
+                self.logger.exception(f"Failed to parse DataSet schema for DataModel ID '{datamodel_id}'")
+                return []
+            dataset_ids = [x.get("oid") for x in (datasets if isinstance(datasets, list) else []) if isinstance(x, dict) and x.get("oid")]
+            if not dataset_ids:
+                self.logger.warning(f"No datasets found for DataModel '{datamodel_name}' (ID: {datamodel_id}).")
+                return []
+            self.logger.info(f"Found {len(dataset_ids)} datasets for DataModel '{datamodel_name}': {dataset_ids}")
+            for dataset_id in dataset_ids:
+                response = self.api_client.get(f"{dataset_url}/{dataset_id}/tables")
+                if not response or response.status_code != 200:
+                    self.logger.error(f"Failed to fetch tables for DataSet ID '{dataset_id}'")
+                    continue
+                try:
+                    tables = response.json()
+                except Exception:
+                    self.logger.exception(f"Failed to parse tables for DataSet ID '{dataset_id}'")
+                    continue
+                all_columns.extend(rows_from_tables(tables, f"DataSet ID '{dataset_id}'"))
 
+        self.logger.info(f"Retrieved {len(all_columns)} columns across {len({r['table'] for r in all_columns})} tables for DataModel '{datamodel_name}'")
         return all_columns
 
     @deprecated("use get_unused_columns_bulk")
@@ -182,29 +181,21 @@ class ColumnsMixin:
 
         # Step 2: Fetch dashboards associated with this DataModel
         self.logger.info(f"Fetching dashboards linked to DataModel '{datamodel_name}'")
-        dashboard_url = f"/api/v1/dashboards/admin?dashboardType=owner&datasourceTitle={datamodel_name}"
-        response = self.api_client.get(dashboard_url)
-
-        if not response or not response.ok:
-            self.logger.error(f"Failed to fetch dashboards for DataModel '{datamodel_name}'.")
+        discovered = _discover_dashboards_on_datasource(self.api_client, self.logger, datamodel_name)
+        if discovered.get("ok") is False:
+            self.logger.error(f"Failed to fetch dashboards for DataModel '{datamodel_name}': {discovered['error']}")
             return []
 
-        dashboards = response.json()
-        if not dashboards:
+        dashboard_ids = set(discovered["matches"])
+        if not dashboard_ids:
             self.logger.warning(f"No dashboards found using DataModel '{datamodel_name}' or access is restricted.")
             # For a valid DataModel with no dashboards, treat all columns as unused.
-            used_columns_count = 0
-            unused_columns_count = len(all_columns)
-
             for entry in all_columns:
                 entry["used"] = False
-
-            self.logger.info(f"Total used columns: {used_columns_count}")
-            self.logger.info(f"Total unused columns: {unused_columns_count}")
-
+            self.logger.info("Total used columns: 0")
+            self.logger.info(f"Total unused columns: {len(all_columns)}")
             return all_columns
 
-        dashboard_ids = {dash["oid"] for dash in dashboards}  # Get unique dashboard IDs
         total_dashboards = len(dashboard_ids)
         self.logger.info(f"Found {total_dashboards} dashboards linked to DataModel '{datamodel_name}'")
         self.logger.debug(f"Dashboard IDs: {dashboard_ids}")

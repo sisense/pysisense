@@ -56,6 +56,27 @@ uv run pre-commit install
 
 `pysisense` is a community-maintained Python SDK for the **Sisense BI platform**, built by the Sisense Field Engineering team. It is **not an official Sisense product** — no SLA, no official support, best-effort maintenance. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
 
+### Audience — a standalone SDK
+
+`pysisense` is written for anyone calling it directly from Python. Downstream projects consume
+it as well (the FES assistant, an MCP tool server, other automation), and their needs are
+useful **context** when deciding what a method should return — but they are never the
+justification written into the code, and they never bias a method's design toward one caller.
+
+Rules that follow from this:
+
+- **Every public method stands on its own.** Its docstring describes what it does, its inputs,
+  its outputs and the Sisense behaviour behind it. It does not describe workflows, does not say
+  "the output of X can be passed into this", and does not reference other methods except when
+  naming the internal call it makes (and prefer the endpoint over the method name).
+- **No downstream vocabulary in code or user docs.** Nothing about skills, assistants, agents,
+  MCP, tool routing, or "so the caller can …" reasoning aimed at a specific consumer. Internal
+  test comments may explain an introspection contract; docstrings and `docs/` may not.
+- **Describe API calls plainly.** "Sends `POST /api/...` with …" — never "the request the UI
+  sends".
+- **Examples use generic sample models** (`Sample ECommerce`), never sandbox-specific names.
+- Parameters and return keys are justified by what an SDK caller needs to act on the result.
+
 ### Modules
 
 | Module | Class | Responsibility |
@@ -76,7 +97,7 @@ uv run pre-commit install
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
 | `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets`, `load_config` |
-| `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PluginSnapshot`) — introspectable by downstream schema generators |
+| `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PerspectiveTableSpec`, `PluginSnapshot`) — introspectable by downstream schema generators |
 
 ### Package structure — mixin pattern
 
@@ -95,7 +116,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk`, `get_dashboards_by_datasource` (dashboard- and widget-level matches; optional deep scan), `duplicate_dashboard` (export + import `duplicate`; copy titled `<original>_perspective_stage`), `replace_datasource` (model → perspective swap; owner call, read back, admin retry), `delete_dashboard` (id + exact title required), `validate_dashboard_queries` (run every widget's query, optionally against another datasource) |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
@@ -109,6 +130,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
+| | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `create_perspective` (names in, `PerspectiveTableSpec` list; kept tables/columns only), `delete_perspective` (refuses the built-in Default), `analyze_perspective_requirements` (read-only summary of what a perspective must keep; `detailed=True` for per-dashboard/column/dependency/issue detail) |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
@@ -753,16 +775,18 @@ When a public method **signature or documented behavior changes**:
 When **adding a new public method to an existing module**:
 
 1. Add the method name to the **mixin lookup table** below (and in `.cursor/rules/project-overview.mdc`).
+2. Update the facade's `Modules` docstring entry for that mixin file in `package/__init__.py` so it describes the new capability. Downstream tooling builds its hierarchical tool routing from these entries; `tests/unit/test_public_contracts.py` fails when a mixin file has no entry.
 2. Add a usage snippet to `examples/<module>_example.md`. **This is not optional** — every new public method needs at least a one-liner showing the call and what comes back.
-3. Update `docs/<module>.md` with the parameter table and return shape.
+4. Update `docs/<module>.md` with the parameter table and return shape.
 
 When **adding a new module**:
 
 1. Add the module to the **Modules** table in `CLAUDE.md` and `.cursor/rules/project-overview.mdc`.
 2. Add the mixin file and its public methods to the **mixin lookup table** in both files.
+3. Give every mixin file an entry in the facade class's `Modules` docstring section — the test suite enforces one entry per mixin file.
 3. Add the new class to the canonical init pattern in `CLAUDE.md` if it is a top-level SDK class.
-4. Create `examples/<module>_example.md` with copy-paste usage snippets for every public method.
-5. Create `docs/<module>.md` with full reference documentation.
+5. Create `examples/<module>_example.md` with copy-paste usage snippets for every public method.
+6. Create `docs/<module>.md` with full reference documentation.
 
 > **Reminder:** `examples/*.md` files are the first place users look. Skipping them means users have no copy-paste starting point. Always update them.
 

@@ -1228,7 +1228,7 @@ class TestUnusedColumnsDashboardParsing:
                 "/api/v2/datamodels/schema": FakeResponse(200, schema),
                 "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}]),
                 "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
-                "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": "d1", "title": "D"}]),
+                "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": "d1", "title": "D", "datasource": {"title": "MyModel"}}]),
                 "/api/v1/dashboards/export": FakeResponse(200, export),
             }
         )
@@ -1261,6 +1261,72 @@ class TestUnusedColumnsDashboardParsing:
         # The dim has three dots; only the schema can say where the table ends.
         am = self._am([{"name": "@trips", "columns": [{"name": '."pickup.'}, {"name": "fare"}]}], '[@trips.."pickup. (Calendar)]')
         assert self._used(am.get_unused_columns_bulk("MyModel")) == {("@trips", '."pickup.'): True, ("@trips", "fare"): False}
+
+
+class TestUnusedColumnsDiscovery:
+    """Which dashboards the unused-columns check looks at."""
+
+    def test_widget_only_consumer_on_another_dashboard_counts(self):
+        # Live-reproduced: a dashboard built on model B with one widget on model A
+        # was never discovered for A, so the columns that widget used read as unused.
+        listing = [
+            {"oid": "other", "title": "On B", "datasource": {"title": "ModelB"}, "widgetsDatasources": [{"title": "ModelB"}, {"title": "MyModel"}]},
+        ]
+        export = [
+            {
+                "title": "On B",
+                "datasource": {"title": "ModelB"},
+                "filters": [{"jaql": {"dim": "[tbl.col2]", "table": "tbl", "column": "col2", "datasource": {"title": "MyModel"}}}],
+                "widgets": [
+                    {"oid": "wB", "datasource": {"title": "ModelB"}, "metadata": {"panels": [{"items": [{"jaql": {"dim": "[tbl.col3]", "table": "tbl", "column": "col3"}}]}]}},
+                    {"oid": "wA", "datasource": {"title": "MyModel"}, "metadata": {"panels": [{"items": [{"jaql": {"dim": "[tbl.col1]", "table": "tbl", "column": "col1"}}]}]}},
+                ],
+            }
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, {"oid": "dm123", "title": "MyModel"}),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}]),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, [{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}, {"name": "col3"}]}]),
+                "/api/v1/dashboards/admin": FakeResponse(200, listing),
+                "/api/v1/dashboards/export": FakeResponse(200, export),
+            }
+        )
+        used = {(r["table"], r["column"]): r["used"] for r in am.get_unused_columns_bulk("MyModel")["results"]}
+        # col1 via the widget on MyModel, col2 via the filter on MyModel; col3 belongs to ModelB's widget and must not count
+        assert used == {("tbl", "col1"): True, ("tbl", "col2"): True, ("tbl", "col3"): False}
+
+
+class TestGetDatamodelColumnsSchemaPaths:
+    _SCHEMA_LIST = FakeResponse(200, {"oid": "dm123", "title": "MyModel"})
+
+    def test_reads_the_full_schema_in_one_call_and_skips_null_entries(self):
+        full = {
+            "oid": "dm123",
+            "datasets": [None, {"oid": "ds1", "schema": {"tables": [None, {"name": "tbl", "columns": [{"name": "a"}, None, {"name": ""}, {"name": "b"}]}, {"name": "", "columns": [{"name": "x"}]}]}}],
+        }
+        am = _make_am(get_responses={"/api/v2/datamodels/schema": self._SCHEMA_LIST, "/api/v2/datamodels/dm123/schema": FakeResponse(200, full)})
+        rows = am.get_datamodel_columns("MyModel")
+        assert [(r["table"], r["column"]) for r in rows] == [("tbl", "a"), ("tbl", "b")]
+        assert rows[0] == {"datamodel_id": "dm123", "datamodel_name": "MyModel", "table": "tbl", "column": "a"}
+
+    def test_falls_back_to_dataset_endpoints_when_full_schema_fails(self):
+        am = _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": self._SCHEMA_LIST,
+                "/api/v2/datamodels/dm123/schema": FakeResponse(404, {}),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}, None]),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, [{"name": "tbl", "columns": [{"name": "a"}, None]}]),
+            }
+        )
+        assert [(r["table"], r["column"]) for r in am.get_datamodel_columns("MyModel")] == [("tbl", "a")]
+
+    def test_unknown_model_returns_empty_list(self):
+        assert _make_am(get_responses={"/api/v2/datamodels/schema": FakeResponse(404, {})}).get_datamodel_columns("Nope") == []
+
+    def test_both_paths_failing_returns_empty_list(self):
+        am = _make_am(get_responses={"/api/v2/datamodels/schema": self._SCHEMA_LIST, "/api/v2/datamodels/dm123/schema": None, "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(404, {})})
+        assert am.get_datamodel_columns("MyModel") == []
 
 
 # ---------------------------------------------------------------------------

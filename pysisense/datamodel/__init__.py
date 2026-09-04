@@ -3,6 +3,7 @@ from .build import BuildMixin
 from .connections import ConnectionsMixin
 from .core import DataModelCoreMixin
 from .data import DataMixin
+from .perspectives import PerspectivesMixin
 from .security import SecurityMixin
 from .shares import SharesMixin
 
@@ -14,6 +15,7 @@ class DataModel(
     SecurityMixin,
     SharesMixin,
     DataMixin,
+    PerspectivesMixin,
 ):
     """Manage Sisense data models, connections, builds, security, and data.
 
@@ -44,6 +46,12 @@ class DataModel(
     data :
         Data retrieval — query table contents via SQL; get row counts per
         table across an entire data model (``get_data``, ``get_row_count``).
+    perspectives :
+        Perspectives — metadata-only views over a root model that keep a
+        subset of its tables and columns; list them, create one from table
+        and column names, delete one, and analyze what a model's dashboards
+        use (plus join, custom-column and custom-table dependencies) to know
+        what a perspective must keep.
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

@@ -33,8 +33,10 @@ class AccessManagement(
         Group CRUD — get, list, create (bulk), and delete groups; list
         members per group.
     columns :
-        Column-level data model security — list all columns in a data model,
-        identify unused columns across one or more data models.
+        Column usage analysis — list all columns in a data model; identify
+        unused columns across one or more data models by reading every
+        dashboard that uses the model, including dashboards that reach it
+        only through a widget.
     ownership :
         Transfer folder and dashboard ownership — reassign an entire folder
         tree (including subfolders and dashboards) to a new owner.
