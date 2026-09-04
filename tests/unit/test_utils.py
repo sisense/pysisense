@@ -161,7 +161,16 @@ class TestLoadConfig:
 # JAQL dim parsing — _parse_dim_candidates / _parse_dim / _column_name_variants
 # ---------------------------------------------------------------------------
 
-from pysisense.utils import _column_name_variants, _extract_dashboard_columns, _parse_dim, _parse_dim_candidates, _split_dim  # noqa: E402
+from pysisense.utils import (  # noqa: E402
+    _column_name_variants,
+    _datasource_title,
+    _extract_dashboard_columns,
+    _extract_dashboard_references,
+    _parse_dim,
+    _parse_dim_candidates,
+    _reference_from_jaql,
+    _split_dim,
+)
 
 
 class TestParseDimCandidates:
@@ -441,9 +450,10 @@ class TestExtractDashboardColumns:
             ("widget", "w-ind", "@trips", "fare_amount"),
             ("widget", "w-formula", "@trips", "fare_amount"),
             ("widget", "w-formula", "@trips", "[trip_distance"),
-            ("widget", "w-formula", "Unknown", "Table"),  # legacy placeholder for an item with no dim key
         ]
         assert all(r["dashboard_name"] == "fes_assistant" for r in rows)
+        # An item with no dim used to yield a fabricated "Unknown"/"Table" row; it no longer does.
+        assert ("Unknown", "Table") not in {(r["table"], r["column"]) for r in rows}
 
     def test_widget_id_is_the_widgets_own_oid_not_a_layout_position(self):
         rows = _extract_dashboard_columns(_EXPORT)
@@ -462,8 +472,9 @@ class TestExtractDashboardColumns:
         assert rows[0]["column"] == "Date (Calendar)"
 
     def test_known_columns_pick_the_right_reading_for_dotted_names(self):
+        # With a schema the row carries the model's own spelling (no Calendar suffix).
         rows = _extract_dashboard_columns(_EXPORT, known_columns={("@trips", '."tpep_pickup_datetime.')})
-        assert ("@trips", '."tpep_pickup_datetime. (Calendar)') in {(r["table"], r["column"]) for r in rows}
+        assert ("@trips", '."tpep_pickup_datetime.') in {(r["table"], r["column"]) for r in rows}
 
     def test_two_bracket_form_resolves(self):
         rows = _extract_dashboard_columns({"widgets": [{"oid": "w", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[Orders].[Amount]"}}]}]}}]})
@@ -472,3 +483,237 @@ class TestExtractDashboardColumns:
     def test_not_a_dict_yields_empty(self):
         assert _extract_dashboard_columns(None) == []
         assert _extract_dashboard_columns([]) == []
+
+
+class TestReferenceFromJaql:
+    """Explicit table/column keys beat dim parsing; the schema beats both on spelling.
+
+    Census of 509 live dashboards (2026-09-03): 12,306 of 13,080 dim-bearing
+    nodes carry table+column; 82 of them, in 20 dashboards, name a table with
+    a dot in it (every CSV upload is called ``something.csv``) and were
+    misread by the first-dot split.
+    """
+
+    def test_explicit_keys_recover_a_dotted_table_name_without_a_schema(self):
+        node = {"dim": "[T1.csv.C1]", "table": "T1.csv", "column": "C1"}
+        assert _reference_from_jaql(node) == ("T1.csv", "C1")
+
+    def test_explicit_column_has_no_calendar_suffix(self):
+        node = {"dim": "[Orders.Date (Calendar)]", "table": "Orders", "column": "Date"}
+        assert _reference_from_jaql(node) == ("Orders", "Date")
+
+    def test_falls_back_to_dim_parsing_when_keys_are_absent(self):
+        assert _reference_from_jaql({"dim": "[Orders.Amount]"}) == ("Orders", "Amount")
+        assert _reference_from_jaql({"dim": "[Orders].[Amount]"}) == ("Orders", "Amount")
+
+    def test_schema_spelling_wins_on_a_case_mismatch(self):
+        # Live-observed: dim "[Category.Category]" with table "category".
+        node = {"dim": "[Category.Category]", "table": "category", "column": "Category"}
+        assert _reference_from_jaql(node, {("Category", "Category")}) == ("Category", "Category")
+        assert _reference_from_jaql(node) == ("category", "Category")  # no schema: as written
+
+    def test_schema_resolves_dotted_dim_when_keys_are_absent(self):
+        node = {"dim": "[T1.csv.C1]"}
+        assert _reference_from_jaql(node, {("T1.csv", "C1")}) == ("T1.csv", "C1")
+
+    def test_missing_dim_key_keeps_the_legacy_placeholder(self):
+        assert _reference_from_jaql({"title": "x"}) == ("Unknown", "Table")
+
+    def test_explicit_none_or_empty_dim_is_unusable(self):
+        assert _reference_from_jaql({"dim": None}) is None
+        assert _reference_from_jaql({"dim": ""}) is None
+
+    def test_partial_explicit_keys_do_not_count(self):
+        assert _reference_from_jaql({"dim": "[A.B]", "table": "A"}) == ("A", "B")
+        assert _reference_from_jaql({"dim": "[A.B]", "table": "", "column": "B"}) == ("A", "B")
+
+
+def test_walk_uses_explicit_keys_so_csv_tables_come_out_right():
+    export = {"widgets": [{"oid": "w", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[bank_churn_train.csv.Geography]", "table": "bank_churn_train.csv", "column": "Geography"}}]}]}}]}
+    rows = _extract_dashboard_columns(export)
+    assert (rows[0]["table"], rows[0]["column"]) == ("bank_churn_train.csv", "Geography")
+
+
+# ---------------------------------------------------------------------------
+# _extract_dashboard_references — full coverage, datasource gating, diagnostics.
+# Locations come from a census of 509 live dashboards (2026-09-03).
+# ---------------------------------------------------------------------------
+
+_DS_ROOT = {"title": "Sales", "id": "aROOT", "fullname": "LocalHost/Sales", "live": False}
+_DS_OTHER = {"title": "Other Model", "id": "aOTHER", "fullname": "LocalHost/Other Model", "live": False}
+
+
+def _ref(dim, table=None, column=None, **extra):
+    node = {"dim": dim}
+    if table:
+        node.update(table=table, column=column)
+    node.update(extra)
+    return node
+
+
+def _pairs(rows):
+    return [(r["source"], r["widget_id"], r["table"], r["column"]) for r in rows]
+
+
+class TestDatasourceTitle:
+    def test_forms(self):
+        assert _datasource_title({"title": "Sales"}) == "sales"
+        assert _datasource_title({"fullname": "live:fes_assistant"}) == "fes_assistant"
+        assert _datasource_title({"fullname": "LocalHost/Sales"}) == "sales"
+        assert _datasource_title(" Sales ") == "sales"
+        assert _datasource_title({}) is None
+        assert _datasource_title(None) is None
+        assert _datasource_title({"title": ""}) is None
+
+
+class TestExtractDashboardReferencesCoverage:
+    def test_every_census_location_is_read(self):
+        dash = {
+            "title": "D",
+            "datasource": _DS_ROOT,
+            "filters": [{"jaql": _ref("[Orders.Country]", "Orders", "Country", filter={"by": _ref("[Orders.Amount]", "Orders", "Amount", agg="sum")})}],
+            "defaultFilters": [{"levels": [_ref("[Orders.Date (Calendar)]", "Orders", "Date")]}],
+            "hierarchies": [{"title": "Geo", "levels": [_ref("[Geo.Region]", "Geo", "Region"), _ref("[Geo.City]", "Geo", "City")]}],
+            "widgets": [
+                {
+                    "oid": "w1",
+                    "type": "pivot2",
+                    "metadata": {
+                        "panels": [
+                            {
+                                "items": [
+                                    {
+                                        "jaql": {
+                                            "formula": "[A]/[B]",
+                                            "context": {"[A]": _ref("[Orders.Amount]", "Orders", "Amount"), "[B]": {"formula": "[C]", "context": {"[C]": _ref("[Orders.Qty]", "Orders", "Qty")}}},
+                                        },
+                                        "format": {"color": {"conditions": [{"expression": {"jaql": {"formula": "[X]", "context": {"[X]": _ref("[Orders.Cost]", "Orders", "Cost")}}}}]}},
+                                    },
+                                    {"jaql": {"dimension": _ref("[Orders.Category]", "Orders", "Category")}},
+                                    {"jaql": _ref("[Orders.Day]", "Orders", "Day"), "parent": {"jaql": _ref("[Orders.Month]", "Orders", "Month")}},
+                                ]
+                            }
+                        ],
+                        "drillHistory": [{"jaql": _ref("[Orders.Year]", "Orders", "Year"), "through": {"jaql": _ref("[Orders.Quarter]", "Orders", "Quarter")}}],
+                    },
+                    "query": {"metadata": [{"jaql": _ref("[Orders.Brand]", "Orders", "Brand")}]},
+                    "style": {"tableState": {"headers": [_ref("[Orders.Brand]")]}},
+                },
+            ],
+        }
+        rows = _extract_dashboard_references(dash)["rows"]
+        got = {(r["source"], r["table"], r["column"]) for r in rows}
+        assert got == {
+            ("filter", "Orders", "Country"),
+            ("filter", "Orders", "Amount"),  # measured filter (filter.by)
+            ("filter", "Orders", "Date"),  # defaultFilters levels
+            ("hierarchy", "Geo", "Region"),
+            ("hierarchy", "Geo", "City"),
+            ("widget", "Orders", "Amount"),
+            ("widget", "Orders", "Qty"),  # context nested two deep
+            ("widget", "Orders", "Cost"),  # conditional formatting
+            ("widget", "Orders", "Category"),  # jaql.dimension wrapper
+            ("widget", "Orders", "Day"),
+            ("widget", "Orders", "Month"),  # item.parent drill chain
+            ("widget", "Orders", "Year"),  # drillHistory
+            ("widget", "Orders", "Quarter"),  # drillHistory.through
+            ("widget", "Orders", "Brand"),  # query.metadata and tableState.headers
+        }
+        assert all(r["widget_id"] == "w1" for r in rows if r["source"] == "widget")
+        result = _extract_dashboard_references(dash)
+        assert result["issues"] == []
+        assert result["stats"]["unclassified"] == 0
+
+    def test_no_placeholder_row_for_items_without_a_dim(self):
+        dash = {"widgets": [{"oid": "w", "metadata": {"panels": [{"items": [{"jaql": {"title": "text only"}}, {"jaql": {"formula": "1", "context": {}}}]}]}}]}
+        assert _extract_dashboard_references(dash)["rows"] == []
+
+
+class TestExtractDashboardReferencesDatasourceGating:
+    def _dash(self):
+        return {
+            "title": "D",
+            "datasource": _DS_ROOT,
+            "filters": [
+                {"jaql": _ref("[Orders.Country]", "Orders", "Country", datasource=_DS_ROOT)},
+                {"jaql": _ref("[Foreign.Thing]", "Foreign", "Thing", datasource=_DS_OTHER)},
+                {"jaql": _ref("[Orders.Inherited]", "Orders", "Inherited")},
+            ],
+            "widgets": [
+                {"oid": "w-root", "datasource": _DS_ROOT, "metadata": {"panels": [{"items": [{"jaql": _ref("[Orders.Amount]", "Orders", "Amount")}]}]}},
+                {"oid": "w-other", "type": "chart/bar", "title": "Other", "datasource": _DS_OTHER, "metadata": {"panels": [{"items": [{"jaql": _ref("[Foreign.Col]", "Foreign", "Col")}]}]}},
+                {"oid": "w-none", "metadata": {"panels": [{"items": [{"jaql": _ref("[Orders.Qty]", "Orders", "Qty")}]}]}},
+            ],
+        }
+
+    def test_without_a_datasource_everything_is_kept(self):
+        result = _extract_dashboard_references(self._dash())
+        assert {(r["table"], r["column"]) for r in result["rows"]} == {
+            ("Orders", "Country"),
+            ("Foreign", "Thing"),
+            ("Orders", "Inherited"),
+            ("Orders", "Amount"),
+            ("Foreign", "Col"),
+            ("Orders", "Qty"),
+        }
+        assert result["skipped_widgets"] == []
+
+    def test_with_a_datasource_only_its_references_count(self):
+        result = _extract_dashboard_references(self._dash(), datasource="sales")
+        assert {(r["table"], r["column"]) for r in result["rows"]} == {("Orders", "Country"), ("Orders", "Inherited"), ("Orders", "Amount"), ("Orders", "Qty")}
+        assert [w["widget_id"] for w in result["skipped_widgets"]] == ["w-other"]
+        kinds = {i["kind"] for i in result["issues"]}
+        assert kinds == {"widget_other_datasource", "reference_other_datasource"}
+        assert result["stats"]["widgets_scanned"] == 2 and result["stats"]["widgets_skipped"] == 1
+
+    def test_datasource_matches_by_title_case_insensitively_or_by_dict(self):
+        assert len(_extract_dashboard_references(self._dash(), datasource="SALES")["rows"]) == 4
+        assert len(_extract_dashboard_references(self._dash(), datasource=_DS_ROOT)["rows"]) == 4
+
+    def test_skipped_widget_references_are_not_reported_as_unclassified(self):
+        result = _extract_dashboard_references(self._dash(), datasource="sales")
+        assert result["stats"]["unclassified"] == 0
+
+
+class TestExtractDashboardReferencesDiagnostics:
+    def test_blox_and_scripts_are_flagged_not_analysed(self):
+        dash = {"script": "prism.on('x', ...)", "widgets": [{"oid": "b", "type": "BloX", "script": "var a = [0];", "metadata": {"panels": []}}]}
+        issues = _extract_dashboard_references(dash)["issues"]
+        assert sorted((i["kind"], i["widget_id"]) for i in issues) == [("blox_widget", "b"), ("script_present", "N/A"), ("script_present", "b")]
+        assert all(i["severity"] == "warning" for i in issues)
+
+    def test_unreadable_dim_is_an_error_but_still_a_row(self):
+        dash = {"filters": [{"jaql": {"dim": "not a reference"}}]}
+        result = _extract_dashboard_references(dash)
+        assert [(i["severity"], i["kind"]) for i in result["issues"]] == [("error", "unreadable_dim")]
+        assert len(result["rows"]) == 1  # kept, conservatively
+
+    def test_ambiguous_dim_without_schema_is_a_warning(self):
+        dash = {"filters": [{"jaql": {"dim": "[T1.csv.C1]"}}]}
+        result = _extract_dashboard_references(dash)
+        assert [i["kind"] for i in result["issues"]] == ["ambiguous_dim"]
+        assert _extract_dashboard_references(dash, known_columns={("T1.csv", "C1")})["issues"] == []
+
+    def test_reference_at_an_unexpected_location_is_kept_and_flagged(self):
+        dash = {"widgets": [{"oid": "w", "somePlugin": {"config": _ref("[Orders.Secret]", "Orders", "Secret")}}], "options": {"x": _ref("[Orders.Top]", "Orders", "Top")}}
+        result = _extract_dashboard_references(dash)
+        assert _pairs(result["rows"]) == [("widget", "w", "Orders", "Secret"), ("filter", "N/A", "Orders", "Top")]
+        assert [(i["kind"], i["widget_id"]) for i in result["issues"]] == [("unclassified_location", "w"), ("unclassified_location", "N/A")]
+        assert result["stats"]["unclassified"] == 2
+
+    def test_stats(self):
+        dash = {"filters": [{}], "defaultFilters": [{}, {}], "hierarchies": [{}], "widgets": [{"oid": "w"}]}
+        assert _extract_dashboard_references(dash)["stats"] == {
+            "filters": 1,
+            "default_filters": 2,
+            "hierarchies": 1,
+            "widgets": 1,
+            "widgets_scanned": 1,
+            "widgets_skipped": 0,
+            "unclassified": 0,
+            "rows": 0,
+        }
+
+    def test_not_a_dict(self):
+        assert _extract_dashboard_references(None)["rows"] == []
+        assert _extract_dashboard_columns("nope") == []

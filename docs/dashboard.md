@@ -171,7 +171,7 @@ Adds or updates sharing settings for a dashboard.
 
 Extracts distinct columns used in a dashboard (filters and widgets).
 
-Reads dashboard filters (plain and dependent-level filters) and every widget panel item, including the columns a formula references through its `context`. Both `[Table.Column]` and `[Table].[Column]` references are understood, and table or column names may contain any character — Sisense enforces no naming restriction. The `" (Calendar)"` suffix Sisense adds to date dimensions is ignored when deduplicating.
+Reads dashboard and default filters (plain, dependent-level and measured `filter.by`), drill hierarchies, every widget panel item (including formulas nested inside formulas, conditional-formatting expressions and drill chains), widget drill history, widget `query.metadata` and table-widget headers. A field reference found anywhere else in the dashboard is kept as well. Widgets on another datasource are included, since the dashboard references them. Both `[Table.Column]` and `[Table].[Column]` references are understood, and table or column names may contain any character — Sisense enforces no naming restriction. The `" (Calendar)"` suffix Sisense adds to date dimensions is ignored when deduplicating.
 
 **Parameters:**
 
@@ -179,7 +179,7 @@ Reads dashboard filters (plain and dependent-level filters) and every widget pan
 
 **Returns:**
 
--   `list` or `dict`: List of unique table/column combinations. Each row carries `dashboard_name`, `source` (`"filter"` or `"widget"`), `widget_id` (the widget's own `oid`, or `"N/A"` for a dashboard filter), `table`, and `column`. An empty list means the dashboard genuinely references no columns. On failure (dashboard not found, or the export failed or could not be parsed), the standard error dict `{"ok": False, "error": "..."}`.
+-   `list` or `dict`: List of unique table/column combinations. Each row carries `dashboard_name`, `source` (`"filter"`, `"hierarchy"` or `"widget"`), `widget_id` (the widget's own `oid`, or `"N/A"` for a dashboard filter), `table`, and `column`. An empty list means the dashboard genuinely references no columns. On failure (dashboard not found, or the export failed or could not be parsed), the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 

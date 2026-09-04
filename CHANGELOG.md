@@ -6,6 +6,20 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`get_dashboard_columns` and `get_unused_columns_bulk` now see the whole dashboard.** The
+  shared walk (`_extract_dashboard_references`) reads, in addition to dashboard filters and
+  widget panel items: default filters, measured filters (`filter.by`), **drill hierarchies**
+  (2,357 field references across 509 dashboards on one instance that were never counted),
+  widget drill history, formulas nested inside formulas at any depth, conditional-formatting
+  expressions, `jaql.dimension` wrappers, drill chains (`parent`/`through`), the `query.metadata`
+  block some widgets carry, and table-widget headers — plus a safety net that keeps and flags a
+  reference found anywhere else. Rows keep their shape; `source` gains the value `"hierarchy"`.
+  `get_unused_columns_bulk` no longer counts widgets or filters that point at a different
+  datasource than the model being analysed (a third of widgets on one instance did). A panel
+  item with no `dim` no longer yields a fabricated `Unknown` / `Table` row.
+
 ### Added
 
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
@@ -18,16 +32,22 @@ All notable changes to `pysisense` are documented here. The format follows
 ### Fixed
 
 - **`get_unused_columns_bulk` and `get_dashboard_columns` no longer misread field references,
-  so columns that dashboards use are no longer reported unused.** Both walked the dashboard
-  with `dim.strip("[]").split(".", 1)`, which handles only `[Table.Column]` with plain names.
-  The `[Table].[Column]` form parsed as table `Table]` / column `[Column`, and a table or
-  column whose name begins with `[` or ends with `]` (Sisense enforces no naming restriction,
-  and emits such names raw as `[[region.col]`) lost the bracket — either way the column never
-  matched the schema and was marked unused. The two methods now share one traversal
+  so columns that dashboards use are no longer reported unused.** Both read a field as
+  `dim.strip("[]").split(".", 1)`, which assumes the table name has no dot. Any table with a
+  dot in its name — every CSV upload is called `something.csv` — came out as table `T1` /
+  column `csv.C1`, never matched the schema, and every such column was marked unused (82
+  references across 20 of 509 dashboards on one instance). Names that begin with `[` or end
+  with `]` (Sisense enforces no naming restriction and emits them raw, e.g. `[[region.col]`)
+  lost the bracket the same way. The two methods now share one traversal
   (`_extract_dashboard_columns`) that reads the same places as before — dashboard filters,
-  dependent filter levels, widget panel items and formula `context` — and parses dims with a
-  permissive candidate parser; when a name itself contains dots, the model's own columns
-  decide where the table ends. The deprecated `get_unused_columns` alias inherits the fix.
+  dependent filter levels, widget panel items and formula `context` — and takes each node's
+  explicit `table` and `column` keys, which Sisense writes beside `dim`, parsing `dim` only as
+  a fallback through a permissive candidate parser. When a name itself contains dots and only
+  `dim` is available, the model's own columns decide where the table ends; a case difference
+  between dashboard and model resolves to the model's spelling. The deprecated
+  `get_unused_columns` alias inherits the fix. `get_dashboard_columns` rows now carry the
+  column name as the model spells it, without the `" (Calendar)"` suffix Sisense appends to
+  date dimensions in `dim`.
 - `get_dashboard_columns` reported `widget_id` from the widget's position in the dashboard
   layout, which is wrong for any layout with more than one column; it now reports the
   widget's own `oid`.

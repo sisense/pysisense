@@ -10,12 +10,15 @@ class ColumnsMixin:
         """Retrieve columns referenced by a dashboard, including widget and filter columns.
 
         Resolves the dashboard by title with ``get_dashboard_by_name``, exports
-        its full metadata, then extracts column references from dashboard
-        filters (plain and dependent) and from every widget panel item,
-        including the columns a formula references through its ``context``.
-        Both ``[Table.Column]`` and ``[Table].[Column]`` references are
-        understood, and table or column names may contain any character.
-        The final list is deduplicated by ``table`` and ``column``.
+        its full metadata, then extracts column references from dashboard and
+        default filters (plain, dependent and measured), drill hierarchies,
+        every widget panel item (including nested formulas, conditional
+        formatting and drill chains), widget drill history, widget query
+        metadata and table headers. Widgets on another datasource are
+        included, since the dashboard references them. Both ``[Table.Column]``
+        and ``[Table].[Column]`` references are understood, and table or column
+        names may contain any character. The final list is deduplicated by
+        ``table`` and ``column``.
 
         Parameters
         ----------
@@ -26,7 +29,7 @@ class ColumnsMixin:
         -------
         list[dict[str, Any]] | dict[str, Any]
             A list of distinct column entries. Each entry contains
-            ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``),
+            ``dashboard_name``, ``source`` (``"filter"``, ``"hierarchy"`` or ``"widget"``),
             ``widget_id`` (the widget's own ``oid``, or ``"N/A"`` for dashboard
             filters), ``table``, and ``column`` — an empty list means the
             dashboard genuinely references no columns. On failure (dashboard
