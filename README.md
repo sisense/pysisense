@@ -178,8 +178,9 @@ Logs rotate automatically at midnight and keep **7 days of history**. The active
 ## ✅ Features
 
 - 👥 **User & Group Management** – Create, update, delete, and fetch users or groups
-- 📊 **Dashboard Management** – Export, share, and migrate dashboards
+- 📊 **Dashboard Management** – Export, share, duplicate, and migrate dashboards; find every dashboard on a data model, change the datasource a dashboard queries, and check that every widget still answers
 - 📦 **Data Models** – Explore, describe, and update schemas and security
+- 🔭 **Perspectives** – List, create, and delete metadata-only views over a data model, and analyze what a perspective must keep for the model's dashboards to keep working
 - 🔐 **Permissions** – Resolve and apply share rules (users & groups)
 - 🔄 **Cross-Environment Migrations** – Move dashboards, models, and users
 - ✅ **WellCheck** – Analyze dashboard and data model health (structure complexity, widget density, pivot fields, island tables, RLS datatypes, import queries, many-to-many relationships, and unused columns)

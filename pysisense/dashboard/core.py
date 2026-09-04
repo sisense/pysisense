@@ -613,7 +613,7 @@ class DashboardCoreMixin:
         Parameters
         ----------
         datamodel : str
-            The data model, as a title or an oid.
+            The data model, as an ID or title.
         deep : bool, optional
             Also export dashboards with an empty widget-datasource summary and inspect their
             widgets. Slower (one export call per 20 such dashboards). Default ``False``.
@@ -1076,8 +1076,7 @@ class DashboardCoreMixin:
         """Change the datasource a dashboard queries — for example from a data model to a perspective built over it.
 
         Sends ``POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...``
-        with the new datasource object, which is what the Sisense UI does when a
-        dashboard's datasource is changed. Sisense then rewrites the dashboard and
+        with the new datasource object. Sisense then rewrites the dashboard and
         every widget and filter that used the old datasource; widgets on other
         datasources are left alone. The old datasource defaults to the dashboard's
         own; pass ``from_datasource`` to change a datasource that only some widgets

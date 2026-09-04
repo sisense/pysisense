@@ -6,6 +6,10 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2.1.0] — 2026-09-04
+
 ### Changed
 
 - **`get_dashboard_columns` and `get_unused_columns_bulk` now see the whole dashboard.** The
@@ -134,6 +138,23 @@ All notable changes to `pysisense` are documented here. The format follows
 - `users_per_group(name)` no longer makes a separate `?name=` lookup before fetching the
   expanded group listing — one fewer request per call, same results and same error for an
   unknown name. `get_groups(name=...)` sends the name as a URL-encoded query parameter.
+
+### For downstream tool generators
+
+- **Methods renamed:** none.
+- **New methods:** `DataModel.get_perspectives`, `DataModel.create_perspective`, `DataModel.delete_perspective`,
+  `DataModel.analyze_perspective_requirements`; `Dashboard.get_dashboards_by_datasource`,
+  `Dashboard.duplicate_dashboard`, `Dashboard.replace_datasource`, `Dashboard.delete_dashboard`,
+  `Dashboard.validate_dashboard_queries`. New mixin file `datamodel/perspectives.py` (facade `Modules`
+  entry `perspectives`).
+- **Params that gained a TypedDict contract:** `DataModel.create_perspective(tables=...)` →
+  `PerspectiveTableSpec` (required `table`; optional `columns: list[str] | "all"`), exported from
+  `pysisense`.
+- **Params that gained a `Literal` enum:** none.
+- **Additive shape changes (consumers matching exact key sets must widen):** `get_dashboard_columns` rows
+  may carry `source: "hierarchy"`; `get_unused_columns_bulk` no longer emits the fabricated
+  `Unknown`/`Table` row; error dicts from nested Sisense error bodies now carry the real message and may
+  append a validation sub-error.
 
 ## [2.0.1] — 2026-08-31
 

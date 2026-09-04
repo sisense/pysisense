@@ -424,7 +424,7 @@ Finds every dashboard that uses a data model, including dashboards linked only t
 
 **Parameters:**
 
-- `datamodel` (str): The data model, as a title or an oid.
+- `datamodel` (str): The data model, as an ID or title.
 - `deep` (bool, optional): Also export dashboards with an empty widget-datasource summary and inspect their widgets. Slower. Defaults to `False`.
 
 **Returns:**
@@ -449,7 +449,7 @@ Creates a copy of a dashboard, titled with a marker so copies are easy to find. 
 
 ### `replace_datasource(dashboard, datasource, from_datasource=None, publish=True)`
 
-Changes the datasource a dashboard queries — for example from a data model to a perspective built over it. Sends `POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...` with the new datasource object, which is what the Sisense UI does when a dashboard's datasource is changed. Sisense then rewrites the dashboard and every widget and filter that used the old datasource; widgets on other datasources are left alone. The old datasource defaults to the dashboard's own; pass `from_datasource` to change a datasource that only some widgets use. Sisense accepts the call from a non-owner but silently changes nothing, so the call is sent as the owner first and the dashboard read back; if it did not change, the call is repeated with admin access (which lets an admin token change dashboards it does not own) and read back again. If it still did not change, the failure dict carries the dashboard's `owner`. Once the change has applied the dashboard is republished so shared viewers see it; a failed publish is reported in the result, not treated as a failed swap — on Sisense versions where only the owner may publish, the result carries `owner`. The new datasource is looked up in the perspectives list first and, if it is a perspective, addressed through its root model (Sisense's datasource catalogue does not reliably list perspectives); otherwise it is taken from the datasource catalogue as a data model.
+Changes the datasource a dashboard queries — for example from a data model to a perspective built over it. Sends `POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...` with the new datasource object. Sisense then rewrites the dashboard and every widget and filter that used the old datasource; widgets on other datasources are left alone. The old datasource defaults to the dashboard's own; pass `from_datasource` to change a datasource that only some widgets use. Sisense accepts the call from a non-owner but silently changes nothing, so the call is sent as the owner first and the dashboard read back; if it did not change, the call is repeated with admin access (which lets an admin token change dashboards it does not own) and read back again. If it still did not change, the failure dict carries the dashboard's `owner`. Once the change has applied the dashboard is republished so shared viewers see it; a failed publish is reported in the result, not treated as a failed swap — on Sisense versions where only the owner may publish, the result carries `owner`. The new datasource is looked up in the perspectives list first and, if it is a perspective, addressed through its root model (Sisense's datasource catalogue does not reliably list perspectives); otherwise it is taken from the datasource catalogue as a data model.
 
 **Parameters:**
 
