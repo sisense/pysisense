@@ -754,16 +754,18 @@ When a public method **signature or documented behavior changes**:
 When **adding a new public method to an existing module**:
 
 1. Add the method name to the **mixin lookup table** below (and in `.cursor/rules/project-overview.mdc`).
+2. Update the facade's `Modules` docstring entry for that mixin file in `package/__init__.py` so it describes the new capability. Downstream tooling builds its hierarchical tool routing from these entries; `tests/unit/test_public_contracts.py` fails when a mixin file has no entry.
 2. Add a usage snippet to `examples/<module>_example.md`. **This is not optional** — every new public method needs at least a one-liner showing the call and what comes back.
-3. Update `docs/<module>.md` with the parameter table and return shape.
+4. Update `docs/<module>.md` with the parameter table and return shape.
 
 When **adding a new module**:
 
 1. Add the module to the **Modules** table in `CLAUDE.md` and `.cursor/rules/project-overview.mdc`.
 2. Add the mixin file and its public methods to the **mixin lookup table** in both files.
+3. Give every mixin file an entry in the facade class's `Modules` docstring section — the test suite enforces one entry per mixin file.
 3. Add the new class to the canonical init pattern in `CLAUDE.md` if it is a top-level SDK class.
-4. Create `examples/<module>_example.md` with copy-paste usage snippets for every public method.
-5. Create `docs/<module>.md` with full reference documentation.
+5. Create `examples/<module>_example.md` with copy-paste usage snippets for every public method.
+6. Create `docs/<module>.md` with full reference documentation.
 
 > **Reminder:** `examples/*.md` files are the first place users look. Skipping them means users have no copy-paste starting point. Always update them.
 
