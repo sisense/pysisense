@@ -51,6 +51,9 @@ All notable changes to `pysisense` are documented here. The format follows
   dashboard afterwards (`publish=True`) so shared viewers see the change; where only the owner may
   publish, the result carries `owner` instead of `published: True`. Returns the previous
   datasource object (for reverting), the new one, widget counts and `published`.
+- **`Dashboard.delete_dashboard(dashboard_id, title)`** — delete a dashboard only when both its id and its
+  exact current title match; a stale id or a renamed dashboard is refused. Built for cleaning up
+  `duplicate_dashboard` staging copies.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;

@@ -19,14 +19,20 @@ class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin, Das
     Modules
     -------
     core :
-        Dashboard CRUD — get all dashboards, find by ID or title, export,
-        rename, move to folder, publish; resolve dashboard references.
+        Dashboard CRUD and lifecycle — get all dashboards, find by ID or title,
+        export, import, rename, move to folder, publish, delete (id and exact
+        title must both match); resolve dashboard references; find every
+        dashboard that uses a data model, including through a single widget;
+        duplicate a dashboard as a marked staging copy; change the datasource a
+        dashboard queries, e.g. from a data model to a perspective built over it.
     shares :
         Dashboard share management — add or update share entries for users
         and groups; retrieve current shares; change dashboard owner.
     columns :
-        Column inspection — extract every distinct table/column reference
-        used across widgets and filters in a dashboard.
+        Column inspection — extract every distinct table/column reference a
+        dashboard uses: dashboard and default filters, drill hierarchies,
+        widget panels (including nested formulas, conditional formatting and
+        drill chains), drill history, widget query metadata and table headers.
     scripts :
         Dashboard and widget scripts — read and write JavaScript attached
         to a dashboard or to a specific widget within it.

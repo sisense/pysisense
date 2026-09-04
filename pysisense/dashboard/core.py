@@ -729,6 +729,52 @@ class DashboardCoreMixin:
             "widget_count": widget_count,
         }
 
+    def delete_dashboard(self, dashboard_id: str, title: str) -> dict[str, Any]:
+        """Delete a dashboard, but only if both its ID and its title match.
+
+        Sends ``DELETE /api/v1/dashboards/{dashboard_id}`` after reading the
+        dashboard and checking that its stored title equals ``title`` exactly.
+        Requiring both is a deliberate safety catch for cleanup jobs: a wrong or
+        stale id, or a dashboard renamed since it was listed, is refused instead
+        of deleted. Meant for removing staging copies such as those made by
+        ``duplicate_dashboard``.
+
+        Parameters
+        ----------
+        dashboard_id : str
+            The dashboard's 24-character ``oid``.
+        title : str
+            The dashboard's exact current title.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True, "message": "...", "dashboard_id", "title", "owner"}`` on success. On
+            failure (not found, title mismatch, or an API error), the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
+        """
+        if not isinstance(dashboard_id, str) or not re.fullmatch(r"[0-9a-fA-F]{24}", dashboard_id.strip()):
+            return self._fail("dashboard_id must be the dashboard's 24-character oid.")
+        if not isinstance(title, str) or not title.strip():
+            return self._fail("title is required and must match the dashboard's current title exactly.")
+        dashboard_id = dashboard_id.strip()
+        doc = self._dashboard_document(dashboard_id)
+        if doc is None:
+            return self._fail(f"Dashboard '{dashboard_id}' not found.", status_code=404)
+        stored = doc.get("title") if isinstance(doc.get("title"), str) else ""
+        if stored.strip() != title.strip():
+            return self._fail(f"Refusing to delete dashboard '{dashboard_id}': its title is '{stored}', not '{title}'.")
+
+        self.logger.debug(f"Deleting dashboard '{stored}' ({dashboard_id})")
+        response = self.api_client.delete(f"/api/v1/dashboards/{dashboard_id}")
+        if response is None or response.status_code not in (200, 204):
+            failure = _extract_error_message(response, f"Failed to delete dashboard '{stored}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+        owner = self._owner_email(doc.get("owner")) or doc.get("owner")
+        self.logger.info(f"Deleted dashboard '{stored}' ({dashboard_id}), owner {owner}")
+        return {"success": True, "message": f"Dashboard '{stored}' deleted.", "dashboard_id": dashboard_id, "title": stored, "owner": owner}
+
     def _datasource_object(self, title: str) -> dict[str, Any] | None:
         """Build the datasource object Sisense expects for a perspective or data model title.
 

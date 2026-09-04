@@ -498,6 +498,20 @@ dashboard.replace_datasource("Mixed Board", "sales_perspective", from_datasource
 # {"ok": False, "error": "Sisense accepted the request but dashboard 'Mixed Board' still shows datasource 'Sample ECommerce'; ...", "owner": "jane@example.com"}
 ```
 
+## Example 26: Delete a Staging Copy Safely
+
+```python
+copy = dashboard.duplicate_dashboard("Sales Overview")
+
+# Both the id and the exact title are required; a mismatch is refused, nothing is deleted
+dashboard.delete_dashboard(copy["dashboard_id"], copy["title"])
+# {"success": True, "message": "Dashboard 'Sales Overview_perspective_stage' deleted.", "dashboard_id": "...",
+#  "title": "Sales Overview_perspective_stage", "owner": "you@example.com"}
+
+dashboard.delete_dashboard(copy["dashboard_id"], "Sales Overview")
+# {"ok": False, "error": "Refusing to delete dashboard '...': its title is 'Sales Overview_perspective_stage', not 'Sales Overview'."}
+```
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

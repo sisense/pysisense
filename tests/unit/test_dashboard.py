@@ -1383,3 +1383,59 @@ class TestReplaceDatasource:
     def test_unknown_dashboard(self):
         dash = _make_dash(get_responses={"/api/v1/dashboards/nope": FakeResponse(404, {}), "/api/v1/dashboards/admin": FakeResponse(200, [])})
         assert dash.replace_datasource("nope", "x")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# delete_dashboard
+# ---------------------------------------------------------------------------
+
+_DEL_ID = "6a99ada4ea52ffb5c87c5ba3"
+
+
+def _make_deleter(doc_title="Sales Report_perspective_stage", delete_status=204, found=True):
+    doc = {"oid": _DEL_ID, "title": doc_title, "owner": "u9"}
+    return _make_dash(
+        get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [doc] if found else []), "/api/v1/users": FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}])},
+    ), doc
+
+
+class TestDeleteDashboard:
+    def _with_delete(self, dash, status=204):
+        dash.api_client._delete[f"/api/v1/dashboards/{_DEL_ID}"] = FakeResponse(status, None if status == 204 else {"message": "boom"})
+        return dash
+
+    def test_deletes_when_id_and_title_match(self):
+        dash, _ = _make_deleter()
+        result = self._with_delete(dash).delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")
+        assert result == {
+            "success": True,
+            "message": "Dashboard 'Sales Report_perspective_stage' deleted.",
+            "dashboard_id": _DEL_ID,
+            "title": "Sales Report_perspective_stage",
+            "owner": "owner@example.com",
+        }
+
+    def test_title_mismatch_is_refused(self):
+        dash, _ = _make_deleter()
+        result = self._with_delete(dash).delete_dashboard(_DEL_ID, "Sales Report")
+        assert result["ok"] is False and "its title is 'Sales Report_perspective_stage', not 'Sales Report'" in result["error"]
+
+    def test_not_found(self):
+        dash, _ = _make_deleter(found=False)
+        result = dash.delete_dashboard(_DEL_ID, "whatever")
+        assert result["ok"] is False and result["status_code"] == 404
+
+    def test_rejects_a_non_oid_id_and_a_blank_title(self):
+        dash, _ = _make_deleter()
+        assert dash.delete_dashboard("Sales Report", "Sales Report")["ok"] is False
+        assert dash.delete_dashboard(_DEL_ID, "")["ok"] is False
+
+    def test_api_failure(self):
+        dash, _ = _make_deleter()
+        result = self._with_delete(dash, status=500).delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_no_response(self):
+        dash, _ = _make_deleter()
+        dash.api_client._delete[f"/api/v1/dashboards/{_DEL_ID}"] = None
+        assert dash.delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")["ok"] is False

@@ -461,3 +461,18 @@ Changes the datasource a dashboard queries — for example from a data model to 
 **Returns:**
 
 - `dict`: `{"success": True, "dashboard_id", "title", "previous_datasource", "new_datasource", "widgets_updated", "widgets_unchanged", "published"}`, returned only once the read-back shows the new datasource — `published` is `False` (with `publish_error`, and `owner` when only the owner may publish) when the republish failed or was not requested; `previous_datasource` is the full old object, so the change can be reverted with another `replace_datasource` call; `widgets_unchanged` lists the datasource titles of widgets that were on something else. On failure (unknown dashboard or datasource, a change that did not apply as owner or admin, or an API error), the standard error dict `{"ok": False, "error": "..."}`; when the change did not apply, `owner` (email, or id) says who can make it in the UI.
+
+* * * * *
+
+### `delete_dashboard(dashboard_id, title)`
+
+Deletes a dashboard via `DELETE /api/v1/dashboards/{dashboard_id}`, but only if both its ID and its title match. The dashboard is read first and its stored title compared with `title` exactly; a wrong or stale id, or a dashboard renamed since it was listed, is refused instead of deleted. Meant for removing staging copies such as those made by `duplicate_dashboard`.
+
+**Parameters:**
+
+- `dashboard_id` (str): The dashboard's 24-character `oid`.
+- `title` (str): The dashboard's exact current title.
+
+**Returns:**
+
+- `dict`: `{"success": True, "message": "...", "dashboard_id", "title", "owner"}` on success. On failure (not found, title mismatch, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
