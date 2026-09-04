@@ -478,6 +478,26 @@ copy = dashboard.duplicate_dashboard("Sales Overview")
 dashboard.rename_dashboard(copy["dashboard_id"], "Sales Overview (test)")
 ```
 
+## Example 25: Change a Dashboard's Datasource to a Perspective
+
+```python
+# Point a staging copy at the perspective; widgets and filters on the old datasource follow,
+# widgets on other datasources are untouched.
+result = dashboard.replace_datasource("Sales Overview_perspective_stage", "sales_perspective")
+# {"success": True, "dashboard_id": "...", "title": "Sales Overview_perspective_stage",
+#  "previous_datasource": {"title": "Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", ...},
+#  "new_datasource": {"title": "sales_perspective", ...}, "widgets_updated": 6, "widgets_unchanged": ["Other Model"], "published": True}
+
+# Revert: the previous datasource's title is all that is needed
+dashboard.replace_datasource(result["dashboard_id"], result["previous_datasource"]["title"])
+
+# Only some widgets are on the model being replaced? Name it.
+dashboard.replace_datasource("Mixed Board", "sales_perspective", from_datasource="Sample ECommerce")
+
+# Not the owner and not an admin? Sisense accepts the call but changes nothing; the failure dict says who can.
+# {"ok": False, "error": "Sisense accepted the request but dashboard 'Mixed Board' still shows datasource 'Sample ECommerce'; ...", "owner": "jane@example.com"}
+```
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

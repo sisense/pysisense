@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
+from urllib.parse import quote
 
-from ..utils import _discover_dashboards_on_datasource, _extract_error_message
+from ..utils import _datasource_title, _discover_dashboards_on_datasource, _extract_error_message
 
 
 class DashboardCoreMixin:
+    # replace_datasource: how long to wait for Sisense to show a datasource change (writes are asynchronous)
+    _SWAP_POLL_ATTEMPTS = 5
+    _SWAP_POLL_DELAY = 2
+
     def get_all_dashboards(self) -> list[dict[str, Any]] | dict[str, Any]:
         """Retrieve all dashboards from the Sisense server.
 
@@ -355,17 +361,20 @@ class DashboardCoreMixin:
     ) -> dict[str, Any]:
         """Publish (republish) a dashboard.
 
-        Sends ``POST /api/v1/dashboards/{dashboard_id}/publish``. By default
-        ``adminAccess=true`` is appended so an admin token can republish when the
-        caller already has access but is not the owner. Pass ``force=True`` to
-        append ``force=true`` (used after script updates).
+        Sends ``POST /api/v1/dashboards/{dashboard_id}/publish`` as the caller
+        first. If that is refused with 403 and ``admin_access`` is true, the call
+        is retried with ``adminAccess=true``, which some Sisense versions honour
+        for an admin token that is not the owner; versions that reject the flag
+        (422) yield the original 403, so the caller learns that only the owner
+        can publish. Pass ``force=True`` to append ``force=true`` (used after
+        script updates).
 
         Parameters
         ----------
         dashboard_id : str
             The dashboard ``oid`` to publish.
         admin_access : bool, optional
-            When ``True`` (default), request with ``adminAccess=true``.
+            Retry with ``adminAccess=true`` when the plain call is refused. Default ``True``.
         force : bool, optional
             When ``True``, request with ``force=true``. Default is ``False``.
 
@@ -373,25 +382,27 @@ class DashboardCoreMixin:
         -------
         dict[str, Any]
             ``{"success": True}`` or the JSON response body on success. On failure,
-            ``{"error": "..."}``.
+            the standard ``{"ok": False, "error": "...", ...}`` dict.
         """
-        query_parts: list[str] = []
-        if admin_access:
-            query_parts.append("adminAccess=true")
-        if force:
-            query_parts.append("force=true")
+        base = f"/api/v1/dashboards/{dashboard_id}/publish"
+        force_part = ["force=true"] if force else []
 
-        endpoint = f"/api/v1/dashboards/{dashboard_id}/publish"
-        if query_parts:
-            endpoint += "?" + "&".join(query_parts)
+        def attempt(extra: list[str]):
+            parts = force_part + extra
+            endpoint = base + ("?" + "&".join(parts) if parts else "")
+            self.logger.debug(f"Publishing dashboard {dashboard_id} via {endpoint}")
+            return self.api_client.post(endpoint)
 
-        self.logger.debug(f"Publishing dashboard {dashboard_id}")
-        response = self.api_client.post(endpoint)
-
+        response = attempt([])
+        if response is not None and response.status_code == 403 and admin_access:
+            retry = attempt(["adminAccess=true"])
+            # A 422 here means this Sisense version does not accept the flag; the 403 is the truth.
+            if retry is not None and retry.status_code != 422:
+                response = retry
         if response is None:
-            self.logger.error(f"POST request to publish dashboard {dashboard_id} failed: No response received.")
-            return {"ok": False, "error": f"No response received while publishing dashboard ID '{dashboard_id}'"}
-
+            failure = _extract_error_message(response, f"Failed to publish dashboard '{dashboard_id}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
         if response.status_code in (200, 204):
             self.logger.info(f"Successfully published dashboard {dashboard_id}.")
             if response.status_code == 204 or not response.content:
@@ -400,13 +411,9 @@ class DashboardCoreMixin:
                 return response.json()
             except Exception:
                 return {"success": True}
-
-        try:
-            error_message = response.json()
-        except Exception:
-            error_message = response.text or "No response text available."
-        self.logger.error(f"Failed to publish dashboard {dashboard_id}. Error: {error_message}")
-        return {"ok": False, "error": f"Failed to publish dashboard '{dashboard_id}'. {error_message}"}
+        failure = _extract_error_message(response, f"Failed to publish dashboard '{dashboard_id}'", self.api_client)
+        self.logger.error(failure["error"])
+        return failure
 
     def _patch_dashboard_field(self, dashboard_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Send a partial dashboard update and normalize the response.
@@ -721,3 +728,219 @@ class DashboardCoreMixin:
             "source_title": source_title,
             "widget_count": widget_count,
         }
+
+    def _datasource_object(self, title: str) -> dict[str, Any] | None:
+        """Build the datasource object Sisense expects for a perspective or data model title.
+
+        Checks the perspectives list first: a perspective is addressed through its
+        root model's catalogue entry — live parents give ``{"title", "id": "live:<name>",
+        "fullname": "live:<name>", "live": True}``; ElastiCube parents keep the parent's
+        ``id``, ``database`` and ``address`` with the perspective's own title and
+        ``<address>/<name>`` fullname. Anything else is looked up in
+        ``GET /api/datasources`` and used as listed. Returns ``None`` when nothing matches.
+        """
+        wanted = _datasource_title(title)
+        catalogue: dict[str, dict[str, Any]] = {}
+        response = self.api_client.get("/api/datasources")
+        if response is not None and response.status_code == 200:
+            try:
+                for entry in response.json() or []:
+                    if isinstance(entry, dict) and isinstance(entry.get("title"), str):
+                        catalogue.setdefault(entry["title"].strip().lower(), entry)
+            except Exception:
+                self.logger.debug("Could not parse the datasource catalogue.")
+
+        perspective = None
+        perspectives = self.api_client.get("/api/v2/perspectives")
+        if perspectives is not None and perspectives.status_code == 200:
+            try:
+                perspective = next((p for p in perspectives.json() if isinstance(p, dict) and isinstance(p.get("name"), str) and p["name"].strip().lower() == wanted and p.get("parentOid")), None)
+            except Exception:
+                self.logger.debug("Could not parse the perspectives list.")
+        if perspective is not None:
+            parent_title = self._resolve_datasource_title(perspective["datamodelOid"]) if isinstance(perspective.get("datamodelOid"), str) else None
+            parent = catalogue.get(_datasource_title(parent_title) or "") if parent_title else None
+            if parent is None:
+                return None
+            name = perspective["name"]
+            if parent.get("live"):
+                return {"title": name, "id": f"live:{name}", "fullname": f"live:{name}", "live": True}
+            address = parent.get("address") or "LocalHost"
+            return {"fullname": f"{address}/{name}", "id": parent.get("id"), "address": address, "database": parent.get("database"), "live": False, "title": name}
+        return dict(catalogue[wanted]) if wanted in catalogue else None
+
+    def _dashboard_document(self, dashboard_id: str) -> dict[str, Any] | None:
+        """Return the dashboard document (dict) for an id, or ``None``."""
+        doc = self.get_dashboard_by_id(dashboard_id)
+        if isinstance(doc, list):
+            doc = doc[0] if doc and isinstance(doc[0], dict) else None
+        return doc if isinstance(doc, dict) and "error" not in doc else None
+
+    def replace_datasource(self, dashboard: str, datasource: str, from_datasource: str | None = None, publish: bool = True) -> dict[str, Any]:
+        """Change the datasource a dashboard queries — for example from a data model to a perspective built over it.
+
+        Sends ``POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...``
+        with the new datasource object, which is what the Sisense UI does when a
+        dashboard's datasource is changed. Sisense then rewrites the dashboard and
+        every widget and filter that used the old datasource; widgets on other
+        datasources are left alone. The old datasource defaults to the dashboard's
+        own; pass ``from_datasource`` to change a datasource that only some widgets
+        use. Sisense accepts the call from a non-owner but silently changes nothing,
+        so the call is sent as the owner first and the dashboard read back; if it
+        did not change, the call is repeated with admin access (which lets an admin
+        token change dashboards it does not own) and read back again. If it still
+        did not change, the failure dict carries the dashboard's ``owner``. Once the
+        change has applied the dashboard is republished (``publish_dashboard``) so viewers
+        see it; a failed publish is reported, not treated as a failed swap — on Sisense
+        versions where only the owner may publish, the result carries ``owner`` instead.
+
+        Parameters
+        ----------
+        dashboard : str
+            The dashboard, as an ID or title.
+        datasource : str
+            Title of the new datasource: a data model or a perspective.
+        from_datasource : str | None, optional
+            Title of the datasource being replaced. Default: the dashboard's own datasource.
+        publish : bool, optional
+            Republish the dashboard after the change so shared viewers see it. Default ``True``.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"success": True, "dashboard_id", "title", "previous_datasource", "new_datasource",
+            "widgets_updated", "widgets_unchanged", "published"}`` — returned only once the read-back
+            shows the new datasource; ``published`` is ``False`` (with ``publish_error``, and ``owner``
+            when only the owner may publish) when the republish failed or was not requested. ``previous_datasource`` is the full old object, so the change can be
+            reverted with another ``replace_datasource`` call; ``widgets_unchanged`` lists the
+            datasource titles of widgets that were on something else. On failure (unknown
+            dashboard or datasource, a change that did not apply as owner or admin, or an API
+            error), the standard ``{"ok": False, "error": "...", ...}`` dict; when the change did
+            not apply, ``owner`` (email, or id) says who can make it in the UI.
+        """
+        ref = self.resolve_dashboard_reference(dashboard)
+        if not ref.get("success"):
+            return self._fail(f"Dashboard '{dashboard}' could not be resolved: {ref.get('error') or 'not found'}", status_code=ref.get("status_code"))
+        dashboard_id = ref["dashboard_id"]
+        doc = self._dashboard_document(dashboard_id)
+        if doc is None:
+            return self._fail(f"Dashboard '{dashboard}' ({dashboard_id}) could not be read.")
+        title = doc.get("title")
+
+        # The datasource being replaced: the dashboard's own, or a named one a widget uses.
+        old = doc.get("datasource") if isinstance(doc.get("datasource"), dict) else {}
+        if from_datasource is not None and _datasource_title(from_datasource) != _datasource_title(old):
+            widgets = self.get_dashboard_widgets(dashboard_id)
+            old = (
+                next(
+                    (
+                        w.get("datasource")
+                        for w in (widgets if isinstance(widgets, list) else [])
+                        if isinstance(w, dict) and _datasource_title(w.get("datasource")) == _datasource_title(from_datasource)
+                    ),
+                    None,
+                )
+                or {}
+            )
+            if not old:
+                return self._fail(f"Dashboard '{title}' has no widget on datasource '{from_datasource}'.")
+        old_title = old.get("title") if isinstance(old.get("title"), str) else from_datasource
+        if not old_title:
+            return self._fail(f"Dashboard '{title}' has no datasource to replace.")
+        if _datasource_title(old_title) == _datasource_title(datasource):
+            return self._fail(f"Dashboard '{title}' already uses datasource '{datasource}'.")
+
+        target = self._datasource_object(datasource)
+        if target is None:
+            return self._fail(f"Datasource '{datasource}' not found: it is neither a data model nor a perspective on this instance.")
+        server = "live" if old.get("live") else (old.get("address") or "LocalHost")
+        endpoint = f"/api/v1/dashboards/{quote(str(server), safe='')}/{quote(old_title, safe='')}/replace_datasource"
+        self.logger.debug(f"Replacing datasource '{old_title}' with '{datasource}' on dashboard '{title}' ({dashboard_id}) via {endpoint}")
+
+        # Sisense answers 200 to a non-owner and silently changes nothing (live-observed); only
+        # adminAccess=true makes an admin's call apply. So: send as owner, read back, and if the
+        # dashboard did not change, send again with admin access and read back once more.
+        applied = False
+        widgets: list[dict[str, Any]] = []
+        for attempt, suffix in (("owner", ""), ("admin", "&adminAccess=true")):
+            response = self.api_client.post(f"{endpoint}?dashboardId={dashboard_id}{suffix}", data=target)
+            if response is None or response.status_code not in (200, 201, 204):
+                failure = _extract_error_message(response, f"Failed to replace datasource on dashboard '{title}'", self.api_client)
+                if response is not None and response.status_code == 403:
+                    failure["owner"] = self._owner_email(doc.get("owner")) or doc.get("owner")
+                self.logger.error(failure["error"])
+                return failure
+            applied, widgets = self._wait_for_datasource(dashboard_id, datasource, from_datasource is not None)
+            if applied:
+                break
+            self.logger.debug(f"Datasource replacement sent as {attempt} was accepted but did not apply.")
+        if not applied:
+            owner = self._owner_email(doc.get("owner")) or doc.get("owner")
+            failure = {
+                "ok": False,
+                "error": f"Sisense accepted the request but dashboard '{title}' still shows datasource '{old_title}'; the token's user is not its owner and admin access did not apply either.",
+                "owner": owner,
+            }
+            self.logger.error(failure["error"])
+            return failure
+
+        widgets_updated = sum(1 for w in widgets if _datasource_title(w.get("datasource")) == _datasource_title(datasource))
+        unchanged = sorted(
+            {(w.get("datasource") or {}).get("title") for w in widgets if isinstance(w.get("datasource"), dict) and _datasource_title(w.get("datasource")) != _datasource_title(datasource)}
+        )
+        self.logger.info(f"Dashboard '{title}' ({dashboard_id}) now uses '{datasource}' instead of '{old_title}' ({widgets_updated} widgets)")
+        result: dict[str, Any] = {
+            "success": True,
+            "dashboard_id": dashboard_id,
+            "title": title,
+            "previous_datasource": old,
+            "new_datasource": target,
+            "widgets_updated": widgets_updated,
+            "widgets_unchanged": [u for u in unchanged if u],
+            "published": False,
+        }
+        if publish:
+            published = self.publish_dashboard(dashboard_id, admin_access=True)
+            if isinstance(published, dict) and published.get("ok") is False:
+                result["publish_error"] = published.get("error")
+                if published.get("status_code") == 403:
+                    # Only the owner can publish on this version: say who, so a human can finish the job.
+                    result["owner"] = self._owner_email(doc.get("owner")) or doc.get("owner")
+                self.logger.warning(f"Dashboard '{title}' was switched to '{datasource}' but could not be republished: {published.get('error')}")
+            else:
+                result["published"] = True
+        return result
+
+    def _wait_for_datasource(self, dashboard_id: str, datasource: str, widget_level: bool) -> tuple[bool, list[dict[str, Any]]]:
+        """Poll the dashboard until it (or, for a widget-level change, a widget) shows ``datasource``."""
+        widgets: list[dict[str, Any]] = []
+        for _ in range(self._SWAP_POLL_ATTEMPTS):
+            time.sleep(self._SWAP_POLL_DELAY)
+            after = self._dashboard_document(dashboard_id)
+            fetched = self.get_dashboard_widgets(dashboard_id)
+            widgets = [w for w in (fetched if isinstance(fetched, list) else []) if isinstance(w, dict)]
+            on_widget = any(_datasource_title(w.get("datasource")) == _datasource_title(datasource) for w in widgets)
+            on_dashboard = after is not None and _datasource_title(after.get("datasource")) == _datasource_title(datasource)
+            if on_widget if widget_level else on_dashboard:
+                return True, widgets
+        return False, widgets
+
+    def _owner_email(self, owner_id: Any) -> str | None:
+        """Resolve a user id to an email via the user list, or ``None``."""
+        if not isinstance(owner_id, str):
+            return None
+        response = self.api_client.get("/api/v1/users")
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            return next((u.get("email") for u in response.json() if isinstance(u, dict) and u.get("_id") == owner_id), None)
+        except Exception:
+            return None
+
+    def _fail(self, message: str, status_code: int | None = None) -> dict[str, Any]:
+        """Log and return a standard failure dict."""
+        failure: dict[str, Any] = {"ok": False, "error": message}
+        if status_code is not None:
+            failure["status_code"] = status_code
+        self.logger.error(message)
+        return failure

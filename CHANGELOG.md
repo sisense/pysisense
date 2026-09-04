@@ -43,6 +43,14 @@ All notable changes to `pysisense` are documented here. The format follows
   Sisense's `duplicate` action; the copy is titled `<original>_perspective_stage` so staging copies are
   easy to find and remove. Returns the new id, both titles and
   the widget count.
+- **`Dashboard.replace_datasource(dashboard, datasource, from_datasource=None)`** — change the datasource a
+  dashboard queries, e.g. from a model to a perspective over it, via Sisense's own
+  `replace_datasource` route; widgets and filters on the old datasource follow, others are untouched.
+  Sent as owner and read back; Sisense silently ignores a non-owner's call, so an unchanged dashboard triggers a retry with admin access, and a change that still does not apply fails with the dashboard's `owner`. A perspective
+  is addressed through its root model (the datasource catalogue does not reliably list perspectives). Republishes the
+  dashboard afterwards (`publish=True`) so shared viewers see the change; where only the owner may
+  publish, the result carries `owner` instead of `published: True`. Returns the previous
+  datasource object (for reverting), the new one, widget counts and `published`.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;
@@ -52,6 +60,11 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **`publish_dashboard` no longer fails outright on Sisense versions that reject `adminAccess`.** It
+  sent `adminAccess=true` by default; live-observed, this version answers 422 "must NOT have
+  additional properties" to that flag, so every publish failed. It now sends the plain call first and
+  retries with the flag only on a 403; a 422 on the retry yields the original 403, which is the honest
+  answer (only the owner may publish). Failures go through the shared error helper.
 - **Error dicts now relay Sisense's message from nested error bodies.** Sisense wraps some failures as
   `{"error": {"code": 5002, "message": "Invalid token.", "status": 401, ...}}`; the shared error helper
   read only the top level and reported `unrecognized error body (HTTP 401)`. It now looks one level

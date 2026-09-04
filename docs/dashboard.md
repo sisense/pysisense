@@ -273,12 +273,12 @@ Renames a dashboard by PATCHing ``title`` on ``/api/dashboards/{dashboard_id}``.
 
 ### `publish_dashboard(dashboard_id, admin_access=True, force=False)`
 
-Publishes (republishes) a dashboard via ``POST /api/v1/dashboards/{dashboard_id}/publish``. Defaults to ``adminAccess=true`` for admin-token preflight republish.
+Publishes (republishes) a dashboard via ``POST /api/v1/dashboards/{dashboard_id}/publish``. The call is sent as the caller first; if it is refused with 403 and `admin_access` is true, it is retried with ``adminAccess=true``, which some Sisense versions honour for an admin token that is not the owner. Versions that reject the flag (422) yield the original 403, so the caller learns that only the owner can publish.
 
 **Parameters:**
 
 - `dashboard_id` (str): Dashboard ``oid``.
-- `admin_access` (bool, optional): Append ``adminAccess=true``. Default `True`.
+- `admin_access` (bool, optional): Retry with ``adminAccess=true`` when the plain call is refused. Default `True`.
 - `force` (bool, optional): Append ``force=true``. Default `False`.
 
 **Returns:**
@@ -444,3 +444,20 @@ Creates a staging copy of a dashboard with a marker in its title. Exports the da
 **Returns:**
 
 - `dict`: `{"success": True, "dashboard_id", "title", "source_dashboard_id", "source_title", "widget_count"}` for the new copy. On failure (source not found, export or import failed, or the import reported the dashboard as failed), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `replace_datasource(dashboard, datasource, from_datasource=None, publish=True)`
+
+Changes the datasource a dashboard queries — for example from a data model to a perspective built over it. Sends `POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...` with the new datasource object, which is what the Sisense UI does when a dashboard's datasource is changed. Sisense then rewrites the dashboard and every widget and filter that used the old datasource; widgets on other datasources are left alone. The old datasource defaults to the dashboard's own; pass `from_datasource` to change a datasource that only some widgets use. Sisense accepts the call from a non-owner but silently changes nothing, so the call is sent as the owner first and the dashboard read back; if it did not change, the call is repeated with admin access (which lets an admin token change dashboards it does not own) and read back again. If it still did not change, the failure dict carries the dashboard's `owner`. Once the change has applied the dashboard is republished so shared viewers see it; a failed publish is reported in the result, not treated as a failed swap — on Sisense versions where only the owner may publish, the result carries `owner` so that person can publish in the UI. The new datasource is looked up in the perspectives list first and, if it is a perspective, addressed through its root model (Sisense's datasource catalogue does not reliably list perspectives); otherwise it is taken from the datasource catalogue as a data model.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard, as an ID or title.
+- `datasource` (str): Title of the new datasource: a data model or a perspective.
+- `from_datasource` (str, optional): Title of the datasource being replaced. Default: the dashboard's own datasource.
+- `publish` (bool, optional): Republish the dashboard after the change so shared viewers see it. Defaults to `True`.
+
+**Returns:**
+
+- `dict`: `{"success": True, "dashboard_id", "title", "previous_datasource", "new_datasource", "widgets_updated", "widgets_unchanged", "published"}`, returned only once the read-back shows the new datasource — `published` is `False` (with `publish_error`, and `owner` when only the owner may publish) when the republish failed or was not requested; `previous_datasource` is the full old object, so the change can be reverted with another `replace_datasource` call; `widgets_unchanged` lists the datasource titles of widgets that were on something else. On failure (unknown dashboard or datasource, a change that did not apply as owner or admin, or an API error), the standard error dict `{"ok": False, "error": "..."}`; when the change did not apply, `owner` (email, or id) says who can make it in the UI.
