@@ -771,3 +771,32 @@ Creates a perspective over a data model, keeping only the named tables and colum
 **Returns:**
 
 - `dict`: `{"success": True, "oid", "name", "datamodelOid", "datamodelTitle", "description", "tables": [{"table", "table_oid", "columns_kept", "columns_total"}], "excluded_tables": [names], "warnings": [...]}` on success — `warnings` is non-empty only when the read-back differs from the request. On failure (unknown model, table or column, a name already in use, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `analyze_perspective_requirements(datamodel, detailed=False)`
+
+Works out which tables and columns of a data model its dashboards need, ready to build a perspective from. Read-only. Finds every dashboard that uses the model — directly, through a single widget, or through a perspective already built over it — reads each one's fields (filters, hierarchies, widget panels, nested formulas, drill history), keeping only references that belong to this model, resolves them against the model's schema, then adds what those columns depend on to keep working: join columns and intermediate tables on the relation paths between used tables, the columns custom columns read, and the tables custom tables select from. Anything that could not be resolved or verified is reported as an issue rather than dropped.
+
+**Parameters:**
+
+- `datamodel` (str): The data model, as an ID or title.
+- `detailed` (bool, optional): Include the per-dashboard, per-column, per-dependency and per-issue detail. Defaults to `False`, the summary view.
+
+**Returns:**
+
+- `dict`. Always present:
+  - `datamodel`: `oid`, `title`, `type`, the counts of `tables`, `columns`, `relations`, `custom_columns` and `custom_tables`, and the names of its existing `perspectives`.
+  - `summary`: `model_tables`, `model_columns`; `dashboards_analyzed`, `dashboards_failed`; `tables_used_by_dashboards`, `columns_used_by_dashboards`; `columns_required_for_dependencies`; `tables_required_in_perspective`, `columns_required_in_perspective`; `tables_not_required`, `columns_not_required`; `issues` by severity.
+  - `perspective_tables`: the `{"table", "columns"}` entries a perspective must keep — every used column plus every dependency — in the form `create_perspective` accepts.
+  - `errors`: the distinct error messages (a field a dashboard uses that does not exist in the model, a dashboard that could not be exported, a custom table whose SQL names an unknown table).
+  - `warnings`: warning counts by kind (`renamed_reference` — a column referenced by a former name, kept; `blox_widget` and `script_present` — fields inside BloX templates or scripts cannot be verified; `ambiguous_dim`, `unreadable_dim`, and the dependency-closure kinds).
+
+  With `detailed=True` also:
+  - `required`: `tables` (`table`, `columns_used`, `columns_total`, `used_by_dashboards`) and `columns` (`table`, `column`, `used_in` — `"filter"`, `"hierarchy"` and/or `"widget"` — and `used_by` dashboards).
+  - `dependencies`: `columns` required for a reason other than direct use (`table`, `column`, `reason` — `join_column`, `custom_column_expression`, `custom_table_source` — `required_by`, `detail`), `tables` required only as join paths, and `join_paths`.
+  - `not_required`: the `tables` and `columns` a perspective can leave out.
+  - `dashboards`: `analyzed` (`dashboard_id`, `title`, `match`, `datasource` — the model or the perspective the dashboard sits on — `owner`, `owner_email`, `tables_used`, `columns_used`, `columns` as `"Table.Column"` strings, `widgets_on_other_datasources`) and `failed`.
+  - `issues`: every issue as `{"severity", "kind", "dashboard", "widget_id", "detail"}`.
+
+  On failure to resolve the model, read its schema or list dashboards, the standard error dict `{"ok": False, "error": "..."}`.

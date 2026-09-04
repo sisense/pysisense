@@ -1436,3 +1436,169 @@ class TestCreatePerspective:
         assert dm.create_perspective("dm-a", "P", [])["ok"] is False
         assert dm.create_perspective("dm-a", "P", [{"table": "region", "columns": []}])["ok"] is False
         assert dm.create_perspective("dm-a", "P", ["region", "REGION"])["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# analyze_perspective_requirements
+# ---------------------------------------------------------------------------
+
+_A_SCHEMA = {
+    "oid": "dm-a",
+    "title": "Model A",
+    "type": "extract",
+    "tenant": {"_id": "tenant-1"},
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    {
+                        "oid": "t-ord",
+                        "name": "Orders",
+                        "type": "base",
+                        "columns": [
+                            {"oid": "c-amt", "name": "Amount"},
+                            {"oid": "c-cust", "name": "CustomerID"},
+                            {"oid": "c-note", "name": "Note"},
+                            {"oid": "c-total", "name": "Total", "expression": "[Amount] * 2", "isCustom": True},
+                        ],
+                    },
+                    {
+                        "oid": "t-cus",
+                        "name": "Customers",
+                        "type": "base",
+                        "columns": [{"oid": "c-cid", "name": "CustomerID"}, {"oid": "c-cname", "name": "test", "id": "Name"}, {"oid": "c-city", "name": "City"}],
+                    },
+                    {"oid": "t-unused", "name": "Archive", "type": "base", "columns": [{"oid": "c-arch", "name": "Old"}]},
+                ]
+            },
+        }
+    ],
+    "relations": [{"oid": "r1", "columns": [{"dataset": "ds", "table": "t-ord", "column": "c-cust"}, {"dataset": "ds", "table": "t-cus", "column": "c-cid"}]}],
+}
+_A_DS = {"title": "Model A", "id": "localhost_aModelIAAaA", "fullname": "LocalHost/Model A", "address": "LocalHost", "database": "aModelIAAaA", "live": False}
+_A_OTHER = {"title": "Other Model", "id": "localhost_aOther", "fullname": "LocalHost/Other Model", "live": False}
+_A_EXPORT = {
+    "oid": "d1",
+    "title": "Sales",
+    "datasource": _A_DS,
+    "filters": [{"jaql": {"dim": "[Customers.City]", "table": "Customers", "column": "City", "filter": {"members": ["Paris"]}}}],
+    "hierarchies": [
+        {"title": "Geo", "elasticubeTitle": "Model A", "levels": [{"dim": "[Customers.Name]", "table": "Customers", "column": "Name"}]},  # renamed column, referenced by its old name
+        {"title": "Foreign", "elasticubeTitle": "Other Model", "levels": [{"dim": "[Dim.Whatever]", "table": "Dim", "column": "Whatever"}]},  # another model's hierarchy
+    ],
+    "widgets": [
+        {
+            "oid": "w1",
+            "type": "indicator",
+            "datasource": _A_DS,
+            "metadata": {"panels": [{"name": "value", "items": [{"jaql": {"dim": "[Orders.Total]", "table": "Orders", "column": "Total", "agg": "sum"}}]}]},
+        },
+        {
+            "oid": "w2",
+            "type": "chart/bar",
+            "datasource": _A_OTHER,
+            "metadata": {"panels": [{"name": "categories", "items": [{"jaql": {"dim": "[Foreign.Col]", "table": "Foreign", "column": "Col"}}]}]},
+        },
+        {
+            "oid": "w3",
+            "type": "pivot2",
+            "metadata": {"panels": [{"name": "rows", "items": [{"jaql": {"dim": "[Orders.Ghost]", "table": "Orders", "column": "Ghost"}}]}]},
+        },  # stale: column no longer exists
+    ],
+}
+
+
+def _make_analyzer(export=_A_EXPORT, listing_extra=None, export_status=200):
+    listing = [{"oid": "d1", "title": "Sales", "owner": "u1", "datasource": _A_DS, "widgetsDatasources": [_A_DS, _A_OTHER]}] + (listing_extra or [])
+    return _make_dm(
+        get_responses={
+            "/api/v2/datamodels/dm-a/schema": FakeResponse(200, _A_SCHEMA),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}]),
+            "/api/v2/perspectives": FakeResponse(200, [{"oid": "p-def", "name": "Default", "isDefault": True, "parentOid": None, "datamodelOid": "dm-a", "tables": []}]),
+            "/api/v1/dashboards/admin": FakeResponse(200, listing),
+            "/api/v1/dashboards/export": FakeResponse(export_status, [export] if export_status == 200 else {"message": "boom"}),
+            "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "owner@example.com"}]),
+        }
+    )
+
+
+class TestAnalyzePerspectiveRequirements:
+    def test_tables_to_keep_cover_direct_use_and_dependencies(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        assert a["perspective_tables"] == [
+            {"table": "Customers", "columns": ["City", "CustomerID", "test"]},  # City (filter), test (renamed, hierarchy), CustomerID (join)
+            {"table": "Orders", "columns": ["Amount", "CustomerID", "Total"]},  # Total (widget), Amount (custom column source), CustomerID (join)
+        ]
+        assert a["not_required"]["tables"] == ["Archive"]
+        assert {(c["table"], c["column"]) for c in a["not_required"]["columns"]} == {("Orders", "Note")}
+
+    def test_required_columns_say_where_and_by_whom(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        by = {(c["table"], c["column"]): c for c in a["required"]["columns"]}
+        assert by[("Orders", "Total")]["used_in"] == ["widget"] and by[("Orders", "Total")]["used_by"] == ["Sales"]
+        assert by[("Customers", "City")]["used_in"] == ["filter"]
+        assert by[("Customers", "test")]["used_in"] == ["hierarchy"]
+
+    def test_dependencies_carry_reasons(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        deps = {(d["table"], d["column"], d["reason"]) for d in a["dependencies"]["columns"]}
+        assert ("Orders", "CustomerID", "join_column") in deps and ("Customers", "CustomerID", "join_column") in deps
+        assert ("Orders", "Amount", "custom_column_expression") in deps
+        assert a["dependencies"]["join_paths"] == [["Customers", "Orders"]]
+        assert a["summary"]["columns_required_for_dependencies"] == 3
+
+    def test_issues_distinguish_renamed_stale_and_ignore_foreign(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        kinds = {(i["severity"], i["kind"]) for i in a["issues"]}
+        assert ("warning", "renamed_reference") in kinds and ("error", "unresolved_reference") in kinds
+        renamed = next(i for i in a["issues"] if i["kind"] == "renamed_reference")
+        assert "'Customers'.'Name'" in renamed["detail"] and "'test'" in renamed["detail"]
+        stale = next(i for i in a["issues"] if i["kind"] == "unresolved_reference")
+        assert "'Orders'.'Ghost'" in stale["detail"] and stale["widget_id"] == "w3"
+        assert not any("Whatever" in i["detail"] or "Foreign" in i["detail"] for i in a["issues"])  # other model's hierarchy and widget are not this model's problem
+        assert a["summary"]["issues"] == {"error": 1, "warning": 1}
+
+    def test_dashboards_carry_owner_datasource_and_untouched_widgets(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        d = a["dashboards"]["analyzed"][0]
+        assert d["title"] == "Sales" and d["match"] == "dashboard" and d["datasource"] == "Model A"
+        assert d["owner"] == "u1" and d["owner_email"] == "owner@example.com"
+        assert d["tables_used"] == 2 and d["columns_used"] == 3 and d["columns"] == ["Customers.City", "Customers.test", "Orders.Total"]
+        assert d["widgets_on_other_datasources"] == [{"widget_id": "w2", "title": None, "type": "chart/bar", "datasource": "other model"}]
+        assert a["dashboards"]["failed"] == []
+
+    def test_datamodel_facts_and_summary(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        assert a["datamodel"] == {"oid": "dm-a", "title": "Model A", "type": "extract", "tables": 3, "columns": 8, "relations": 1, "custom_columns": 1, "custom_tables": 0, "perspectives": []}
+        assert a["summary"] == {
+            "model_tables": 3,
+            "model_columns": 8,
+            "dashboards_analyzed": 1,
+            "dashboards_failed": 0,
+            "tables_used_by_dashboards": 2,
+            "columns_used_by_dashboards": 3,
+            "columns_required_for_dependencies": 3,
+            "tables_required_in_perspective": 2,
+            "columns_required_in_perspective": 6,
+            "tables_not_required": 1,
+            "columns_not_required": 2,
+            "issues": {"error": 1, "warning": 1},
+        }
+
+    def test_failed_export_is_reported_not_swallowed(self):
+        a = _make_analyzer(export_status=500).analyze_perspective_requirements("dm-a", detailed=True)
+        assert a["dashboards"]["failed"][0]["dashboard_id"] == "d1" and a["summary"]["dashboards_failed"] == 1
+        assert any(i["kind"] == "dashboard_export_failed" and i["severity"] == "error" for i in a["issues"])
+        assert a["perspective_tables"] == []  # nothing could be read, nothing is claimed
+
+    def test_default_view_is_the_summary_only(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a")
+        assert set(a) == {"datamodel", "summary", "perspective_tables", "errors", "warnings"}
+        assert a["errors"] == ["Sales: 'Orders'.'Ghost' is used but does not exist in data model 'Model A'"]
+        assert a["warnings"] == {"renamed_reference": 1}
+        assert a["perspective_tables"] == _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)["perspective_tables"]
+
+    def test_unknown_model(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
+        assert dm.analyze_perspective_requirements("nope")["ok"] is False

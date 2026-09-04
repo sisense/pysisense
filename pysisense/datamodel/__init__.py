@@ -48,8 +48,10 @@ class DataModel(
         table across an entire data model (``get_data``, ``get_row_count``).
     perspectives :
         Perspectives — metadata-only views over a root model that keep a
-        subset of its tables and columns; list them, filter by root model,
-        or look specific ones up by name or ID.
+        subset of its tables and columns; list them, create one from table
+        and column names, delete one, and analyze what a model's dashboards
+        use (plus join, custom-column and custom-table dependencies) to know
+        what a perspective must keep.
     """
 
     def __init__(self, api_client: SisenseClient | None = None, debug: bool = False) -> None:

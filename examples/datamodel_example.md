@@ -830,3 +830,25 @@ result = datamodel.create_perspective(
 bad = datamodel.create_perspective("Sample ECommerce", "oops", [{"table": "Country", "columns": ["Country", "zzz"]}])
 # {"ok": False, "error": "Cannot create perspective 'oops' on 'Sample ECommerce': column 'zzz' not found in table 'Country'"}
 ```
+
+## Example 36: Analyze What a Perspective Over a Model Must Keep
+
+```python
+# Summary view: the numbers, the tables to keep, the errors, and warning counts
+analysis = datamodel.analyze_perspective_requirements("Sample ECommerce")
+print(analysis["summary"])
+# {"model_tables": 5, "model_columns": 23, "dashboards_analyzed": 101, "dashboards_failed": 0,
+#  "tables_used_by_dashboards": 4, "columns_used_by_dashboards": 20, "columns_required_for_dependencies": 0,
+#  "tables_required_in_perspective": 4, "columns_required_in_perspective": 20,
+#  "tables_not_required": 1, "columns_not_required": 3, "issues": {"error": 14, "warning": 118}}
+print(analysis["perspective_tables"])  # [{"table": "Brand", "columns": ["Brand ID", "test"]}, ...] — what create_perspective takes
+print(analysis["errors"])  # ["Sales by Category: 'DimDates'.'Date' is used but does not exist in data model 'Sample ECommerce'", ...]
+print(analysis["warnings"])  # {"renamed_reference": 73, "script_present": 28, "blox_widget": 17}
+
+# Detailed view: per dashboard, per column, per dependency, every issue
+detailed = datamodel.analyze_perspective_requirements("Sample ECommerce", detailed=True)
+for dash in detailed["dashboards"]["analyzed"]:
+    print(dash["title"], dash["owner_email"], dash["datasource"], dash["tables_used"], "tables,", dash["columns_used"], "columns:", dash["columns"])
+for dep in detailed["dependencies"]["columns"]:
+    print(dep["table"], dep["column"], dep["reason"], "<-", dep["required_by"])
+```

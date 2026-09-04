@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from ..payloads import PerspectiveTableSpec
-from ..utils import _build_schema_index, _extract_error_message
+from ..utils import _build_schema_index, _column_name_variants, _compute_dependency_closure, _discover_dashboards_on_datasource, _extract_dashboard_references, _extract_error_message
 
 
 def _is_default_perspective(perspective: dict[str, Any]) -> bool:
@@ -390,3 +390,300 @@ class PerspectivesMixin:
             failure["status_code"] = status_code
         self.logger.error(message)
         return failure
+
+    def analyze_perspective_requirements(self, datamodel: str, detailed: bool = False) -> dict[str, Any]:
+        """Work out which tables and columns of a data model its dashboards need, ready to build a perspective from.
+
+        Read-only. Finds every dashboard that uses the model — directly, through a
+        single widget, or through a perspective already built over it — reads each one's fields
+        (filters, hierarchies, widget panels, nested formulas, drill history), keeping
+        only references that belong to this model, resolves them against the model's
+        schema, then adds what those columns depend on to keep working: join columns
+        and intermediate tables on the relation paths between used tables, the columns
+        custom columns read, and the tables custom tables select from. Anything that
+        could not be resolved or verified is reported as an issue rather than dropped.
+
+        Parameters
+        ----------
+        datamodel : str
+            The data model, as an ID or title.
+        detailed : bool, optional
+            Include the per-dashboard, per-column, per-dependency and per-issue detail.
+            Default ``False`` returns the summary view only.
+
+        Returns
+        -------
+        dict[str, Any]
+            Always: ``datamodel`` (``oid``, ``title``, ``type``, counts of ``tables``, ``columns``,
+            ``relations``, ``custom_columns`` and ``custom_tables``, and the names of its existing
+            ``perspectives``); ``summary`` (``model_tables``, ``model_columns``, ``dashboards_analyzed``,
+            ``dashboards_failed``, ``tables_used_by_dashboards``, ``columns_used_by_dashboards``,
+            ``columns_required_for_dependencies``, ``tables_required_in_perspective``,
+            ``columns_required_in_perspective``, ``tables_not_required``, ``columns_not_required``, and
+            ``issues`` by severity); ``perspective_tables`` — the ``{"table", "columns"}`` entries a
+            perspective must keep, every used column plus every dependency, in the form
+            ``create_perspective`` accepts; ``errors`` — the distinct error messages; and ``warnings`` —
+            warning counts by kind.
+
+            With ``detailed=True`` also: ``required`` (``tables``: ``table``, ``columns_used``,
+            ``columns_total``, ``used_by_dashboards``; ``columns``: ``table``, ``column``, ``used_in`` —
+            ``"filter"``, ``"hierarchy"`` and/or ``"widget"`` — ``used_by``); ``dependencies`` (``columns``
+            with ``table``, ``column``, ``reason`` — ``join_column``, ``custom_column_expression``,
+            ``custom_table_source`` — ``required_by``, ``detail``; ``tables`` required only as join
+            paths; ``join_paths``); ``not_required`` (``tables``, ``columns``); ``dashboards``
+            (``analyzed``: ``dashboard_id``, ``title``, ``match``, ``datasource`` — the model or the
+            perspective the dashboard sits on — ``owner``, ``owner_email``, ``tables_used``,
+            ``columns_used``, ``columns`` as ``"Table.Column"``, ``widgets_on_other_datasources``;
+            ``failed``); and ``issues`` (``severity``, ``kind``, ``dashboard``, ``widget_id``, ``detail``).
+            On failure to resolve the model, read its schema or list dashboards, the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
+        """
+        resolved = self.resolve_datamodel_reference(datamodel)
+        if not resolved.get("success"):
+            return self._fail(f"Data model '{datamodel}' could not be resolved: {resolved.get('error') or 'not found'}", status_code=resolved.get("status_code"))
+        model_id, model_title = resolved["datamodel_id"], resolved.get("datamodel_title") or datamodel
+
+        schema_response = self.api_client.get(f"/api/v2/datamodels/{model_id}/schema")
+        if schema_response is None or schema_response.status_code != 200:
+            failure = _extract_error_message(schema_response, f"Failed to read the schema of data model '{model_title}'", self.api_client)
+            self.logger.error(failure["error"])
+            return failure
+        try:
+            schema = schema_response.json()
+        except Exception:
+            return self._fail(f"Failed to parse the schema of data model '{model_title}'.")
+        index = _build_schema_index(schema)
+        if not index["tables"]:
+            return self._fail(f"Data model '{model_title}' has no tables.")
+        model_type = schema.get("type") if isinstance(schema, dict) else None
+        known_columns = {
+            (table["name"], column["name"]) for table in index["tables"].values() for column in table["columns"].values() if isinstance(table.get("name"), str) and isinstance(column.get("name"), str)
+        }
+
+        # Dashboards on the model itself, and on any perspective already built over it: both
+        # consume the model's columns, and their references resolve against the same schema.
+        existing = self.get_perspectives(datamodel=model_id)
+        perspective_titles = [p["name"] for p in existing if isinstance(p.get("name"), str)] if isinstance(existing, list) else []
+        matches: dict[str, str] = {}
+        sources: dict[str, str] = {}
+        listing: dict[str, dict[str, Any]] = {}
+        for source_title in [model_title] + perspective_titles:
+            discovered = _discover_dashboards_on_datasource(self.api_client, self.logger, source_title)
+            if discovered.get("ok") is False:
+                self.logger.error(discovered["error"])
+                return discovered
+            listing.update(discovered["dashboards"])
+            for oid, match in discovered["matches"].items():
+                if oid not in matches or (matches[oid] == "widget" and match == "dashboard"):
+                    matches[oid] = match
+                    sources[oid] = source_title
+
+        issues: list[dict[str, Any]] = []
+
+        def issue(severity: str, kind: str, dashboard: str | None, widget_id: str | None, detail: str) -> None:
+            if not any(i["kind"] == kind and i["detail"] == detail and i["dashboard"] == dashboard for i in issues):
+                issues.append({"severity": severity, "kind": kind, "dashboard": dashboard, "widget_id": widget_id, "detail": detail})
+
+        # Export the dashboards in batches and collect every reference to this model.
+        exports: dict[str, dict[str, Any]] = {}
+        failed: list[dict[str, Any]] = []
+        ids = sorted(matches)
+        for start in range(0, len(ids), 20):
+            batch = ids[start : start + 20]
+            response = self.api_client.get("/api/v1/dashboards/export", params={"dashboardIds": ",".join(batch), "adminAccess": "true"})
+            body = None
+            if response is not None and response.status_code == 200:
+                try:
+                    body = response.json()
+                except Exception:
+                    body = None
+            if not isinstance(body, list):
+                reason = _extract_error_message(response, "export failed", self.api_client)["error"] if response is None or response.status_code != 200 else "export returned no dashboards"
+                for oid in batch:
+                    failed.append({"dashboard_id": oid, "title": (listing.get(oid) or {}).get("title"), "error": reason})
+                    issue("error", "dashboard_export_failed", oid, None, f"dashboard '{(listing.get(oid) or {}).get('title')}' could not be exported: {reason}")
+                continue
+            for dashboard in body:
+                if isinstance(dashboard, dict) and isinstance(dashboard.get("oid"), str):
+                    exports[dashboard["oid"]] = dashboard
+            for oid in batch:
+                if oid not in exports:
+                    failed.append({"dashboard_id": oid, "title": (listing.get(oid) or {}).get("title"), "error": "not present in the export response"})
+                    issue("error", "dashboard_export_failed", oid, None, f"dashboard '{(listing.get(oid) or {}).get('title')}' was not present in the export response")
+
+        owner_emails: dict[str, str] = {}
+        users = self.api_client.get("/api/v1/users")
+        if users is not None and users.status_code == 200:
+            try:
+                owner_emails = {u["_id"]: u.get("email") for u in users.json() if isinstance(u, dict) and u.get("_id")}
+            except Exception:
+                self.logger.debug("Could not parse the user list while resolving dashboard owners.")
+
+        used: dict[tuple[str, str], set[str]] = {}  # (table_oid, column_oid) -> dashboard oids
+        used_where: dict[tuple[str, str], set[str]] = {}  # (table_oid, column_oid) -> {"filter", "hierarchy", "widget"}
+        other_datasources: dict[str, list[dict[str, Any]]] = {}  # dashboard oid -> widgets left on other datasources
+        lowered_tables = {name.lower(): oids for name, oids in ((t["name"], [oid]) for oid, t in index["tables"].items() if isinstance(t.get("name"), str))}
+        severity_of = {"unreadable_dim": "error", "ambiguous_dim": "warning", "blox_widget": "warning", "script_present": "warning", "unclassified_location": "warning"}
+        for oid, dashboard in exports.items():
+            title = dashboard.get("title")
+            report = _extract_dashboard_references(dashboard, title, known_columns=known_columns, logger=self.logger, datasource=sources.get(oid, model_title))
+            other_datasources[oid] = [{"widget_id": w.get("widget_id"), "title": w.get("title"), "type": w.get("type"), "datasource": w.get("datasource")} for w in report["skipped_widgets"]]
+            for found in report["issues"]:
+                severity = severity_of.get(found["kind"])
+                if severity:  # informational kinds (a widget on another datasource) are not issues for the perspective
+                    issue(severity, found["kind"], oid, found.get("widget_id"), f"{title}: {found['detail']}")
+            for row in report["rows"]:
+                table_oids = lowered_tables.get(str(row["table"]).strip().lower(), [])
+                column_oid = None
+                for table_oid in table_oids:
+                    table_index = index["tables"][table_oid]
+                    for variant in _column_name_variants(str(row["column"])):
+                        key = variant.strip().lower()
+                        column_oid = table_index["columns_by_name"].get(key)
+                        if column_oid:
+                            break
+                        # Renamed after the dashboard was built: the dashboard still uses the original
+                        # (or display) name. Keep the column — dropping it would break the dashboard — and warn.
+                        column_oid = table_index["columns_by_alias"].get(key)
+                        if column_oid:
+                            current = table_index["columns"][column_oid].get("name")
+                            issue(
+                                "warning",
+                                "renamed_reference",
+                                oid,
+                                row.get("widget_id"),
+                                f"{title}: '{row['table']}'.'{row['column']}' is referenced by a former name; the model now calls it '{current}' (kept)",
+                            )
+                            break
+                    if column_oid:
+                        used.setdefault((table_oid, column_oid), set()).add(oid)
+                        used_where.setdefault((table_oid, column_oid), set()).add(str(row.get("source")))
+                        break
+                if not column_oid:
+                    issue("error", "unresolved_reference", oid, row.get("widget_id"), f"{title}: '{row['table']}'.'{row['column']}' is used but does not exist in data model '{model_title}'")
+
+        closure = _compute_dependency_closure(index, set(used))
+        for found in closure["issues"]:
+            issue(found["severity"], found["kind"], None, None, found["detail"])
+
+        # Assemble the report.
+        def name_of(table_oid: str, column_oid: str | None = None) -> tuple[str, str | None]:
+            table = index["tables"].get(table_oid) or {}
+            column = (table.get("columns") or {}).get(column_oid) if column_oid else None
+            return table.get("name"), (column or {}).get("name") if column else None
+
+        kept: dict[str, set[str]] = {}
+        for table_oid, column_oid in list(used) + list(closure["retained"]):
+            kept.setdefault(table_oid, set()).add(column_oid)
+        for table_oid in closure["tables"]:
+            kept.setdefault(table_oid, set())
+
+        titles = {oid: (exports.get(oid) or listing.get(oid) or {}).get("title") for oid in matches}
+        required_columns = []
+        for (table_oid, column_oid), dashboards_using in sorted(used.items(), key=lambda kv: (name_of(*kv[0])[0] or "", name_of(*kv[0])[1] or "")):
+            table_name, column_name = name_of(table_oid, column_oid)
+            required_columns.append(
+                {"table": table_name, "column": column_name, "used_in": sorted(used_where.get((table_oid, column_oid), set())), "used_by": sorted(titles.get(d) or d for d in dashboards_using)}
+            )
+        required_tables = []
+        for table_oid in sorted({t for t, _ in used}, key=lambda t: name_of(t)[0] or ""):
+            table = index["tables"][table_oid]
+            using = {d for (t, _), ds in used.items() if t == table_oid for d in ds}
+            required_tables.append({"table": table["name"], "columns_used": sum(1 for (t, _) in used if t == table_oid), "columns_total": len(table["columns"]), "used_by_dashboards": len(using)})
+        dependencies = []
+        for (table_oid, column_oid), reasons in sorted(closure["retained"].items(), key=lambda kv: (name_of(*kv[0])[0] or "", name_of(*kv[0])[1] or "")):
+            table_name, column_name = name_of(table_oid, column_oid)
+            for reason in reasons:
+                required_by = reason.get("required_by")
+                if isinstance(required_by, tuple) and len(required_by) == 2 and required_by[1] in (index["tables"].get(required_by[0]) or {}).get("columns", {}):
+                    required_by_label = "{}.{}".format(*name_of(*required_by))
+                elif isinstance(required_by, tuple):
+                    required_by_label = " .. ".join(name_of(t)[0] or t for t in required_by)
+                else:
+                    required_by_label = name_of(required_by)[0] if isinstance(required_by, str) else str(required_by)
+                dependencies.append({"table": table_name, "column": column_name, "reason": reason["reason"], "required_by": required_by_label, "detail": reason.get("detail")})
+        dependency_tables = sorted(name_of(t)[0] for t, reasons in closure["tables"].items() if t not in {k[0] for k in used} and t not in {k[0] for k in closure["retained"]})
+
+        tables_spec: list[dict[str, Any]] = []
+        for table_oid in sorted(kept, key=lambda t: name_of(t)[0] or ""):
+            table = index["tables"][table_oid]
+            columns = sorted(table["columns"][c]["name"] for c in kept[table_oid] if c in table["columns"] and isinstance(table["columns"][c].get("name"), str))
+            tables_spec.append({"table": table["name"], "columns": columns if columns else "all"})
+
+        excluded_tables = sorted(t["name"] for oid, t in index["tables"].items() if oid not in kept and isinstance(t.get("name"), str))
+        excluded_columns = []
+        for table_oid, column_oids in kept.items():
+            table = index["tables"][table_oid]
+            for column_oid, column in table["columns"].items():
+                if column_oid not in column_oids and isinstance(column.get("name"), str):
+                    excluded_columns.append({"table": table["name"], "column": column["name"]})
+        excluded_columns.sort(key=lambda c: (c["table"], c["column"]))
+        excluded_column_count = len(excluded_columns) + sum(len(t["columns"]) for oid, t in index["tables"].items() if oid not in kept)
+
+        analyzed = []
+        for oid in sorted(exports, key=lambda o: (titles.get(o) or "").lower()):
+            owner_id = (listing.get(oid) or {}).get("owner")
+            analyzed.append(
+                {
+                    "dashboard_id": oid,
+                    "title": titles.get(oid),
+                    "match": matches[oid],
+                    "datasource": sources.get(oid, model_title),
+                    "owner": owner_id,
+                    "owner_email": owner_emails.get(owner_id),
+                    "tables_used": len({key[0] for key, ds in used.items() if oid in ds}),
+                    "columns_used": sum(1 for ds in used.values() if oid in ds),
+                    "columns": sorted(f"{name_of(*key)[0]}.{name_of(*key)[1]}" for key, ds in used.items() if oid in ds),
+                    "widgets_on_other_datasources": other_datasources.get(oid, []),
+                }
+            )
+        by_severity = {s: sum(1 for i in issues if i["severity"] == s) for s in ("error", "warning")}
+        summary = {
+            "model_tables": len(index["tables"]),
+            "model_columns": sum(len(t["columns"]) for t in index["tables"].values()),
+            "dashboards_analyzed": len(analyzed),
+            "dashboards_failed": len(failed),
+            "tables_used_by_dashboards": len(required_tables),
+            "columns_used_by_dashboards": len(required_columns),
+            "columns_required_for_dependencies": len(closure["retained"]),
+            "tables_required_in_perspective": len(tables_spec),
+            "columns_required_in_perspective": sum(len(cols) if cols else len(index["tables"][oid]["columns"]) for oid, cols in kept.items()),
+            "tables_not_required": len(excluded_tables),
+            "columns_not_required": excluded_column_count,
+            "issues": by_severity,
+        }
+        self.logger.info(f"Perspective analysis for '{model_title}': {summary}")
+        model_facts = {
+            "oid": model_id,
+            "title": model_title,
+            "type": model_type,
+            "tables": len(index["tables"]),
+            "columns": sum(len(t["columns"]) for t in index["tables"].values()),
+            "relations": len(index["relations"]),
+            "custom_columns": sum(1 for t in index["tables"].values() for c in t["columns"].values() if c.get("is_custom") or c.get("expression")),
+            "custom_tables": sum(1 for t in index["tables"].values() if t.get("sql")),
+            "perspectives": perspective_titles,
+        }
+        errors = sorted({i["detail"] for i in issues if i["severity"] == "error"})
+        warnings_by_kind: dict[str, int] = {}
+        for i in issues:
+            if i["severity"] == "warning":
+                warnings_by_kind[i["kind"]] = warnings_by_kind.get(i["kind"], 0) + 1
+        result: dict[str, Any] = {
+            "datamodel": model_facts,
+            "summary": summary,
+            "perspective_tables": tables_spec,
+            "errors": errors,
+            "warnings": warnings_by_kind,
+        }
+        if detailed:
+            result.update(
+                {
+                    "required": {"tables": required_tables, "columns": required_columns},
+                    "dependencies": {"columns": dependencies, "tables": dependency_tables, "join_paths": [[name_of(t)[0] for t in path["tables"]] for path in closure["join_paths"]]},
+                    "not_required": {"tables": excluded_tables, "columns": excluded_columns},
+                    "dashboards": {"analyzed": analyzed, "failed": failed},
+                    "issues": issues,
+                }
+            )
+        return result

@@ -217,3 +217,14 @@ def test_options_echoed_and_unknown_used_ignored():
     result = compute_dependency_closure(INDEX, {("nope", "x"), ("T_ord", "c_amt")})
     assert result["options"] == {"join_paths": True, "custom_columns": True, "custom_tables": True, "custom_table_columns": "all"}
     assert result["retained"] == {}
+
+
+def test_index_keeps_display_and_original_names_as_aliases():
+    schema = {
+        "datasets": [{"oid": "d", "schema": {"tables": [{"oid": "T", "name": "T", "columns": [{"oid": "a", "name": "test", "id": "Brand", "displayName": "Brand Name"}, {"oid": "b", "name": "B"}]}]}}],
+        "relations": [],
+    }
+    table = build_schema_index(schema)["tables"]["T"]
+    assert table["columns"]["a"]["id"] == "Brand" and table["columns"]["a"]["display_name"] == "Brand Name"
+    assert table["columns_by_name"] == {"test": "a", "b": "b"}
+    assert table["columns_by_alias"] == {"brand": "a", "brand name": "a"}

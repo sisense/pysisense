@@ -764,3 +764,16 @@ class TestExtractDashboardReferencesDiagnostics:
     def test_not_a_dict(self):
         assert _extract_dashboard_references(None)["rows"] == []
         assert _extract_dashboard_columns("nope") == []
+
+
+def test_hierarchy_elasticube_title_decides_its_datasource():
+    dash = {
+        "datasource": {"title": "Sales"},
+        "hierarchies": [
+            {"elasticubeTitle": "Sales", "levels": [{"dim": "[Geo.Region]", "table": "Geo", "column": "Region"}]},
+            {"elasticubeTitle": "Other", "levels": [{"dim": "[Dim.X]", "table": "Dim", "column": "X"}]},
+            {"levels": [{"dim": "[Geo.City]", "table": "Geo", "column": "City"}]},  # no cube named -> inherits the dashboard's
+        ],
+    }
+    rows = _extract_dashboard_references(dash, datasource="Sales")["rows"]
+    assert [(r["source"], r["table"], r["column"]) for r in rows] == [("hierarchy", "Geo", "Region"), ("hierarchy", "Geo", "City")]

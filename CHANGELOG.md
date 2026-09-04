@@ -27,6 +27,13 @@ All notable changes to `pysisense` are documented here. The format follows
   name or `oid`, in one method; each object also carries `datamodelTitle`. Perspectives are metadata-only views over a root data model that
   keep a subset of its tables and columns. The hidden per-model `Default` perspective is skipped
   unless asked for. Unknown references return the standard error dict plus `missing` and `results`.
+- **`DataModel.analyze_perspective_requirements(datamodel, detailed=False)`** — read-only analysis of
+  what a perspective over a model must keep: finds every dashboard on the model (directly, via a widget,
+  or via an existing perspective), reads every field they use, resolves it against the schema (columns
+  referenced by a former name are kept and flagged), adds join, custom-column and custom-table
+  dependencies, and returns the model facts, the summary counts, `perspective_tables` in
+  `create_perspective`'s shape, the error messages and warning counts by kind; `detailed=True` adds the
+  per-dashboard (with owner and datasource), per-column, per-dependency and per-issue detail.
 - **`DataModel.create_perspective(datamodel, name, tables, description="", ai_context=None)`** — create a
   perspective from table and column **names** (`PerspectiveTableSpec` list, or bare table names for all
   columns); resolved against the schema before anything is sent, refuses a duplicate name, reads the

@@ -644,7 +644,10 @@ def _extract_dashboard_references(
     hierarchies = dashboard.get("hierarchies") or []
     for index, hierarchy in enumerate(hierarchies):
         if isinstance(hierarchy, dict):
-            scan("hierarchy", "N/A", hierarchy, dashboard_ds, f"$.hierarchies[{index}]")
+            # A drill hierarchy names its model in elasticubeTitle rather than in a datasource object.
+            cube = hierarchy.get("elasticubeTitle")
+            hierarchy_ds = {"title": cube} if isinstance(cube, str) and cube.strip() else dashboard_ds
+            scan("hierarchy", "N/A", hierarchy, hierarchy_ds, f"$.hierarchies[{index}]")
 
     # Widgets
     widgets = dashboard.get("widgets") or []
@@ -848,8 +851,9 @@ def _build_schema_index(schema: dict[str, Any]) -> dict[str, Any]:
     dict[str, Any]
         ``{"tables": {table_oid: {...}}, "tables_by_name": {lower_name: [table_oid]}, "relations": [...]}``.
         Each table entry carries ``oid``, ``name``, ``type``, ``dataset``, ``sql`` (custom-table SQL or
-        ``None``), ``columns`` (``{column_oid: {"oid", "name", "expression", "is_custom"}}``) and
-        ``columns_by_name`` (``{lower_name: column_oid}``). ``relations`` is a list of
+        ``None``), ``columns`` (``{column_oid: {"oid", "name", "id", "display_name", "expression", "is_custom"}}``),
+        ``columns_by_name`` (``{lower identity name: column_oid}``) and ``columns_by_alias`` (``{lower display
+        or original name: column_oid}``, for columns renamed after dashboards were built). ``relations`` is a list of
         ``(table_oid, column_oid)`` groups, one per relation. Entries that are not dicts are skipped.
     """
     tables: dict[str, dict[str, Any]] = {}
@@ -867,18 +871,24 @@ def _build_schema_index(schema: dict[str, Any]) -> dict[str, Any]:
             sql = expression.get("expression") if isinstance(expression, dict) else expression if isinstance(expression, str) else None
             columns: dict[str, dict[str, Any]] = {}
             columns_by_name: dict[str, str] = {}
+            columns_by_alias: dict[str, str] = {}  # display name and original (physical) name -> oid
             for column in table.get("columns") or []:
                 if not isinstance(column, dict) or not isinstance(column.get("oid"), str):
                     continue
                 entry = {
                     "oid": column["oid"],
                     "name": column.get("name"),
+                    "id": column.get("id") if isinstance(column.get("id"), str) else None,
+                    "display_name": column.get("displayName") if isinstance(column.get("displayName"), str) else None,
                     "expression": column.get("expression") if isinstance(column.get("expression"), str) else None,
                     "is_custom": bool(column.get("isCustom")),
                 }
                 columns[column["oid"]] = entry
                 if isinstance(entry["name"], str):
                     columns_by_name.setdefault(entry["name"].strip().lower(), column["oid"])
+                for alias in (entry["display_name"], entry["id"]):
+                    if isinstance(alias, str) and alias.strip():
+                        columns_by_alias.setdefault(alias.strip().lower(), column["oid"])
             name = table.get("name")
             tables[table["oid"]] = {
                 "oid": table["oid"],
@@ -888,6 +898,7 @@ def _build_schema_index(schema: dict[str, Any]) -> dict[str, Any]:
                 "sql": sql if isinstance(sql, str) and sql.strip() else None,
                 "columns": columns,
                 "columns_by_name": columns_by_name,
+                "columns_by_alias": columns_by_alias,
             }
             if isinstance(name, str):
                 tables_by_name.setdefault(name.strip().lower(), []).append(table["oid"])

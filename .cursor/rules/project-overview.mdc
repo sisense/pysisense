@@ -91,7 +91,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
-| | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `create_perspective` (names in, `PerspectiveTableSpec` list; kept tables/columns only), `delete_perspective` (refuses the built-in Default) |
+| | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `create_perspective` (names in, `PerspectiveTableSpec` list; kept tables/columns only), `delete_perspective` (refuses the built-in Default), `analyze_perspective_requirements` (read-only summary of what a perspective must keep; `detailed=True` for per-dashboard/column/dependency/issue detail) |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
