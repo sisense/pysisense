@@ -30,8 +30,8 @@ All notable changes to `pysisense` are documented here. The format follows
 - **`DataModel.create_perspective(datamodel, name, tables, description="", ai_context=None)`** — create a
   perspective from table and column **names** (`PerspectiveTableSpec` list, or bare table names for all
   columns); resolved against the schema before anything is sent, refuses a duplicate name, reads the
-  result back and reports any mismatch in `warnings`. Sends the request the Sisense UI sends: kept tables
-  as `include` entries listing only kept columns. `ai_context` fills the perspective's `aiContext`.
+  result back and reports any mismatch in `warnings`. The request carries the kept tables as `include`
+  entries listing only the kept columns. `ai_context` fills the perspective's `aiContext`.
 - **`DataModel.delete_perspective(perspective, datamodel=None)`** — delete a perspective by name or
   `oid`; the root model is untouched, the built-in `Default` is refused, and a name shared by several
   models must be disambiguated with `datamodel`.
@@ -39,8 +39,8 @@ All notable changes to `pysisense` are documented here. The format follows
   model, by title or oid, including dashboards linked only through a widget (`match: "widget"`), from
   one listing call; `deep=True` also exports dashboards with an empty widget-datasource summary.
   Rows carry the owner's email, folder and last-updated time.
-- **`Dashboard.duplicate_dashboard(dashboard)`** — staging copy of a dashboard via export + import with
-  Sisense's `duplicate` action; the copy is titled `<original>_perspective_stage` so staging copies are
+- **`Dashboard.duplicate_dashboard(dashboard)`** — copy of a dashboard via export + import with Sisense's
+  `duplicate` action; the copy is titled `<original>_perspective_stage` so copies made for testing are
   easy to find and remove. Returns the new id, both titles and
   the widget count.
 - **`Dashboard.replace_datasource(dashboard, datasource, from_datasource=None)`** — change the datasource a
@@ -52,8 +52,7 @@ All notable changes to `pysisense` are documented here. The format follows
   publish, the result carries `owner` instead of `published: True`. Returns the previous
   datasource object (for reverting), the new one, widget counts and `published`.
 - **`Dashboard.delete_dashboard(dashboard_id, title)`** — delete a dashboard only when both its id and its
-  exact current title match; a stale id or a renamed dashboard is refused. Built for cleaning up
-  `duplicate_dashboard` staging copies.
+  exact current title match; a stale id or a renamed dashboard is refused.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;

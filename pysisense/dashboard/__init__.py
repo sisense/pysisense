@@ -23,7 +23,7 @@ class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin, Das
         export, import, rename, move to folder, publish, delete (id and exact
         title must both match); resolve dashboard references; find every
         dashboard that uses a data model, including through a single widget;
-        duplicate a dashboard as a marked staging copy; change the datasource a
+        duplicate a dashboard with a marker in the copy's title; change the datasource a
         dashboard queries, e.g. from a data model to a perspective built over it.
     shares :
         Dashboard share management — add or update share entries for users

@@ -56,6 +56,27 @@ uv run pre-commit install
 
 `pysisense` is a community-maintained Python SDK for the **Sisense BI platform**, built by the Sisense Field Engineering team. It is **not an official Sisense product** — no SLA, no official support, best-effort maintenance. It wraps the Sisense REST API into a structured, class-based library for automation, migrations, and health checks.
 
+### Audience — a standalone SDK
+
+`pysisense` is written for anyone calling it directly from Python. Downstream projects consume
+it as well (the FES assistant, an MCP tool server, other automation), and their needs are
+useful **context** when deciding what a method should return — but they are never the
+justification written into the code, and they never bias a method's design toward one caller.
+
+Rules that follow from this:
+
+- **Every public method stands on its own.** Its docstring describes what it does, its inputs,
+  its outputs and the Sisense behaviour behind it. It does not describe workflows, does not say
+  "the output of X can be passed into this", and does not reference other methods except when
+  naming the internal call it makes (and prefer the endpoint over the method name).
+- **No downstream vocabulary in code or user docs.** Nothing about skills, assistants, agents,
+  MCP, tool routing, or "so the caller can …" reasoning aimed at a specific consumer. Internal
+  test comments may explain an introspection contract; docstrings and `docs/` may not.
+- **Describe API calls plainly.** "Sends `POST /api/...` with …" — never "the request the UI
+  sends".
+- **Examples use generic sample models** (`Sample ECommerce`), never sandbox-specific names.
+- Parameters and return keys are justified by what an SDK caller needs to act on the result.
+
 ### Modules
 
 | Module | Class | Responsibility |

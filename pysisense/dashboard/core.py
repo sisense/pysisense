@@ -668,15 +668,15 @@ class DashboardCoreMixin:
         return rows
 
     def duplicate_dashboard(self, dashboard: str) -> dict[str, Any]:
-        """Create a staging copy of a dashboard with a marker in its title.
+        """Create a copy of a dashboard, titled with a marker so copies are easy to find.
 
-        Exports the dashboard and imports it with Sisense's own ``duplicate``
-        action, which creates a new dashboard (new id) carrying the widgets,
-        filters, hierarchies and shares of the original. The copy is titled
-        ``<original title>_perspective_stage`` so staging copies stand out in the
-        dashboard list and are easy to find and remove later (use
-        ``rename_dashboard`` for a different name). The copy lands at the root
-        folder. The original is not modified.
+        Exports the dashboard and imports it with Sisense's ``duplicate`` action
+        (``POST /api/v1/dashboards/import/bulk?action=duplicate``), which creates
+        a new dashboard (new id) carrying the widgets, filters, hierarchies and
+        shares of the original. The copy is titled ``<original title>_perspective_stage``
+        so copies made for testing stand out in the dashboard list and are easy to
+        find and remove later; rename it afterwards for a different name. The copy
+        lands at the root folder. The original is not modified.
 
         Parameters
         ----------
@@ -734,10 +734,8 @@ class DashboardCoreMixin:
 
         Sends ``DELETE /api/v1/dashboards/{dashboard_id}`` after reading the
         dashboard and checking that its stored title equals ``title`` exactly.
-        Requiring both is a deliberate safety catch for cleanup jobs: a wrong or
-        stale id, or a dashboard renamed since it was listed, is refused instead
-        of deleted. Meant for removing staging copies such as those made by
-        ``duplicate_dashboard``.
+        Requiring both is a deliberate safety catch: a wrong or stale id, or a
+        dashboard renamed since it was listed, is refused instead of deleted.
 
         Parameters
         ----------
@@ -836,9 +834,9 @@ class DashboardCoreMixin:
         did not change, the call is repeated with admin access (which lets an admin
         token change dashboards it does not own) and read back again. If it still
         did not change, the failure dict carries the dashboard's ``owner``. Once the
-        change has applied the dashboard is republished (``publish_dashboard``) so viewers
-        see it; a failed publish is reported, not treated as a failed swap — on Sisense
-        versions where only the owner may publish, the result carries ``owner`` instead.
+        change has applied the dashboard is republished (``POST /api/v1/dashboards/{id}/publish``)
+        so viewers see it; a failed publish is reported, not treated as a failed change — on
+        Sisense versions where only the owner may publish, the result carries ``owner`` instead.
 
         Parameters
         ----------
@@ -862,7 +860,7 @@ class DashboardCoreMixin:
             datasource titles of widgets that were on something else. On failure (unknown
             dashboard or datasource, a change that did not apply as owner or admin, or an API
             error), the standard ``{"ok": False, "error": "...", ...}`` dict; when the change did
-            not apply, ``owner`` (email, or id) says who can make it in the UI.
+            not apply, ``owner`` (email, or id) says who owns the dashboard.
         """
         ref = self.resolve_dashboard_reference(dashboard)
         if not ref.get("success"):
@@ -950,7 +948,7 @@ class DashboardCoreMixin:
             if isinstance(published, dict) and published.get("ok") is False:
                 result["publish_error"] = published.get("error")
                 if published.get("status_code") == 403:
-                    # Only the owner can publish on this version: say who, so a human can finish the job.
+                    # Only the owner can publish on this version: report who that is.
                     result["owner"] = self._owner_email(doc.get("owner")) or doc.get("owner")
                 self.logger.warning(f"Dashboard '{title}' was switched to '{datasource}' but could not be republished: {published.get('error')}")
             else:

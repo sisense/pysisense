@@ -810,23 +810,23 @@ if result.get("ok") is False:
 ## Example 35: Create a Perspective
 
 ```python
-# Keep two columns of @trips and every column of region; every other table is left out.
+# Keep three columns of Commerce and every column of Country; every other table is left out.
 result = datamodel.create_perspective(
-    "fes_assistant",
-    "trips_for_chatbot",
+    "Sample ECommerce",
+    "commerce_by_country",
     [
-        {"table": "@trips", "columns": ["fare_amount", "tpep_dropoff_datetime"]},
-        "region",  # a bare name keeps all of its columns
+        {"table": "Commerce", "columns": ["Revenue", "Quantity", "Date"]},
+        "Country",  # a bare name keeps all of its columns
     ],
-    description="Only what the dashboards use",
-    ai_context="Taxi trips joined to regions; revenue is fare_amount.",
+    description="Revenue and quantity by country",
+    ai_context="Online sales; Revenue is the amount paid, Quantity the units sold.",
 )
-# {"success": True, "oid": "...", "name": "trips_for_chatbot", "datamodelOid": "...", "datamodelTitle": "fes_assistant",
-#  "tables": [{"table": "@trips", "table_oid": "...", "columns_kept": 2, "columns_total": 6},
-#             {"table": "region", "table_oid": "...", "columns_kept": 3, "columns_total": 3}],
-#  "excluded_tables": [], "warnings": []}
+# {"success": True, "oid": "...", "name": "commerce_by_country", "datamodelOid": "...", "datamodelTitle": "Sample ECommerce",
+#  "tables": [{"table": "Commerce", "table_oid": "...", "columns_kept": 3, "columns_total": 12},
+#             {"table": "Country", "table_oid": "...", "columns_kept": 5, "columns_total": 5}],
+#  "excluded_tables": ["Brand", "Category"], "warnings": []}
 
 # Typos fail before anything is created
-bad = datamodel.create_perspective("fes_assistant", "oops", [{"table": "region", "columns": ["r_name", "zzz"]}])
-# {"ok": False, "error": "Cannot create perspective 'oops' on 'fes_assistant': column 'zzz' not found in table 'region'"}
+bad = datamodel.create_perspective("Sample ECommerce", "oops", [{"table": "Country", "columns": ["Country", "zzz"]}])
+# {"ok": False, "error": "Cannot create perspective 'oops' on 'Sample ECommerce': column 'zzz' not found in table 'Country'"}
 ```

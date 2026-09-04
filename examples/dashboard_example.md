@@ -466,7 +466,7 @@ if isinstance(rows, dict) and rows.get("ok") is False:
     print(rows["error"])
 ```
 
-## Example 24: Duplicate a Dashboard as a Staging Copy
+## Example 24: Duplicate a Dashboard
 
 ```python
 # The copy carries a marker so it is easy to find later: "Sales Overview_perspective_stage"
@@ -481,7 +481,7 @@ dashboard.rename_dashboard(copy["dashboard_id"], "Sales Overview (test)")
 ## Example 25: Change a Dashboard's Datasource to a Perspective
 
 ```python
-# Point a staging copy at the perspective; widgets and filters on the old datasource follow,
+# Point a dashboard at a perspective; widgets and filters on the old datasource follow,
 # widgets on other datasources are untouched.
 result = dashboard.replace_datasource("Sales Overview_perspective_stage", "sales_perspective")
 # {"success": True, "dashboard_id": "...", "title": "Sales Overview_perspective_stage",
@@ -498,7 +498,7 @@ dashboard.replace_datasource("Mixed Board", "sales_perspective", from_datasource
 # {"ok": False, "error": "Sisense accepted the request but dashboard 'Mixed Board' still shows datasource 'Sample ECommerce'; ...", "owner": "jane@example.com"}
 ```
 
-## Example 26: Delete a Staging Copy Safely
+## Example 26: Delete a Dashboard Safely
 
 ```python
 copy = dashboard.duplicate_dashboard("Sales Overview")

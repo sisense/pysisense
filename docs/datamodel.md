@@ -743,7 +743,7 @@ Retrieves perspectives — all of them, those of one data model, or specific one
 
 ### `delete_perspective(perspective, datamodel=None)`
 
-Deletes a perspective by name or ID via `DELETE /api/v2/perspectives/{oid}`. The root data model and its data are untouched — only the metadata-only view is removed. A model's hidden `Default` perspective is never deleted. When the same name exists on more than one model, `datamodel` must say which one.
+Deletes a perspective by name or ID: the reference is resolved against `GET /api/v2/perspectives`, then `DELETE /api/v2/perspectives/{oid}` is sent. The root data model and its data are untouched — only the metadata-only view is removed. A model's hidden `Default` perspective is never deleted. When the same name exists on more than one model, `datamodel` must say which one.
 
 **Parameters:**
 
@@ -758,7 +758,7 @@ Deletes a perspective by name or ID via `DELETE /api/v2/perspectives/{oid}`. The
 
 ### `create_perspective(datamodel, name, tables, description="", ai_context=None)`
 
-Creates a perspective over a data model, keeping only the named tables and columns, via `POST /api/v2/perspectives`. A perspective is a metadata-only view: the root model and its data are untouched, and everything not listed is left out of the view. Table and column names are resolved against the model's schema before anything is sent, so a typo fails fast and nothing half-built is created. The request is the one the Sisense UI sends: kept tables as `include` entries whose `columnsDiff` lists the kept columns; tables and columns not kept are simply absent. After creation the perspective is read back and compared with the request.
+Creates a perspective over a data model, keeping only the named tables and columns, via `POST /api/v2/perspectives`. A perspective is a metadata-only view: the root model and its data are untouched, and everything not listed is left out of the view. Table and column names are resolved to their ids against the model's schema before anything is sent, so a typo fails fast and nothing half-built is created. The request carries the kept tables as `include` entries whose `columnsDiff` lists the kept columns; tables and columns not kept are absent from it. After creation the perspective is read back and compared with the request.
 
 **Parameters:**
 

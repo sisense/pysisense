@@ -149,7 +149,7 @@ class PerspectivesMixin:
     def delete_perspective(self, perspective: str, datamodel: str | None = None) -> dict[str, Any]:
         """Delete a perspective by name or ID.
 
-        Resolves the reference with ``get_perspectives`` and sends
+        Resolves the name or ID against ``GET /api/v2/perspectives`` and sends
         ``DELETE /api/v2/perspectives/{oid}``. The root data model and its data
         are untouched; only the perspective (a metadata-only view) is removed.
         A model's hidden ``Default`` perspective is never deleted. When the same
@@ -212,12 +212,12 @@ class PerspectivesMixin:
 
         A perspective is a metadata-only view: the root model and its data are
         untouched, and everything not listed here is left out of the view. Table
-        and column names are resolved against the model's schema before anything
-        is sent, so a typo fails fast and nothing half-built is created. The
-        request is the one the Sisense UI sends (``POST /api/v2/perspectives``):
-        kept tables as ``include`` entries whose ``columnsDiff`` lists the kept
-        columns; tables and columns not kept are simply absent. After creation
-        the perspective is read back and compared with the request.
+        and column names are resolved to their ids against the model's schema
+        before anything is sent, so a typo fails fast and nothing half-built is
+        created. Sends ``POST /api/v2/perspectives`` with the kept tables as
+        ``include`` entries whose ``columnsDiff`` lists the kept columns; tables
+        and columns not kept are absent from the request. After creation the
+        perspective is read back and compared with the request.
 
         Parameters
         ----------
