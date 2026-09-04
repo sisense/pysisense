@@ -57,7 +57,7 @@ uv run pre-commit install --hook-type commit-msg
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
 | `wellcheck/` | `WellCheck` | Health/complexity checks across dashboards and data models |
-| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets` |
+| `utils.py` | — | `convert_to_dataframe`, `export_to_csv`, `convert_utc_to_local`, `redact_secrets`, `load_config` |
 | `payloads.py` | — | TypedDict payload contracts for dict params (`CreateUserPayload`, `UpdateUserPayload`, `NotebookCreatePayload`, `NotebookUpdatePayload`, `ConnectionPayload`, `ConnectionUpdatePayload`, provider `*ConnectionParams`, `MeasurePayload`, `PluginSnapshot`) — introspectable by downstream schema generators |
 
 ## Package structure — mixin pattern
@@ -77,7 +77,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk` |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk`, `get_dashboards_by_datasource` (dashboard- and widget-level matches; optional deep scan), `duplicate_dashboard` (export + import `duplicate`; copy titled `<original>_perspective_stage`), `replace_datasource` (model → perspective swap; owner call, read back, admin retry), `delete_dashboard` (id + exact title required), `validate_dashboard_queries` (run every widget's query, optionally against another datasource) |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
@@ -91,6 +91,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `security.py` | `get_datasecurity`, `get_datasecurity_detail`, `update_datasecurity` (POST, add semantics — cube must be running), `set_live_datasecurity_add_many` (model must be published), `delete_datasecurity`, `get_datasecurity_raw` |
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
+| | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `create_perspective` (names in, `PerspectiveTableSpec` list; kept tables/columns only), `delete_perspective` (refuses the built-in Default), `analyze_perspective_requirements` (read-only summary of what a perspective must keep; `detailed=True` for per-dashboard/column/dependency/issue detail) |
 | `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..utils import _extract_error_message
+from ..utils import _extract_dashboard_columns, _extract_error_message
 
 
 class ColumnsMixin:
@@ -10,8 +10,15 @@ class ColumnsMixin:
         """Retrieve columns referenced by a dashboard, including widget and filter columns.
 
         Resolves the dashboard by title with ``get_dashboard_by_name``, exports
-        its full metadata, then extracts column references from both filters and
-        widgets. The final list is deduplicated by ``table`` and ``column``.
+        its full metadata, then extracts column references from dashboard and
+        default filters (plain, dependent and measured), drill hierarchies,
+        every widget panel item (including nested formulas, conditional
+        formatting and drill chains), widget drill history, widget query
+        metadata and table headers. Widgets on another datasource are
+        included, since the dashboard references them. Both ``[Table.Column]``
+        and ``[Table].[Column]`` references are understood, and table or column
+        names may contain any character. The final list is deduplicated by
+        ``table`` and ``column``.
 
         Parameters
         ----------
@@ -22,15 +29,14 @@ class ColumnsMixin:
         -------
         list[dict[str, Any]] | dict[str, Any]
             A list of distinct column entries. Each entry contains
-            ``dashboard_name``, ``source`` (``"filter"`` or ``"widget"``),
-            ``widget_id``, ``table``, and ``column`` — an empty list means the
+            ``dashboard_name``, ``source`` (``"filter"``, ``"hierarchy"`` or ``"widget"``),
+            ``widget_id`` (the widget's own ``oid``, or ``"N/A"`` for dashboard
+            filters), ``table``, and ``column`` — an empty list means the
             dashboard genuinely references no columns. On failure (dashboard
             not found, or its metadata cannot be retrieved or parsed), returns
             the standard ``{"ok": False, "error": "...", ...}`` dict.
         """
         self.logger.info(f"Starting column retrieval for dashboard: {dashboard_name}")
-
-        dashboard_columns = []
 
         # Step 1: Get dashboard details using existing method
         dashboard = self.get_dashboard_by_name(dashboard_name)
@@ -56,114 +62,21 @@ class ColumnsMixin:
             self.logger.exception(f"Failed to parse dashboard export response for ID '{dashboard_id}'")
             return {"ok": False, "error": f"Failed to parse dashboard export response for ID '{dashboard_id}'."}
 
-        if not dashboard_data or not isinstance(dashboard_data, list):
+        if not dashboard_data or not isinstance(dashboard_data, list) or not isinstance(dashboard_data[0], dict):
             self.logger.error(f"Unexpected dashboard data structure for ID '{dashboard_id}'")
             return {"ok": False, "error": f"Unexpected dashboard export structure for ID '{dashboard_id}'."}
 
         dashboard = dashboard_data[0]
-        self.logger.debug(f"Analyzing dashboard '{dashboard['title']}' (ID: {dashboard_id})")
+        self.logger.debug(f"Analyzing dashboard '{dashboard.get('title', dashboard_name)}' (ID: {dashboard_id})")
 
-        # Step 3: Extract columns from filters
-        filter_count = 0
-        self.logger.debug(f"Extracting columns from filters for dashboard '{dashboard_name}'")
+        # Step 3: Extract every column reference from filters and widgets (shared walk)
+        dashboard_columns = _extract_dashboard_columns(dashboard, dashboard_name, logger=self.logger)
+        self.logger.info(
+            f"Processed {len(dashboard.get('filters') or [])} filters and {len(dashboard.get('widgets') or [])} widgets, "
+            f"extracted {len(dashboard_columns)} column references for dashboard '{dashboard_name}'"
+        )
 
-        if "filters" in dashboard:
-            total_filters = len(dashboard["filters"])
-            self.logger.debug(f"Total filters found: {total_filters}")
-
-            for filter_index, filter in enumerate(dashboard["filters"], start=1):
-                filter_count += 1
-                self.logger.debug(f"Processing filter {filter_index}/{total_filters}")
-
-                if "levels" in filter:
-                    levels_count = len(filter["levels"])
-                    self.logger.debug(f"Filter {filter_index}: Extracting {levels_count} levels")
-
-                    for level in filter["levels"]:
-                        dim_value = level.get("dim", "Unknown.Table")
-                        table, column = dim_value.strip("[]").split(".", 1) if "." in dim_value else (dim_value.strip("[]"), "Unknown Column")
-
-                        dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
-
-                        self.logger.debug(f"Filter {filter_index}: Extracted from levels - Table: {table}, Column: {column}")
-
-                elif "jaql" in filter:
-                    dim_value = filter["jaql"].get("dim", "Unknown.Table")
-                    table, column = dim_value.strip("[]").split(".", 1) if "." in dim_value else (dim_value.strip("[]"), "Unknown Column")
-
-                    dashboard_columns.append({"dashboard_name": dashboard_name, "source": "filter", "widget_id": "N/A", "table": table, "column": column})
-
-                    self.logger.debug(f"Filter {filter_index}: Extracted from JAQL - Table: {table}, Column: {column}")
-
-        self.logger.info(f"Processed {filter_count} filters for dashboard '{dashboard_name}'")
-
-        # Step 4: Extract columns from widgets
-        total_widgets = len(dashboard.get("widgets", []))
-        column_count = 0
-
-        self.logger.debug(f"Extracting columns from {total_widgets} widgets in dashboard '{dashboard_name}'")
-
-        for widget_index, widget in enumerate(dashboard.get("widgets", []), start=1):
-            # Safely access widget ID and handle potential issues
-            try:
-                columns = dashboard.get("layout", {}).get("columns", [])
-                if not columns:
-                    self.logger.warning(f"No columns found in dashboard layout for widget index {widget_index}")
-                    widget_id = "Unknown Widget ID"
-                else:
-                    cells = columns[0].get("cells", [])
-                    if len(cells) < widget_index:
-                        self.logger.warning(f"Insufficient cells in layout for widget index {widget_index}")
-                        widget_id = "Unknown Widget ID"
-                    else:
-                        subcells = cells[widget_index - 1].get("subcells", [])
-                        if not subcells or not subcells[0].get("elements"):
-                            self.logger.warning(f"No elements found in subcell for widget index {widget_index}")
-                            widget_id = "Unknown Widget ID"
-                        else:
-                            widget_id = subcells[0]["elements"][0].get("widgetid", "Unknown Widget ID")
-            except Exception:
-                self.logger.exception(f"Exception occurred while extracting widget ID for index {widget_index}")
-                widget_id = "Unknown Widget ID"
-
-            widget_title = widget.get("title", "Unnamed Widget")
-
-            self.logger.debug(f"Processing widget {widget_index}/{total_widgets} - ID: {widget_id}, Title: {widget_title}")
-
-            for panel in widget.get("metadata", {}).get("panels", []):
-                for item in panel.get("items", []):
-                    jaql = item.get("jaql", {})
-
-                    # Case 1: Extract from 'context' (Formula-based columns)
-                    if "context" in jaql and isinstance(jaql["context"], dict):
-                        for context_key, value in jaql["context"].items():
-                            dim_value = value.get("dim", "Unknown.Table")
-                            if "." in dim_value:
-                                table, column = dim_value.strip("[]").split(".", 1)
-                            else:
-                                table, column = dim_value.strip("[]"), "Unknown Column"
-
-                            dashboard_columns.append({"dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column})
-                            column_count += 1
-
-                            self.logger.debug(f"Widget {widget_index}: Extracted from context (Formula) - Key: {context_key}, Table: {table}, Column: {column}")
-
-                    # Case 2: Extract from 'dim' (Regular columns)
-                    else:
-                        dim_value = jaql.get("dim", "Unknown.Table")
-                        if "." in dim_value:
-                            table, column = dim_value.strip("[]").split(".", 1)
-                        else:
-                            table, column = dim_value.strip("[]"), "Unknown Column"
-
-                        dashboard_columns.append({"dashboard_name": dashboard_name, "source": "widget", "widget_id": widget_id, "table": table, "column": column})
-                        column_count += 1
-
-                        self.logger.debug(f"Widget {widget_index}: Extracted from regular source - Table: {table}, Column: {column}")
-
-        self.logger.info(f"Processed {total_widgets} widgets and extracted {column_count} columns for dashboard '{dashboard_name}'")
-
-        # Step 5: Deduplicate columns based on 'table' and 'column'
+        # Step 4: Deduplicate columns based on 'table' and 'column'
         distinct_columns_set = set()
         distinct_dashboard_columns = []
 

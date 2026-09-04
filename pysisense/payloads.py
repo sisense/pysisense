@@ -21,7 +21,7 @@ measures, connections) declare only the fields the SDK itself documents;
 additional keys are passed through to the API unchanged.
 """
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 
 class _CreateUserRequired(TypedDict):
@@ -227,3 +227,19 @@ class PluginSnapshot(_PluginSnapshotRequired, total=False):
     """
 
     created: str
+
+
+class _PerspectiveTableSpecRequired(TypedDict):
+    table: str
+
+
+class PerspectiveTableSpec(_PerspectiveTableSpecRequired, total=False):
+    """One table to keep in a perspective, for ``DataModel.create_perspective``.
+
+    Required: ``table`` (the table's name in the model). Optional: ``columns`` —
+    the column names to keep, or ``"all"`` (the default when omitted) to keep
+    every column of the table. Tables not listed are excluded from the
+    perspective.
+    """
+
+    columns: list[str] | Literal["all"]

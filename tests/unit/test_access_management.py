@@ -650,6 +650,23 @@ class TestCreateUser:
         for name in ("consumer", "super", "contributor"):
             assert name in result["error"]
 
+    def test_does_not_mutate_the_caller_payload(self):
+        am = _make_am(
+            get_responses={"/api/roles": FakeResponse(200, _ROLES), "/api/v1/groups": FakeResponse(200, _GROUPS)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+        )
+        payload = {"email": "x@x.com", "role": "viewer", "groups": ["Engineers"]}
+        am.create_user(payload)
+        assert payload == {"email": "x@x.com", "role": "viewer", "groups": ["Engineers"]}
+
+    def test_password_is_redacted_from_debug_log(self):
+        am = _make_am(
+            get_responses={"/api/roles": FakeResponse(200, _ROLES)},
+            post_responses={"/api/v1/users": FakeResponse(200, {"_id": "u1"})},
+        )
+        am.create_user({"email": "x@x.com", "role": "viewer", "password": "hunter2"})
+        assert not any("hunter2" in str(m["msg"]) for m in am.logger.messages)
+
 
 # ---------------------------------------------------------------------------
 # update_user
@@ -713,6 +730,33 @@ class TestUpdateUser:
         assert "error" not in result, f"role {role!r} was rejected: {result}"
         assert captured["payload"]["roleId"] == expected_role_id
         assert "role" not in captured["payload"]
+
+    def test_unknown_user_returns_error_dict_even_when_role_resolves(self):
+        # Regression: get_user's failure dict is non-empty, so the old
+        # `if not user` guard never fired and the PATCH raised KeyError on
+        # user["USER_ID"]. Roles are mocked so the failure cannot be blamed
+        # on role resolution.
+        am = _make_am(get_responses={"/api/v1/users": FakeResponse(200, []), "/api/roles": FakeResponse(200, _ROLES)})
+        result = am.update_user("ghost@example.com", {"role": "viewer"})
+        assert result["ok"] is False
+        assert "ghost@example.com" in result["error"]
+
+    def test_does_not_mutate_the_caller_payload(self):
+        am = _make_am(
+            get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED]), "/api/roles": FakeResponse(200, _ROLES)},
+            patch_responses={"/api/v1/users/": FakeResponse(200, _USER_EXPANDED)},
+        )
+        payload = {"role": "viewer"}
+        am.update_user("jdoe@example.com", payload)
+        assert payload == {"role": "viewer"}
+
+    def test_password_is_redacted_from_debug_log(self):
+        am = _make_am(
+            get_responses={"/api/v1/users": FakeResponse(200, [_USER_EXPANDED])},
+            patch_responses={"/api/v1/users/": FakeResponse(200, _USER_EXPANDED)},
+        )
+        am.update_user("jdoe@example.com", {"password": "hunter2"})
+        assert not any("hunter2" in str(m["msg"]) for m in am.logger.messages)
 
 
 # ---------------------------------------------------------------------------
@@ -870,6 +914,20 @@ class TestUsersPerGroup:
             }
         )
         assert am.users_per_group("EmptyGroup") == []
+
+    def test_named_group_fetches_the_group_listing_once(self):
+        # The expanded listing already answers "does this group exist", so a
+        # separate ?name= lookup is a wasted round trip. A second groups call
+        # would hit the 500 and turn this into a failure.
+        group_with_members = {**_GROUPS[0], "users": [_USER_EXPANDED]}
+        am = _make_am(
+            get_responses={
+                "/api/v1/groups": [FakeResponse(200, [group_with_members]), FakeResponse(500, {})],
+                "/api/v1/users": FakeResponse(200, [_USER_EXPANDED]),
+            }
+        )
+        rows = am.users_per_group("Engineers")
+        assert [r["USER_NAME"] for r in rows] == ["jdoe"]
 
 
 # ---------------------------------------------------------------------------
@@ -1156,6 +1214,119 @@ class TestGetUnusedColumnsBulk:
         assert "ok" not in result
         assert len(result["results"]) == 1
         assert result["errors"][0]["ref"] == "NoSuchModel"
+
+
+class TestUnusedColumnsDashboardParsing:
+    """The usage side of get_unused_columns_bulk: a column cited by a dashboard is used."""
+
+    @staticmethod
+    def _am(tables, dim):
+        schema = {"oid": "dm123", "title": "MyModel"}
+        export = [{"title": "D", "filters": [], "widgets": [{"oid": "w1", "metadata": {"panels": [{"items": [{"jaql": {"dim": dim}}]}]}}]}]
+        return _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, schema),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}]),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, tables),
+                "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": "d1", "title": "D", "datasource": {"title": "MyModel"}}]),
+                "/api/v1/dashboards/export": FakeResponse(200, export),
+            }
+        )
+
+    @staticmethod
+    def _used(result):
+        return {(r["table"], r["column"]): r["used"] for r in result["results"]}
+
+    def test_one_bracket_reference_marks_the_column_used(self):
+        am = self._am([{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}]}], "[tbl.col1]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("tbl", "col1"): True, ("tbl", "col2"): False}
+
+    def test_two_bracket_reference_marks_the_column_used(self):
+        # Regression: [tbl].[col1] used to parse as ("tbl]", "[col1") and col1 read as unused.
+        am = self._am([{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}]}], "[tbl].[col1]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("tbl", "col1"): True, ("tbl", "col2"): False}
+
+    def test_table_name_starting_with_bracket_marks_the_column_used(self):
+        # Live-observed: a table renamed to "[region" is emitted as [[region.col]; strip("[]") lost the bracket.
+        am = self._am([{"name": "[region", "columns": [{"name": "r_name"}, {"name": "r_comment"}]}], "[[region.r_name]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("[region", "r_name"): True, ("[region", "r_comment"): False}
+
+    def test_csv_table_name_marks_the_column_used(self):
+        # The common real case: CSV uploads are tables named "x.csv"; the old
+        # first-dot split read [T1.csv.C1] as table "T1" and marked C1 unused.
+        am = self._am([{"name": "T1.csv", "columns": [{"name": "C1"}, {"name": "C2"}]}], "[T1.csv.C1]")
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("T1.csv", "C1"): True, ("T1.csv", "C2"): False}
+
+    def test_dotted_column_name_resolves_against_the_schema(self):
+        # The dim has three dots; only the schema can say where the table ends.
+        am = self._am([{"name": "@trips", "columns": [{"name": '."pickup.'}, {"name": "fare"}]}], '[@trips.."pickup. (Calendar)]')
+        assert self._used(am.get_unused_columns_bulk("MyModel")) == {("@trips", '."pickup.'): True, ("@trips", "fare"): False}
+
+
+class TestUnusedColumnsDiscovery:
+    """Which dashboards the unused-columns check looks at."""
+
+    def test_widget_only_consumer_on_another_dashboard_counts(self):
+        # Live-reproduced: a dashboard built on model B with one widget on model A
+        # was never discovered for A, so the columns that widget used read as unused.
+        listing = [
+            {"oid": "other", "title": "On B", "datasource": {"title": "ModelB"}, "widgetsDatasources": [{"title": "ModelB"}, {"title": "MyModel"}]},
+        ]
+        export = [
+            {
+                "title": "On B",
+                "datasource": {"title": "ModelB"},
+                "filters": [{"jaql": {"dim": "[tbl.col2]", "table": "tbl", "column": "col2", "datasource": {"title": "MyModel"}}}],
+                "widgets": [
+                    {"oid": "wB", "datasource": {"title": "ModelB"}, "metadata": {"panels": [{"items": [{"jaql": {"dim": "[tbl.col3]", "table": "tbl", "column": "col3"}}]}]}},
+                    {"oid": "wA", "datasource": {"title": "MyModel"}, "metadata": {"panels": [{"items": [{"jaql": {"dim": "[tbl.col1]", "table": "tbl", "column": "col1"}}]}]}},
+                ],
+            }
+        ]
+        am = _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": FakeResponse(200, {"oid": "dm123", "title": "MyModel"}),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}]),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, [{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}, {"name": "col3"}]}]),
+                "/api/v1/dashboards/admin": FakeResponse(200, listing),
+                "/api/v1/dashboards/export": FakeResponse(200, export),
+            }
+        )
+        used = {(r["table"], r["column"]): r["used"] for r in am.get_unused_columns_bulk("MyModel")["results"]}
+        # col1 via the widget on MyModel, col2 via the filter on MyModel; col3 belongs to ModelB's widget and must not count
+        assert used == {("tbl", "col1"): True, ("tbl", "col2"): True, ("tbl", "col3"): False}
+
+
+class TestGetDatamodelColumnsSchemaPaths:
+    _SCHEMA_LIST = FakeResponse(200, {"oid": "dm123", "title": "MyModel"})
+
+    def test_reads_the_full_schema_in_one_call_and_skips_null_entries(self):
+        full = {
+            "oid": "dm123",
+            "datasets": [None, {"oid": "ds1", "schema": {"tables": [None, {"name": "tbl", "columns": [{"name": "a"}, None, {"name": ""}, {"name": "b"}]}, {"name": "", "columns": [{"name": "x"}]}]}}],
+        }
+        am = _make_am(get_responses={"/api/v2/datamodels/schema": self._SCHEMA_LIST, "/api/v2/datamodels/dm123/schema": FakeResponse(200, full)})
+        rows = am.get_datamodel_columns("MyModel")
+        assert [(r["table"], r["column"]) for r in rows] == [("tbl", "a"), ("tbl", "b")]
+        assert rows[0] == {"datamodel_id": "dm123", "datamodel_name": "MyModel", "table": "tbl", "column": "a"}
+
+    def test_falls_back_to_dataset_endpoints_when_full_schema_fails(self):
+        am = _make_am(
+            get_responses={
+                "/api/v2/datamodels/schema": self._SCHEMA_LIST,
+                "/api/v2/datamodels/dm123/schema": FakeResponse(404, {}),
+                "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(200, [{"oid": "ds1"}, None]),
+                "/api/v2/datamodels/dm123/schema/datasets/ds1/tables": FakeResponse(200, [{"name": "tbl", "columns": [{"name": "a"}, None]}]),
+            }
+        )
+        assert [(r["table"], r["column"]) for r in am.get_datamodel_columns("MyModel")] == [("tbl", "a")]
+
+    def test_unknown_model_returns_empty_list(self):
+        assert _make_am(get_responses={"/api/v2/datamodels/schema": FakeResponse(404, {})}).get_datamodel_columns("Nope") == []
+
+    def test_both_paths_failing_returns_empty_list(self):
+        am = _make_am(get_responses={"/api/v2/datamodels/schema": self._SCHEMA_LIST, "/api/v2/datamodels/dm123/schema": None, "/api/v2/datamodels/dm123/schema/datasets": FakeResponse(404, {})})
+        assert am.get_datamodel_columns("MyModel") == []
 
 
 # ---------------------------------------------------------------------------

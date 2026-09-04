@@ -722,3 +722,81 @@ Only supported for live-type data models. For extract models use `update_datasec
 **Returns:**
 
 -   `dict`: API response body on success, or `{"ok": False, "error": "..."}` on failure.
+
+* * * * *
+
+### `get_perspectives(perspectives=None, datamodel=None, include_default=False)`
+
+Retrieves perspectives — all of them, those of one data model, or specific ones by name or ID. A perspective is a metadata-only view over a root data model that keeps a subset of its tables and columns. One method covers listing and lookup so callers need a single tool: no arguments returns every real perspective on the instance; `datamodel` narrows to one root model; `perspectives` picks specific ones. Sisense creates a hidden `Default` perspective for every model — those are left out unless `include_default` is true or one is requested explicitly.
+
+**Parameters:**
+
+- `perspectives` (str or list of str, optional): One perspective reference or a list of them, each a name (case-insensitive) or an `oid`. `None` returns all.
+- `datamodel` (str, optional): Root data model to restrict to, as an ID or title.
+- `include_default` (bool, optional): Include the auto-generated `Default` perspectives when listing. Defaults to `False`.
+
+**Returns:**
+
+- `list` or `dict`: Perspective objects as Sisense returns them, plus `datamodelTitle` (the root model's title, `None` if it could not be looked up). Key fields: `oid`, `name`, `description`, `datamodelOid` (the root model), `parentOid`, and `tables` — a list of `{"oid", "diffType", "columnsDiff": [{"oid", "enabled"}]}` keyed by table and column oids (`columnsDiff` lists the kept columns). An empty list means nothing matched the filters. When one or more requested references do not exist, the standard error dict `{"ok": False, "error": "..."}` is returned, additionally carrying `missing` (the unresolved references) and `results` (the ones that were found). An API failure or an unresolvable `datamodel` returns the standard error dict.
+
+* * * * *
+
+### `create_perspective(datamodel, name, tables, description="", ai_context=None)`
+
+Creates a perspective over a data model, keeping only the named tables and columns, via `POST /api/v2/perspectives`. A perspective is a metadata-only view: the root model and its data are untouched, and everything not listed is left out of the view. Table and column names are resolved to their ids against the model's schema before anything is sent, so a typo fails fast and nothing half-built is created. The request carries the kept tables as `include` entries whose `columnsDiff` lists the kept columns; tables and columns not kept are absent from it. After creation the perspective is read back and compared with the request.
+
+**Parameters:**
+
+- `datamodel` (str): The root data model, as an ID or title.
+- `name` (str): Name for the new perspective. Must not already exist on that model.
+- `tables` (list of `PerspectiveTableSpec` or str): Tables to keep. Each entry is `{"table": name, "columns": [names] | "all"}`, or a bare table name meaning all of its columns. Tables not listed are excluded.
+- `description` (str, optional): Description shown in Sisense.
+- `ai_context` (str, optional): Free-text context for the AI assistant, stored on the perspective as `aiContext`.
+
+**Returns:**
+
+- `dict`: `{"success": True, "oid", "name", "datamodelOid", "datamodelTitle", "description", "tables": [{"table", "table_oid", "columns_kept", "columns_total"}], "excluded_tables": [names], "warnings": [...]}` on success — `warnings` is non-empty only when the read-back differs from the request. On failure (unknown model, table or column, a name already in use, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `delete_perspective(perspective, datamodel=None)`
+
+Deletes a perspective by name or ID: the reference is resolved against `GET /api/v2/perspectives`, then `DELETE /api/v2/perspectives/{oid}` is sent. The root data model and its data are untouched — only the metadata-only view is removed. A model's hidden `Default` perspective is never deleted. When the same name exists on more than one model, `datamodel` must say which one.
+
+**Parameters:**
+
+- `perspective` (str): The perspective's name (case-insensitive) or `oid`.
+- `datamodel` (str, optional): Root data model (ID or title) to disambiguate a name that exists on several models.
+
+**Returns:**
+
+- `dict`: `{"success": True, "message": "...", "oid", "name", "datamodelOid", "datamodelTitle"}` on success. On failure (not found, ambiguous, a default perspective, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `analyze_perspective_requirements(datamodel, detailed=False)`
+
+Works out which tables and columns of a data model its dashboards need, ready to build a perspective from. Read-only. Finds every dashboard that uses the model — directly, through a single widget, or through a perspective already built over it — reads each one's fields (filters, hierarchies, widget panels, nested formulas, drill history), keeping only references that belong to this model, resolves them against the model's schema, then adds what those columns depend on to keep working: join columns and intermediate tables on the relation paths between used tables, the columns custom columns read, and the tables custom tables select from. Anything that could not be resolved or verified is reported as an issue rather than dropped.
+
+**Parameters:**
+
+- `datamodel` (str): The data model, as an ID or title.
+- `detailed` (bool, optional): Include the per-dashboard, per-column, per-dependency and per-issue detail. Defaults to `False`, the summary view.
+
+**Returns:**
+
+- `dict`. Always present:
+  - `datamodel`: `oid`, `title`, `type`, the counts of `tables`, `columns`, `relations`, `custom_columns` and `custom_tables`, and the names of its existing `perspectives`.
+  - `summary`: `model_tables`, `model_columns`; `dashboards_analyzed`, `dashboards_failed`; `tables_used_by_dashboards`, `columns_used_by_dashboards`; `columns_required_for_dependencies`; `tables_required_in_perspective`, `columns_required_in_perspective`; `tables_not_required`, `columns_not_required`; `issues` by severity.
+  - `perspective_tables`: the `{"table", "columns"}` entries a perspective must keep — every used column plus every dependency — in the form `create_perspective` accepts.
+  - `errors`: the distinct error messages (a field a dashboard uses that does not exist in the model, a dashboard that could not be exported, a custom table whose SQL names an unknown table).
+  - `warnings`: warning counts by kind (`renamed_reference` — a column referenced by a former name, kept; `blox_widget` and `script_present` — fields inside BloX templates or scripts cannot be verified; `ambiguous_dim`, `unreadable_dim`, and the dependency-closure kinds).
+
+  With `detailed=True` also:
+  - `required`: `tables` (`table`, `columns_used`, `columns_total`, `used_by_dashboards`) and `columns` (`table`, `column`, `used_in` — `"filter"`, `"hierarchy"` and/or `"widget"` — and `used_by` dashboards).
+  - `dependencies`: `columns` required for a reason other than direct use (`table`, `column`, `reason` — `join_column`, `custom_column_expression`, `custom_table_source` — `required_by`, `detail`), `tables` required only as join paths, and `join_paths`.
+  - `not_required`: the `tables` and `columns` a perspective can leave out.
+  - `dashboards`: `analyzed` (`dashboard_id`, `title`, `match`, `datasource` — the model or the perspective the dashboard sits on — `owner`, `owner_email`, `tables_used`, `columns_used`, `columns` as `"Table.Column"` strings, `widgets_on_other_datasources`) and `failed`.
+  - `issues`: every issue as `{"severity", "kind", "dashboard", "widget_id", "detail"}`.
+
+  On failure to resolve the model, read its schema or list dashboards, the standard error dict `{"ok": False, "error": "..."}`.

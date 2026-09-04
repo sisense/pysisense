@@ -117,9 +117,9 @@ Fetches all users and returns one canonical user row per user.
 
 -   `list`: One canonical row per user, each with `USER_ID`, `USER_NAME`,
     `EMAIL`, `FIRST_NAME`, `LAST_NAME`, `IS_ACTIVE`, `ROLE_ID`,
-    `ROLE_NAME` and `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`), `ROLE_RAW_NAME` (raw value, e.g. `consumer`)
-    (UI name, e.g. `viewer`), `GROUP_IDS`, and `GROUPS` (unfiltered —
-    the `Everyone` group **is** included).
+    `ROLE_NAME` and `ROLE_DISPLAY_NAME` (UI name, e.g. `viewer`),
+    `ROLE_RAW_NAME` (raw value, e.g. `consumer`), `GROUP_IDS`, and `GROUPS`
+    (unfiltered — the `Everyone` group **is** included).
 
     An empty list means the instance genuinely has zero users. On failure,
     returns a plain `{"ok": False, "error": "..."}` dict (no longer a
@@ -131,8 +131,9 @@ Fetches all users and returns one canonical user row per user.
 
 > **Deprecated** — use [`get_users_all`](#get_users_allself) instead. This alias is
 > marked deprecated (PEP 702) and its behavior is frozen until removal.
-> `get_users_all` returns canonical rows that carry both the raw role name
-> (`ROLE_NAME`) and the UI name (`ROLE_DISPLAY_NAME`), plus group IDs and names.
+> `get_users_all` returns canonical rows that carry both the UI role name
+> (`ROLE_NAME`/`ROLE_DISPLAY_NAME`) and the raw role value (`ROLE_RAW_NAME`),
+> plus group IDs and names.
 
 **Returns:**
 
@@ -146,8 +147,8 @@ Fetches all users and returns one canonical user row per user.
 
 > **Deprecated** — use [`get_users_all`](#get_users_allself) instead. This alias is
 > marked deprecated (PEP 702) and its behavior is frozen until removal.
-> `get_users_all` canonical rows already expose the raw role name in
-> `ROLE_NAME` (no aliasing) alongside `ROLE_DISPLAY_NAME`.
+> `get_users_all` canonical rows already expose the raw role value in
+> `ROLE_RAW_NAME` alongside the UI name in `ROLE_DISPLAY_NAME`.
 
 Retrieves all users with raw, unmodified role and group objects (``GET /api/v1/users`` with ``groups`` and ``role`` expanded).
 
@@ -368,6 +369,8 @@ Identifies unused columns in a DataModel by comparing against dashboard usage.
 ### `get_unused_columns_bulk(datamodels)`
 
 Runs unused-column analysis for one or more data models and returns a combined per-model outcome.
+
+A column counts as used when any dashboard on the model references it — in a dashboard or default filter (plain, dependent levels or measured), a drill hierarchy, a widget panel item (including nested formulas, conditional formatting and drill chains), widget drill history, widget query metadata or table headers. Widgets and filters that point at a different datasource are not counted. Each reference's table and column are taken from the explicit keys Sisense writes beside `dim`; `dim` is parsed only as a fallback, and both `[Table.Column]` and `[Table].[Column]` forms are understood. Names may contain any character; when a name itself contains dots and only `dim` is available, the model's own columns decide where the table name ends.
 
 It accepts data model references (IDs or titles), resolves each one via
 `Datamodel.resolve_datamodel_reference`, runs the unused-column analysis for

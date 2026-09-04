@@ -167,3 +167,72 @@ class TestDictParamsHaveContracts:
         assert not new_uncontracted, f"new dict-typed params need a TypedDict in payloads.py or an entry in the free-form list: {sorted(new_uncontracted)}"
         stale_entries = _FREE_FORM_OR_GRANDFATHERED - found
         assert not stale_entries, f"free-form list entries no longer match a dict-typed param (gained a contract? renamed?) — remove them: {sorted(stale_entries)}"
+
+
+# ---------------------------------------------------------------------------
+# Facade "Modules" docstring section — one entry per mixin file
+# ---------------------------------------------------------------------------
+#
+# Downstream tooling builds its hierarchical tool routing from each facade's
+# docstring: the ``Modules`` section names every mixin file in the package and
+# says what its methods are for. A mixin file with no entry is invisible to
+# that routing, so this test fails the build when one is added without its
+# entry (or an entry is left behind after a file is removed).
+
+
+def _modules_entries(cls) -> dict[str, str]:
+    doc = inspect.getdoc(cls) or ""
+    match = re.search(r"^Modules\n-+\n(.*?)(?:\n\n[A-Z][A-Za-z ]+\n-+\n|\Z)", doc, re.S | re.M)
+    if not match:
+        return {}
+    entries: dict[str, str] = {}
+    current = None
+    for line in match.group(1).splitlines():
+        head = re.match(r"^([a-z_][a-z0-9_]*) :\s*$", line)
+        if head:
+            current = head.group(1)
+            entries[current] = ""
+        elif current and line.strip():
+            entries[current] = (entries[current] + " " + line.strip()).strip()
+    return entries
+
+
+def _mixin_modules(cls, public_only: bool = True) -> set[str]:
+    """Mixin files of a facade; with ``public_only`` only those exposing a live public method (private helpers and deprecated aliases do not count)."""
+    package = cls.__module__  # e.g. "pysisense.dashboard"
+    names = set()
+    for base in cls.__mro__[1:]:
+        module = getattr(base, "__module__", "")
+        if not (module.startswith(package + ".") and base.__name__.endswith("Mixin")):
+            continue
+        live_public = (name for name, member in vars(base).items() if not name.startswith("_") and callable(member) and getattr(member, "__deprecated__", None) is None)
+        if not public_only or any(live_public):
+            names.add(module.rsplit(".", 1)[-1])
+    return names
+
+
+class TestFacadeModulesSectionCoversEveryMixin:
+    def test_every_mixin_file_has_a_modules_entry(self):
+        missing = []
+        for cls in FACADES:
+            mixins = _mixin_modules(cls)
+            if not mixins:
+                continue  # single-file facade
+            entries = _modules_entries(cls)
+            for module in sorted(mixins - set(entries)):
+                missing.append(f"{cls.__name__}: mixin file '{module}.py' has no entry in the Modules section of its facade docstring")
+        assert not missing, "\n".join(missing)
+
+    def test_no_stale_modules_entries(self):
+        stale = []
+        for cls in FACADES:
+            mixins = _mixin_modules(cls, public_only=False)
+            if not mixins:
+                continue
+            for entry in sorted(set(_modules_entries(cls)) - mixins):
+                stale.append(f"{cls.__name__}: Modules entry '{entry}' has no mixin file behind it")
+        assert not stale, "\n".join(stale)
+
+    def test_every_modules_entry_has_a_description(self):
+        empty = [f"{cls.__name__}: '{name}'" for cls in FACADES for name, text in _modules_entries(cls).items() if len(text) < 20]
+        assert not empty, "Modules entries need a real description: " + ", ".join(empty)

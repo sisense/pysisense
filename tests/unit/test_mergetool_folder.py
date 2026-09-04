@@ -210,3 +210,28 @@ class TestMigrateAllFolders:
         result = merge.migrate_all_folders()
         assert result["ok"] is True
         assert result["status"] == "noop"
+
+
+class TestMergeToolInit:
+    def test_config_dicts_build_both_clients(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)  # SisenseClient writes logs/ into the cwd
+        merge = MergeTool(
+            source_config={"domain": "src.example.com", "token": "a"},
+            target_config={"domain": "tgt.example.com", "token": "b"},
+        )
+        assert merge.source_client.base_url == "https://src.example.com"
+        assert merge.target_client.base_url == "https://tgt.example.com"
+        assert merge.logger is merge.source_client.logger
+
+    def test_yaml_aliases_still_work_with_json_files(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        src = tmp_path / "source.json"
+        src.write_text('{"domain": "src.example.com", "token": "a"}')
+        tgt = tmp_path / "target.json"
+        tgt.write_text('{"domain": "tgt.example.com", "token": "b"}')
+        merge = MergeTool(source_yaml=str(src), target_yaml=str(tgt))
+        assert merge.target_client.base_url == "https://tgt.example.com"
+
+    def test_missing_configs_and_clients_raises(self):
+        with pytest.raises(ValueError, match="source_config and target_config"):
+            MergeTool()

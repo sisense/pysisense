@@ -1167,3 +1167,438 @@ class TestImportDatamodelSchema:
         result = dm.import_datamodel_schema({"title": "SalesCube"})
         assert result["already_exists"] is False
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# get_perspectives
+# ---------------------------------------------------------------------------
+
+_P_DEFAULT_A = {"oid": "p-def-a", "name": "Default", "isDefault": True, "parentOid": None, "datamodelOid": "dm-a", "tables": []}
+_P_SALES = {"oid": "p-sales", "name": "Company Sales", "parentOid": "dm-a", "datamodelOid": "dm-a", "tables": [{"oid": "t1", "diffType": "include", "columnsDiff": [{"oid": "c1", "enabled": True}]}]}
+_P_OPS = {"oid": "p-ops", "name": "Ops", "parentOid": "dm-b", "datamodelOid": "dm-b", "tables": []}
+_PERSPECTIVES = [_P_DEFAULT_A, _P_SALES, None, _P_OPS, "junk"]
+
+
+def _make_dm_with_perspectives(perspectives=_PERSPECTIVES, **extra_get):
+    return _make_dm(
+        get_responses={
+            "/api/v2/perspectives": FakeResponse(200, perspectives),
+            "/api/v2/datamodels/dm-a/schema": FakeResponse(200, {"oid": "dm-a", "title": "Model A"}),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}, {"oid": "dm-b", "title": "Model B"}, None]),
+            **extra_get,
+        }
+    )
+
+
+class TestGetPerspectives:
+    def test_no_arguments_lists_real_perspectives_only(self):
+        result = _make_dm_with_perspectives().get_perspectives()
+        assert [p["oid"] for p in result] == ["p-sales", "p-ops"]
+
+    def test_include_default(self):
+        result = _make_dm_with_perspectives().get_perspectives(include_default=True)
+        assert [p["oid"] for p in result] == ["p-def-a", "p-sales", "p-ops"]
+
+    def test_filter_by_datamodel_id(self):
+        result = _make_dm_with_perspectives().get_perspectives(datamodel="dm-a")
+        assert [p["oid"] for p in result] == ["p-sales"]
+
+    def test_filter_by_datamodel_with_default(self):
+        result = _make_dm_with_perspectives().get_perspectives(datamodel="dm-a", include_default=True)
+        assert [p["oid"] for p in result] == ["p-def-a", "p-sales"]
+
+    def test_unresolvable_datamodel_is_an_error(self):
+        dm = _make_dm_with_perspectives(**{"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
+        result = dm.get_perspectives(datamodel="nope")
+        assert result["ok"] is False and "nope" in result["error"]
+
+    def test_lookup_by_name_is_case_insensitive_and_returns_the_object(self):
+        result = _make_dm_with_perspectives().get_perspectives("company sales")
+        assert result == [_P_SALES]
+
+    def test_each_perspective_carries_its_root_model_title(self):
+        result = _make_dm_with_perspectives().get_perspectives()
+        assert [(p["name"], p["datamodelTitle"]) for p in result] == [("Company Sales", "Model A"), ("Ops", "Model B")]
+
+    def test_model_title_lookup_failure_does_not_fail_the_call(self):
+        dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [_P_SALES]), "/api/v2/datamodels/schema": FakeResponse(500, {})})
+        result = dm.get_perspectives()
+        assert result[0]["oid"] == "p-sales" and result[0]["datamodelTitle"] is None
+
+    def test_lookup_by_oid(self):
+        assert _make_dm_with_perspectives().get_perspectives("p-ops") == [_P_OPS]
+
+    def test_lookup_list_mixed_and_deduplicated(self):
+        result = _make_dm_with_perspectives().get_perspectives(["Company Sales", "p-sales", "Ops"])
+        assert [p["oid"] for p in result] == ["p-sales", "p-ops"]
+
+    def test_explicit_request_can_name_a_default_perspective(self):
+        assert _make_dm_with_perspectives().get_perspectives("p-def-a") == [_P_DEFAULT_A]
+
+    def test_lookup_scoped_by_datamodel(self):
+        result = _make_dm_with_perspectives().get_perspectives("Ops", datamodel="dm-a")
+        assert result["ok"] is False and result["missing"] == ["Ops"] and result["results"] == []
+
+    def test_missing_reference_fails_loudly_but_returns_what_was_found(self):
+        result = _make_dm_with_perspectives().get_perspectives(["Company Sales", "no-such"])
+        assert result["ok"] is False
+        assert "no-such" in result["error"]
+        assert result["missing"] == ["no-such"]
+        assert result["results"] == [_P_SALES]
+
+    def test_empty_reference_input_is_an_error(self):
+        assert _make_dm_with_perspectives().get_perspectives("")["ok"] is False
+        assert _make_dm_with_perspectives().get_perspectives([])["ok"] is False
+
+    def test_api_failure_returns_error_dict(self):
+        dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(500, {"message": "boom"})})
+        result = dm.get_perspectives()
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_no_response_returns_error_dict(self):
+        assert _make_dm(get_responses={"/api/v2/perspectives": None}).get_perspectives()["ok"] is False
+
+    def test_unexpected_structure_returns_error_dict(self):
+        assert _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, {"not": "a list"})}).get_perspectives()["ok"] is False
+
+    def test_empty_instance_returns_empty_list(self):
+        assert _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [])}).get_perspectives() == []
+
+
+class TestDeletePerspective:
+    def _dm(self, delete_status=204, perspectives=_PERSPECTIVES):
+        return _make_dm(
+            get_responses={
+                "/api/v2/perspectives": FakeResponse(200, perspectives),
+                "/api/v2/datamodels/dm-a/schema": FakeResponse(200, {"oid": "dm-a", "title": "Model A"}),
+                "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}, {"oid": "dm-b", "title": "Model B"}]),
+            },
+            delete_responses={"/api/v2/perspectives/": FakeResponse(delete_status, None if delete_status == 204 else {"message": "boom"})},
+        )
+
+    def test_deletes_by_name_and_reports_what_was_deleted(self):
+        result = self._dm().delete_perspective("company sales")
+        assert result == {"success": True, "message": "Perspective 'Company Sales' deleted.", "oid": "p-sales", "name": "Company Sales", "datamodelOid": "dm-a", "datamodelTitle": "Model A"}
+
+    def test_deletes_by_oid(self):
+        assert self._dm().delete_perspective("p-ops")["success"] is True
+
+    def test_unknown_reference_is_the_lookup_error(self):
+        result = self._dm().delete_perspective("nope")
+        assert result["ok"] is False and result["missing"] == ["nope"]
+
+    def test_default_perspective_is_refused(self):
+        result = self._dm().delete_perspective("p-def-a")
+        assert result["ok"] is False and "Default" in result["error"]
+
+    def test_same_name_on_two_models_requires_datamodel(self):
+        twin = {"oid": "p-sales-b", "name": "Company Sales", "parentOid": "dm-b", "datamodelOid": "dm-b", "tables": []}
+        dm = self._dm(perspectives=[_P_SALES, twin])
+        result = dm.delete_perspective("Company Sales")
+        assert result["ok"] is False and "several data models" in result["error"] and "Model A" in result["error"]
+        assert dm.delete_perspective("Company Sales", datamodel="dm-a")["oid"] == "p-sales"
+
+    def test_api_failure_returns_error_dict(self):
+        result = self._dm(delete_status=500).delete_perspective("Ops")
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_no_response_returns_error_dict(self):
+        dm = _make_dm(get_responses={"/api/v2/perspectives": FakeResponse(200, [_P_OPS]), "/api/v2/datamodels/schema": FakeResponse(200, [])}, delete_responses={"/api/v2/perspectives/": None})
+        assert dm.delete_perspective("Ops")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# create_perspective
+# ---------------------------------------------------------------------------
+
+_FES_SCHEMA = {
+    "oid": "dm-a",
+    "title": "Model A",
+    "tenant": {"_id": "tenant-1"},
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    {
+                        "oid": "t-trips",
+                        "name": "@trips",
+                        "type": "base",
+                        "columns": [{"oid": "c-fare", "name": "fare_amount"}, {"oid": "c-pick", "name": '."tpep_pickup_datetime.'}, {"oid": "c-zip", "name": "pickup_zip"}],
+                    },
+                    {"oid": "t-region", "name": "region", "type": "base", "columns": [{"oid": "c-rname", "name": "r_name"}, {"oid": "c-rkey", "name": "r_regionkey"}]},
+                    {"oid": "t-unused", "name": "Unused", "type": "base", "columns": [{"oid": "c-u", "name": "u"}]},
+                    None,
+                ]
+            },
+        }
+    ],
+    "relations": [],
+}
+
+
+class _RecordingClient(FakeApiClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.posted: list[tuple[str, dict]] = []
+
+    def post(self, url, data=None, **kwargs):
+        self.posted.append((url, data))
+        return super().post(url, data=data, **kwargs)
+
+
+def _make_creator(post_status=201, readback=None, existing=None, schema=_FES_SCHEMA):
+    client = _RecordingClient(
+        get_responses={
+            "/api/v2/datamodels/dm-a/schema": FakeResponse(200, schema),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}]),
+            "/api/v2/perspectives": FakeResponse(200, existing if existing is not None else [_P_DEFAULT_A]),
+        },
+        post_responses={"/api/v2/perspectives": FakeResponse(post_status, {"oid": "server-oid"} if post_status == 201 else {"message": "boom"})},
+        logger=FakeLogger(),
+    )
+    client._get["/api/v2/perspectives/server-oid"] = FakeResponse(200, readback) if readback is not None else FakeResponse(404, {})
+    return DataModel(api_client=client), client
+
+
+class TestCreatePerspective:
+    def _readback(self):
+        return {
+            "oid": "server-oid",
+            "name": "P",
+            "tables": [
+                {"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-pick", "enabled": True}]},
+                {"oid": "t-region", "diffType": "include", "columnsDiff": [{"oid": "c-rname", "enabled": True}, {"oid": "c-rkey", "enabled": True}]},
+            ],
+        }
+
+    def test_builds_the_ui_payload_from_names(self):
+        dm, client = _make_creator(readback=self._readback())
+        result = dm.create_perspective("dm-a", "P", [{"table": "@TRIPS", "columns": ["fare_amount", '."tpep_pickup_datetime.']}, "region"], description="d", ai_context="ctx")
+        assert result["success"] is True and result["warnings"] == []
+        assert result["oid"] == "server-oid" and result["datamodelTitle"] == "Model A"
+        assert result["tables"] == [
+            {"table": "@trips", "table_oid": "t-trips", "columns_kept": 2, "columns_total": 3},
+            {"table": "region", "table_oid": "t-region", "columns_kept": 2, "columns_total": 2},
+        ]
+        assert result["excluded_tables"] == ["Unused"]
+        url, body = client.posted[0]
+        assert url == "/api/v2/perspectives"
+        assert body["name"] == "P" and body["datamodelOid"] == "dm-a" and body["parentOid"] == "dm-a" and body["tenantId"] == "tenant-1"
+        assert body["description"] == "d" and body["aiContext"] == "ctx" and body["relations"] == [] and body["shares"] == [] and body["fiscalYear"] == "system"
+        assert body["tables"] == [
+            {"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-pick", "enabled": True}]},
+            {"oid": "t-region", "diffType": "include", "columnsDiff": [{"oid": "c-rname", "enabled": True}, {"oid": "c-rkey", "enabled": True}]},
+        ]
+        assert len(body["oid"]) == 36  # client-generated uuid, as the UI does
+
+    def test_ai_context_omitted_when_not_given(self):
+        dm, client = _make_creator(readback=self._readback())
+        dm.create_perspective("dm-a", "P", ["@trips", "region"])
+        assert "aiContext" not in client.posted[0][1]
+
+    def test_unknown_table_and_column_fail_fast_before_posting(self):
+        dm, client = _make_creator()
+        result = dm.create_perspective("dm-a", "P", ["nope", {"table": "region", "columns": ["r_name", "zzz"]}])
+        assert result["ok"] is False and "table 'nope' not found" in result["error"] and "column 'zzz' not found in table 'region'" in result["error"]
+        assert client.posted == []
+
+    def test_duplicate_name_on_the_model_is_refused(self):
+        dm, client = _make_creator(existing=[_P_DEFAULT_A, {"oid": "x", "name": "p", "parentOid": "dm-a", "datamodelOid": "dm-a"}])
+        result = dm.create_perspective("dm-a", "P", ["region"])
+        assert result["ok"] is False and "already exists" in result["error"] and client.posted == []
+
+    def test_unresolvable_model(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
+        assert dm.create_perspective("nope", "P", ["region"])["ok"] is False
+
+    def test_api_failure_returns_error_dict(self):
+        dm, _ = _make_creator(post_status=500)
+        result = dm.create_perspective("dm-a", "P", ["region"])
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_readback_mismatch_is_a_warning_not_a_failure(self):
+        short = self._readback()
+        short["tables"][0]["columnsDiff"] = short["tables"][0]["columnsDiff"][:1]
+        dm, _ = _make_creator(readback=short)
+        result = dm.create_perspective("dm-a", "P", ["@trips", "region"])
+        assert result["success"] is True
+        assert any("@trips" in w and "stored" in w for w in result["warnings"])
+
+    def test_readback_unavailable_is_a_warning(self):
+        dm, _ = _make_creator()
+        result = dm.create_perspective("dm-a", "P", ["region"])
+        assert result["success"] is True and any("read back" in w for w in result["warnings"])
+
+    def test_input_validation(self):
+        dm, _ = _make_creator()
+        assert dm.create_perspective("dm-a", "", ["region"])["ok"] is False
+        assert dm.create_perspective("dm-a", "P", [])["ok"] is False
+        assert dm.create_perspective("dm-a", "P", [{"table": "region", "columns": []}])["ok"] is False
+        assert dm.create_perspective("dm-a", "P", ["region", "REGION"])["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# analyze_perspective_requirements
+# ---------------------------------------------------------------------------
+
+_A_SCHEMA = {
+    "oid": "dm-a",
+    "title": "Model A",
+    "type": "extract",
+    "tenant": {"_id": "tenant-1"},
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    {
+                        "oid": "t-ord",
+                        "name": "Orders",
+                        "type": "base",
+                        "columns": [
+                            {"oid": "c-amt", "name": "Amount"},
+                            {"oid": "c-cust", "name": "CustomerID"},
+                            {"oid": "c-note", "name": "Note"},
+                            {"oid": "c-total", "name": "Total", "expression": "[Amount] * 2", "isCustom": True},
+                        ],
+                    },
+                    {
+                        "oid": "t-cus",
+                        "name": "Customers",
+                        "type": "base",
+                        "columns": [{"oid": "c-cid", "name": "CustomerID"}, {"oid": "c-cname", "name": "test", "id": "Name"}, {"oid": "c-city", "name": "City"}],
+                    },
+                    {"oid": "t-unused", "name": "Archive", "type": "base", "columns": [{"oid": "c-arch", "name": "Old"}]},
+                ]
+            },
+        }
+    ],
+    "relations": [{"oid": "r1", "columns": [{"dataset": "ds", "table": "t-ord", "column": "c-cust"}, {"dataset": "ds", "table": "t-cus", "column": "c-cid"}]}],
+}
+_A_DS = {"title": "Model A", "id": "localhost_aModelIAAaA", "fullname": "LocalHost/Model A", "address": "LocalHost", "database": "aModelIAAaA", "live": False}
+_A_OTHER = {"title": "Other Model", "id": "localhost_aOther", "fullname": "LocalHost/Other Model", "live": False}
+_A_EXPORT = {
+    "oid": "d1",
+    "title": "Sales",
+    "datasource": _A_DS,
+    "filters": [{"jaql": {"dim": "[Customers.City]", "table": "Customers", "column": "City", "filter": {"members": ["Paris"]}}}],
+    "hierarchies": [
+        {"title": "Geo", "elasticubeTitle": "Model A", "levels": [{"dim": "[Customers.Name]", "table": "Customers", "column": "Name"}]},  # renamed column, referenced by its old name
+        {"title": "Foreign", "elasticubeTitle": "Other Model", "levels": [{"dim": "[Dim.Whatever]", "table": "Dim", "column": "Whatever"}]},  # another model's hierarchy
+    ],
+    "widgets": [
+        {
+            "oid": "w1",
+            "type": "indicator",
+            "datasource": _A_DS,
+            "metadata": {"panels": [{"name": "value", "items": [{"jaql": {"dim": "[Orders.Total]", "table": "Orders", "column": "Total", "agg": "sum"}}]}]},
+        },
+        {
+            "oid": "w2",
+            "type": "chart/bar",
+            "datasource": _A_OTHER,
+            "metadata": {"panels": [{"name": "categories", "items": [{"jaql": {"dim": "[Foreign.Col]", "table": "Foreign", "column": "Col"}}]}]},
+        },
+        {
+            "oid": "w3",
+            "type": "pivot2",
+            "metadata": {"panels": [{"name": "rows", "items": [{"jaql": {"dim": "[Orders.Ghost]", "table": "Orders", "column": "Ghost"}}]}]},
+        },  # stale: column no longer exists
+    ],
+}
+
+
+def _make_analyzer(export=_A_EXPORT, listing_extra=None, export_status=200):
+    listing = [{"oid": "d1", "title": "Sales", "owner": "u1", "datasource": _A_DS, "widgetsDatasources": [_A_DS, _A_OTHER]}] + (listing_extra or [])
+    return _make_dm(
+        get_responses={
+            "/api/v2/datamodels/dm-a/schema": FakeResponse(200, _A_SCHEMA),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-a", "title": "Model A"}]),
+            "/api/v2/perspectives": FakeResponse(200, [{"oid": "p-def", "name": "Default", "isDefault": True, "parentOid": None, "datamodelOid": "dm-a", "tables": []}]),
+            "/api/v1/dashboards/admin": FakeResponse(200, listing),
+            "/api/v1/dashboards/export": FakeResponse(export_status, [export] if export_status == 200 else {"message": "boom"}),
+            "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "owner@example.com"}]),
+        }
+    )
+
+
+class TestAnalyzePerspectiveRequirements:
+    def test_tables_to_keep_cover_direct_use_and_dependencies(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        assert a["perspective_tables"] == [
+            {"table": "Customers", "columns": ["City", "CustomerID", "test"]},  # City (filter), test (renamed, hierarchy), CustomerID (join)
+            {"table": "Orders", "columns": ["Amount", "CustomerID", "Total"]},  # Total (widget), Amount (custom column source), CustomerID (join)
+        ]
+        assert a["not_required"]["tables"] == ["Archive"]
+        assert {(c["table"], c["column"]) for c in a["not_required"]["columns"]} == {("Orders", "Note")}
+
+    def test_required_columns_say_where_and_by_whom(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        by = {(c["table"], c["column"]): c for c in a["required"]["columns"]}
+        assert by[("Orders", "Total")]["used_in"] == ["widget"] and by[("Orders", "Total")]["used_by"] == ["Sales"]
+        assert by[("Customers", "City")]["used_in"] == ["filter"]
+        assert by[("Customers", "test")]["used_in"] == ["hierarchy"]
+
+    def test_dependencies_carry_reasons(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        deps = {(d["table"], d["column"], d["reason"]) for d in a["dependencies"]["columns"]}
+        assert ("Orders", "CustomerID", "join_column") in deps and ("Customers", "CustomerID", "join_column") in deps
+        assert ("Orders", "Amount", "custom_column_expression") in deps
+        assert a["dependencies"]["join_paths"] == [["Customers", "Orders"]]
+        assert a["summary"]["columns_required_for_dependencies"] == 3
+
+    def test_issues_distinguish_renamed_stale_and_ignore_foreign(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        kinds = {(i["severity"], i["kind"]) for i in a["issues"]}
+        assert ("warning", "renamed_reference") in kinds and ("error", "unresolved_reference") in kinds
+        renamed = next(i for i in a["issues"] if i["kind"] == "renamed_reference")
+        assert "'Customers'.'Name'" in renamed["detail"] and "'test'" in renamed["detail"]
+        stale = next(i for i in a["issues"] if i["kind"] == "unresolved_reference")
+        assert "'Orders'.'Ghost'" in stale["detail"] and stale["widget_id"] == "w3"
+        assert not any("Whatever" in i["detail"] or "Foreign" in i["detail"] for i in a["issues"])  # other model's hierarchy and widget are not this model's problem
+        assert a["summary"]["issues"] == {"error": 1, "warning": 1}
+
+    def test_dashboards_carry_owner_datasource_and_untouched_widgets(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        d = a["dashboards"]["analyzed"][0]
+        assert d["title"] == "Sales" and d["match"] == "dashboard" and d["datasource"] == "Model A"
+        assert d["owner"] == "u1" and d["owner_email"] == "owner@example.com"
+        assert d["tables_used"] == 2 and d["columns_used"] == 3 and d["columns"] == ["Customers.City", "Customers.test", "Orders.Total"]
+        assert d["widgets_on_other_datasources"] == [{"widget_id": "w2", "title": None, "type": "chart/bar", "datasource": "other model"}]
+        assert a["dashboards"]["failed"] == []
+
+    def test_datamodel_facts_and_summary(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
+        assert a["datamodel"] == {"oid": "dm-a", "title": "Model A", "type": "extract", "tables": 3, "columns": 8, "relations": 1, "custom_columns": 1, "custom_tables": 0, "perspectives": []}
+        assert a["summary"] == {
+            "model_tables": 3,
+            "model_columns": 8,
+            "dashboards_analyzed": 1,
+            "dashboards_failed": 0,
+            "tables_used_by_dashboards": 2,
+            "columns_used_by_dashboards": 3,
+            "columns_required_for_dependencies": 3,
+            "tables_required_in_perspective": 2,
+            "columns_required_in_perspective": 6,
+            "tables_not_required": 1,
+            "columns_not_required": 2,
+            "issues": {"error": 1, "warning": 1},
+        }
+
+    def test_failed_export_is_reported_not_swallowed(self):
+        a = _make_analyzer(export_status=500).analyze_perspective_requirements("dm-a", detailed=True)
+        assert a["dashboards"]["failed"][0]["dashboard_id"] == "d1" and a["summary"]["dashboards_failed"] == 1
+        assert any(i["kind"] == "dashboard_export_failed" and i["severity"] == "error" for i in a["issues"])
+        assert a["perspective_tables"] == []  # nothing could be read, nothing is claimed
+
+    def test_default_view_is_the_summary_only(self):
+        a = _make_analyzer().analyze_perspective_requirements("dm-a")
+        assert set(a) == {"datamodel", "summary", "perspective_tables", "errors", "warnings"}
+        assert a["errors"] == ["Sales: 'Orders'.'Ghost' is used but does not exist in data model 'Model A'"]
+        assert a["warnings"] == {"renamed_reference": 1}
+        assert a["perspective_tables"] == _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)["perspective_tables"]
+
+    def test_unknown_model(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
+        assert dm.analyze_perspective_requirements("nope")["ok"] is False

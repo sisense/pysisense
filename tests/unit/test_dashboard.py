@@ -1,5 +1,6 @@
 """Unit tests for pysisense.dashboard.Dashboard."""
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 import pysisense.dashboard.scripts as scripts_module
@@ -407,6 +408,33 @@ class TestGetDashboardColumns:
         )
         result = dash.get_dashboard_columns("Sales Report")
         assert isinstance(result, list)
+        # [orders].[amount] is the two-bracket form; the old strip("[]").split(".")
+        # read it as table "orders]" / column "[amount".
+        assert result == [{"dashboard_name": "Sales Report", "source": "widget", "widget_id": "Unknown Widget", "table": "orders", "column": "amount"}]
+
+    def test_widget_id_comes_from_the_widget_oid_and_calendar_dedupes(self):
+        export_data = [
+            {
+                "title": "Sales Report",
+                "filters": [{"levels": [{"dim": "[orders.Date (Calendar)]"}]}],
+                "widgets": [
+                    {"oid": "w1", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[orders.Date]"}}]}]}},
+                    {"oid": "w2", "metadata": {"panels": [{"items": [{"jaql": {"dim": "[[region.r_name]"}}]}]}},
+                ],
+                "layout": {"columns": [{"cells": [{"subcells": [{"elements": [{"widgetid": "layout-says-otherwise"}]}]}]}]},
+            }
+        ]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
+                "/api/v1/dashboards/export": FakeResponse(200, export_data),
+            }
+        )
+        result = dash.get_dashboard_columns("Sales Report")
+        assert [(r["source"], r["widget_id"], r["table"], r["column"]) for r in result] == [
+            ("filter", "N/A", "orders", "Date (Calendar)"),  # w1's [orders.Date] dedupes against it
+            ("widget", "w2", "[region", "r_name"),  # table name starting with "[" survives
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -820,6 +848,34 @@ class TestPublishDashboard:
         result = dash.publish_dashboard("dash123", force=True)
         assert "error" not in result
 
+    def test_plain_call_first_then_admin_access_on_403(self):
+        # Live-observed: only the owner may publish; some versions honour adminAccess for admins, this one rejects it (422).
+        client = _RecordingDashClient(
+            post_responses={"/api/v1/dashboards/dash123/publish": [FakeResponse(403, {"error": {"code": 403, "message": "Access denied"}}), FakeResponse(200, {"published": True})]},
+            logger=FakeLogger(),
+        )
+        result = Dashboard(api_client=client).publish_dashboard("dash123")
+        assert result == {"published": True}
+        assert [u for u, _ in client.posted] == ["/api/v1/dashboards/dash123/publish", "/api/v1/dashboards/dash123/publish?adminAccess=true"]
+
+    def test_admin_retry_rejected_with_422_returns_the_original_403(self):
+        client = _RecordingDashClient(
+            post_responses={
+                "/api/v1/dashboards/dash123/publish": [
+                    FakeResponse(403, {"error": {"code": 403, "message": "Access denied"}}),
+                    FakeResponse(422, {"error": {"message": "must NOT have additional properties"}}),
+                ]
+            },
+            logger=FakeLogger(),
+        )
+        result = Dashboard(api_client=client).publish_dashboard("dash123")
+        assert result["ok"] is False and result["status_code"] == 403 and "Access denied" in result["error"]
+
+    def test_admin_access_false_does_not_retry(self):
+        client = _RecordingDashClient(post_responses={"/api/v1/dashboards/dash123/publish": FakeResponse(403, {"error": {"message": "Access denied"}})}, logger=FakeLogger())
+        result = Dashboard(api_client=client).publish_dashboard("dash123", admin_access=False)
+        assert result["status_code"] == 403 and len(client.posted) == 1
+
 
 # ---------------------------------------------------------------------------
 # rename_dashboard
@@ -979,3 +1035,632 @@ class TestAddDashboardScriptOwnershipRestored:
         assert len(change_owner_calls) == 2
         share_restore_calls = [u for u in client.post_urls if "shares/dashboard" in u]
         assert len(share_restore_calls) >= 1
+
+
+# ---------------------------------------------------------------------------
+# get_dashboards_by_datasource
+# ---------------------------------------------------------------------------
+
+_DS = lambda title: {"title": title, "fullname": f"LocalHost/{title}", "live": False}  # noqa: E731
+_LISTING = [
+    {
+        "oid": "d1",
+        "title": "Sales Overview",
+        "owner": "u1",
+        "parentFolder": "f1",
+        "lastUpdated": "2026-01-01T00:00:00Z",
+        "datasource": _DS("Sample ECommerce"),
+        "widgetsDatasources": [_DS("Sample ECommerce")],
+    },
+    {"oid": "d1", "title": "Sales Overview", "owner": "u1", "datasource": _DS("Sample ECommerce"), "widgetsDatasources": []},  # the listing repeats oids
+    {"oid": "d2", "title": "Mixed", "owner": "u2", "datasource": _DS("Other Model"), "widgetsDatasources": [_DS("Other Model"), _DS("sample ecommerce")]},
+    {"oid": "d3", "title": "Unrelated", "owner": "u2", "datasource": _DS("Other Model"), "widgetsDatasources": [_DS("Other Model")]},
+    {"oid": "d4", "title": "No Summary", "owner": "u1", "datasource": _DS("Other Model"), "widgetsDatasources": []},
+    {
+        "oid": "d5",
+        "title": "Live",
+        "owner": "u1",
+        "datasource": {"title": "Sample ECommerce", "id": "live:Sample ECommerce", "fullname": "live:Sample ECommerce", "live": True},
+        "widgetsDatasources": None,
+    },
+    None,
+]
+_USERS = [{"_id": "u1", "email": "one@example.com"}, {"_id": "u2", "email": "two@example.com"}]
+
+
+def _make_discovery(listing=_LISTING, export=None, users=_USERS, **extra):
+    responses = {"/api/v1/dashboards/admin": FakeResponse(200, listing), "/api/v1/users": FakeResponse(200, users), **extra}
+    if export is not None:
+        responses["/api/v1/dashboards/export"] = FakeResponse(200, export)
+    return _make_dash(get_responses=responses)
+
+
+class TestGetDashboardsByDatasource:
+    def test_matches_dashboard_level_and_widget_level_case_insensitively(self):
+        rows = _make_discovery().get_dashboards_by_datasource("sample ecommerce")
+        assert [(r["dashboard_id"], r["match"]) for r in rows] == [("d5", "dashboard"), ("d1", "dashboard"), ("d2", "widget")]
+
+    def test_rows_carry_owner_email_folder_and_timestamps(self):
+        row = next(r for r in _make_discovery().get_dashboards_by_datasource("Sample ECommerce") if r["dashboard_id"] == "d1")
+        assert row == {
+            "dashboard_id": "d1",
+            "title": "Sales Overview",
+            "owner": "u1",
+            "owner_email": "one@example.com",
+            "datasource_title": "Sample ECommerce",
+            "match": "dashboard",
+            "folder_id": "f1",
+            "last_updated": "2026-01-01T00:00:00Z",
+        }
+
+    def test_duplicate_listing_rows_collapse_to_one(self):
+        rows = _make_discovery().get_dashboards_by_datasource("Sample ECommerce")
+        assert [r["dashboard_id"] for r in rows].count("d1") == 1
+
+    def test_accepts_a_model_oid_by_resolving_its_title(self):
+        dash = _make_discovery(**{"/api/v2/datamodels/abc-oid/schema": FakeResponse(200, {"oid": "abc-oid", "title": "Sample ECommerce"})})
+        assert len(dash.get_dashboards_by_datasource("abc-oid")) == 3
+
+    def test_deep_scan_exports_only_unsummarized_dashboards(self):
+        export = [{"oid": "d4", "widgets": [{"oid": "w", "datasource": _DS("Sample ECommerce")}]}]
+        rows = _make_discovery(export=export).get_dashboards_by_datasource("Sample ECommerce", deep=True)
+        assert ("d4", "widget") in [(r["dashboard_id"], r["match"]) for r in rows]
+
+    def test_without_deep_the_unsummarized_dashboard_is_not_found(self):
+        rows = _make_discovery().get_dashboards_by_datasource("Sample ECommerce")
+        assert "d4" not in [r["dashboard_id"] for r in rows]
+
+    def test_no_match_is_an_empty_list(self):
+        assert _make_discovery().get_dashboards_by_datasource("Nobody Uses Me") == []
+
+    def test_owner_lookup_failure_leaves_email_none(self):
+        rows = _make_discovery(users=None).get_dashboards_by_datasource("Sample ECommerce")
+        assert rows and all(r["owner_email"] is None for r in rows)
+
+    def test_listing_failure_returns_error_dict(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(500, {"message": "boom"})})
+        result = dash.get_dashboards_by_datasource("Sample ECommerce")
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_deep_export_failure_returns_error_dict(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, _LISTING), "/api/v1/dashboards/export": None})
+        assert dash.get_dashboards_by_datasource("Sample ECommerce", deep=True)["ok"] is False
+
+    def test_empty_reference_is_an_error(self):
+        assert _make_discovery().get_dashboards_by_datasource("")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# duplicate_dashboard
+# ---------------------------------------------------------------------------
+
+_EXPORTED = {"oid": "src1", "title": "Sales Report", "filters": [], "widgets": [{"oid": "w1"}, {"oid": "w2"}], "layout": {}}
+
+
+class _RecordingDashClient(FakeApiClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.posted: list[tuple[str, object]] = []
+        self.patched: list[tuple[str, object]] = []
+
+    def post(self, url, data=None, **kwargs):
+        self.posted.append((url, data))
+        return super().post(url, data=data, **kwargs)
+
+    def patch(self, url, data=None, **kwargs):
+        self.patched.append((url, data))
+        return super().patch(url, data=data, **kwargs)
+
+
+def _make_duplicator(import_response=None, import_status=200, export=_EXPORTED):
+    created = {"oid": "new1", "title": "Sales Report_perspective_stage", "parentFolder": None, "widgets": [{"oid": "a"}, {"oid": "b"}]}
+    body = import_response if import_response is not None else {"succeded": [created], "failed": []}
+    client = _RecordingDashClient(
+        get_responses={
+            "/api/v1/dashboards/src1": FakeResponse(200, [{"oid": "src1", "title": "Sales Report"}]),
+            "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": "src1", "title": "Sales Report"}]),
+            "/api/v1/dashboards/export": FakeResponse(200, [export]),
+        },
+        post_responses={"/api/v1/dashboards/import/bulk": FakeResponse(import_status, body)},
+        logger=FakeLogger(),
+    )
+    return Dashboard(api_client=client), client
+
+
+class TestDuplicateDashboard:
+    def test_exports_retitles_and_imports_with_duplicate_action(self):
+        dash, client = _make_duplicator()
+        result = dash.duplicate_dashboard("src1")
+        assert result == {"success": True, "dashboard_id": "new1", "title": "Sales Report_perspective_stage", "source_dashboard_id": "src1", "source_title": "Sales Report", "widget_count": 2}
+        url, payload = client.posted[0]
+        assert url == "/api/v1/dashboards/import/bulk?action=duplicate"
+        assert payload[0]["title"] == "Sales Report_perspective_stage" and payload[0]["widgets"] == _EXPORTED["widgets"]
+
+    def test_unknown_source_is_an_error(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/nope": FakeResponse(404, {}), "/api/v1/dashboards/admin": FakeResponse(200, [])})
+        assert dash.duplicate_dashboard("nope")["ok"] is False
+
+    def test_import_failure_status_is_an_error(self):
+        dash, _ = _make_duplicator(import_status=500, import_response={"message": "boom"})
+        assert dash.duplicate_dashboard("src1")["ok"] is False
+
+    def test_import_reporting_failed_is_an_error(self):
+        dash, _ = _make_duplicator(import_response={"succeded": [], "failed": [{"title": "Sales Report_perspective_stage", "error": "quota"}]})
+        result = dash.duplicate_dashboard("src1")
+        assert result["ok"] is False and "quota" in result["error"]
+
+    def test_import_returning_only_the_source_oid_is_an_error(self):
+        dash, _ = _make_duplicator(import_response={"succeded": [{"oid": "src1"}], "failed": []})
+        assert dash.duplicate_dashboard("src1")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# replace_datasource
+# ---------------------------------------------------------------------------
+
+_CATALOGUE = [
+    {"title": "Sample ECommerce", "fullname": "localhost/Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", "address": "LocalHost", "database": "aSampleIAAaECommerce", "live": False},
+    {"title": "fes_assistant", "fullname": "live:fes_assistant", "id": "live:fes_assistant", "live": True},
+    {"title": "Listed Perspective", "fullname": "LocalHost/Listed Perspective", "id": "localhost_aSampleIAAaECommerce", "address": "LocalHost", "database": "aSampleIAAaECommerce", "live": False},
+]
+_PERSPECTIVE_LIST = [
+    {"oid": "p1", "name": "Fresh Live Persp", "parentOid": "dm-live", "datamodelOid": "dm-live"},
+    {"oid": "p2", "name": "Fresh Extract Persp", "parentOid": "dm-ext", "datamodelOid": "dm-ext"},
+    {"oid": "p0", "name": "Default", "isDefault": True, "parentOid": None, "datamodelOid": "dm-ext"},
+]
+
+
+def _make_swapper(dashboard_ds, widgets, post_statuses=(200, 200), after_ds=None, after_widgets=None, owner="u9", applies_on="owner", widget_lookup_first=False, publish_status=204):
+    """Dashboard whose reads flip to the 'after' state at the stage where Sisense applies the change.
+
+    Reads of the dashboard document happen in this order: resolver, method, owner-stage poll,
+    admin-stage poll. ``applies_on`` is "owner", "admin" or None (never applies).
+    """
+    doc_before = {"oid": "6a99ada4ea52ffb5c87c5ba3", "title": "Board", "owner": owner, "datasource": dashboard_ds, "filters": []}
+    doc_after = dict(doc_before, datasource=after_ds if after_ds is not None else dashboard_ds)
+    after_w = after_widgets if after_widgets is not None else widgets
+    b, a = FakeResponse(200, [doc_before]), FakeResponse(200, [doc_after])
+    docs = {"owner": [b, b, a], "admin": [b, b, b, a], None: [b]}[applies_on]
+    # Widget exports are read once per poll (plus once up front when from_datasource is used);
+    # they flip to 'after' at the stage where the change applies.
+    before_w, after_w_resp = FakeResponse(200, [dict(doc_before, widgets=widgets)]), FakeResponse(200, [dict(doc_after, widgets=after_w)])
+    exports = ([before_w] if widget_lookup_first else []) + {"owner": [after_w_resp], "admin": [before_w, after_w_resp], None: [before_w]}[applies_on]
+    client = _RecordingDashClient(
+        get_responses={
+            "/api/v1/dashboards/admin": docs,
+            "/api/v1/dashboards/export": exports,
+            "/api/datasources": FakeResponse(200, _CATALOGUE),
+            "/api/v2/perspectives": FakeResponse(200, _PERSPECTIVE_LIST),
+            "/api/v2/datamodels/dm-live/schema": FakeResponse(200, {"oid": "dm-live", "title": "fes_assistant"}),
+            "/api/v2/datamodels/dm-ext/schema": FakeResponse(200, {"oid": "dm-ext", "title": "Sample ECommerce"}),
+            "/api/v1/users": FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}]),
+        },
+        post_responses={
+            "/api/v1/dashboards/": [FakeResponse(s, None if s in (200, 204) else {"message": "no"}) for s in post_statuses],
+            "/api/v1/dashboards/6a99ada4ea52ffb5c87c5ba3/publish": FakeResponse(publish_status, None),
+        },
+        logger=FakeLogger(),
+    )
+    return Dashboard(api_client=client), client
+
+
+_LIVE_DS = {"title": "fes_assistant", "id": "live:fes_assistant", "fullname": "live:fes_assistant", "live": True}
+_ECOM_DS = _CATALOGUE[0]
+_FRESH_LIVE = {"title": "Fresh Live Persp", "id": "live:Fresh Live Persp", "fullname": "live:Fresh Live Persp", "live": True}
+
+
+class TestReplaceDatasource:
+    @pytest.fixture(autouse=True)
+    def _fast_polling(self, monkeypatch):
+        monkeypatch.setattr("pysisense.dashboard.core.time.sleep", lambda seconds: None)
+        monkeypatch.setattr(Dashboard, "_SWAP_POLL_ATTEMPTS", 1)
+
+    def test_live_source_uses_live_server_segment_and_bare_body(self):
+        widgets = [{"oid": "w1", "datasource": _LIVE_DS}, {"oid": "w2", "datasource": _ECOM_DS}]
+        after = [{"oid": "w1", "datasource": _FRESH_LIVE}, {"oid": "w2", "datasource": _ECOM_DS}]
+        dash, client = _make_swapper(_LIVE_DS, widgets, after_ds=_FRESH_LIVE, after_widgets=after)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        url, body = client.posted[0]
+        assert url == "/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3"
+        assert body == _FRESH_LIVE  # built from the parent, since the catalogue does not list it yet
+        assert result["success"] is True and result["published"] is True
+        assert result["previous_datasource"] == _LIVE_DS and result["new_datasource"] == _FRESH_LIVE
+        assert result["widgets_updated"] == 1 and result["widgets_unchanged"] == ["Sample ECommerce"]
+        assert client.posted[-1][0] == "/api/v1/dashboards/6a99ada4ea52ffb5c87c5ba3/publish"
+
+    def test_publish_can_be_skipped(self):
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", publish=False)
+        assert result["success"] is True and result["published"] is False and "publish_error" not in result
+        assert not any("/publish" in u for u, _ in client.posted)
+
+    def test_failed_publish_does_not_undo_a_successful_swap(self):
+        dash, _ = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE, publish_status=500)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["published"] is False and "publish" in result["publish_error"].lower()
+
+    def test_publish_refused_to_a_non_owner_names_the_owner(self):
+        dash, _ = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE, publish_status=403)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["published"] is False and result["owner"] == "owner@example.com"
+
+    def test_extract_source_uses_address_and_encodes_the_title(self):
+        target = {
+            "fullname": "LocalHost/Fresh Extract Persp",
+            "id": "localhost_aSampleIAAaECommerce",
+            "address": "LocalHost",
+            "database": "aSampleIAAaECommerce",
+            "live": False,
+            "title": "Fresh Extract Persp",
+        }
+        dash, client = _make_swapper(_ECOM_DS, [{"oid": "w1", "datasource": _ECOM_DS}], after_ds=target, after_widgets=[{"oid": "w1", "datasource": target}])
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "fresh extract persp")
+        url, body = client.posted[0]
+        assert url == "/api/v1/dashboards/LocalHost/Sample%20ECommerce/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3"
+        assert body == target and result["success"] is True
+
+    def test_a_model_is_used_as_the_catalogue_lists_it(self):
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_ECOM_DS)
+        dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "sample ecommerce")
+        assert client.posted[0][1] == _ECOM_DS
+
+    def test_a_perspective_is_built_from_its_parent_even_when_the_catalogue_lists_it(self):
+        # "Listed Perspective" is in the catalogue AND in the perspectives list (extract parent dm-ext)
+        listed = dict(_PERSPECTIVE_LIST[1], name="Listed Perspective", oid="p3")
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_CATALOGUE[2])
+        client._get["/api/v2/perspectives"] = FakeResponse(200, _PERSPECTIVE_LIST + [listed])
+        dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Listed Perspective")
+        assert client.posted[0][1] == {
+            "fullname": "LocalHost/Listed Perspective",
+            "id": "localhost_aSampleIAAaECommerce",
+            "address": "LocalHost",
+            "database": "aSampleIAAaECommerce",
+            "live": False,
+            "title": "Listed Perspective",
+        }
+
+    def test_silent_no_op_as_owner_is_retried_with_admin_access(self):
+        # Live-observed: Sisense answers 200 to a non-owner and changes nothing; adminAccess=true applies it.
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE, applies_on="admin")
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert [u for u, _ in client.posted if "replace_datasource" in u] == [
+            "/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3",
+            "/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3&adminAccess=true",
+        ]
+        assert result["success"] is True
+
+    def test_owner_call_that_applies_is_not_repeated(self):
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE, applies_on="owner")
+        assert dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")["success"] is True
+        assert len([u for u, _ in client.posted if "replace_datasource" in u]) == 1
+
+    def test_no_change_after_both_attempts_fails_and_names_the_owner(self):
+        dash, client = _make_swapper(_LIVE_DS, [], applies_on=None)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and result["owner"] == "owner@example.com"
+        assert "still shows datasource 'fes_assistant'" in result["error"]
+        assert len(client.posted) == 2
+
+    def test_a_real_403_names_the_owner_with_sisense_text(self):
+        dash, _ = _make_swapper(_LIVE_DS, [], post_statuses=(403,))
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and result["status_code"] == 403 and result["owner"] == "owner@example.com"
+        assert "owner@example.com" not in result["error"]  # the error text is Sisense's, not ours
+
+    def test_from_datasource_targets_a_widget_level_datasource(self):
+        widgets = [{"oid": "w1", "datasource": _LIVE_DS}, {"oid": "w2", "datasource": _ECOM_DS}]
+        dash, client = _make_swapper(_LIVE_DS, widgets, after_widgets=[{"oid": "w1", "datasource": _LIVE_DS}, {"oid": "w2", "datasource": _CATALOGUE[2]}], widget_lookup_first=True)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Listed Perspective", from_datasource="Sample ECommerce")
+        assert client.posted[0][0] == "/api/v1/dashboards/LocalHost/Sample%20ECommerce/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3"
+        assert result["success"] is True and result["previous_datasource"] == _ECOM_DS
+
+    def test_from_datasource_not_on_the_dashboard(self):
+        dash, client = _make_swapper(_LIVE_DS, [{"oid": "w1", "datasource": _LIVE_DS}], widget_lookup_first=True)
+        assert dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Listed Perspective", from_datasource="Nowhere")["ok"] is False and client.posted == []
+
+    def test_same_datasource_is_refused(self):
+        dash, client = _make_swapper(_LIVE_DS, [])
+        assert dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "FES_ASSISTANT")["ok"] is False and client.posted == []
+
+    def test_unknown_datasource_is_refused(self):
+        dash, client = _make_swapper(_LIVE_DS, [])
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "no-such")
+        assert result["ok"] is False and "neither a data model nor a perspective" in result["error"] and client.posted == []
+
+    def test_api_failure(self):
+        dash, _ = _make_swapper(_LIVE_DS, [], post_statuses=(500,))
+        assert dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")["ok"] is False
+
+    def test_invalid_token_is_not_an_ownership_problem(self):
+        # 401 = authentication; no admin retry, no owner key, Sisense's message passed through
+        dash, client = _make_swapper(_LIVE_DS, [], post_statuses=(401,))
+        client._post["/api/v1/dashboards/"] = FakeResponse(401, {"error": {"code": 5002, "message": "Invalid token.", "status": 401, "httpMessage": "Unauthorized"}})
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and result["status_code"] == 401 and "owner" not in result
+        assert "Invalid token" in result["error"]
+        assert len(client.posted) == 1
+
+    def test_unknown_dashboard(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/nope": FakeResponse(404, {}), "/api/v1/dashboards/admin": FakeResponse(200, [])})
+        assert dash.replace_datasource("nope", "x")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# delete_dashboard
+# ---------------------------------------------------------------------------
+
+_DEL_ID = "6a99ada4ea52ffb5c87c5ba3"
+
+
+def _make_deleter(doc_title="Sales Report_perspective_stage", delete_status=204, found=True):
+    doc = {"oid": _DEL_ID, "title": doc_title, "owner": "u9"}
+    return _make_dash(
+        get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [doc] if found else []), "/api/v1/users": FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}])},
+    ), doc
+
+
+class TestDeleteDashboard:
+    def _with_delete(self, dash, status=204):
+        dash.api_client._delete[f"/api/v1/dashboards/{_DEL_ID}"] = FakeResponse(status, None if status == 204 else {"message": "boom"})
+        return dash
+
+    def test_deletes_when_id_and_title_match(self):
+        dash, _ = _make_deleter()
+        result = self._with_delete(dash).delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")
+        assert result == {
+            "success": True,
+            "message": "Dashboard 'Sales Report_perspective_stage' deleted.",
+            "dashboard_id": _DEL_ID,
+            "title": "Sales Report_perspective_stage",
+            "owner": "owner@example.com",
+        }
+
+    def test_title_mismatch_is_refused(self):
+        dash, _ = _make_deleter()
+        result = self._with_delete(dash).delete_dashboard(_DEL_ID, "Sales Report")
+        assert result["ok"] is False and "its title is 'Sales Report_perspective_stage', not 'Sales Report'" in result["error"]
+
+    def test_not_found(self):
+        dash, _ = _make_deleter(found=False)
+        result = dash.delete_dashboard(_DEL_ID, "whatever")
+        assert result["ok"] is False and result["status_code"] == 404
+
+    def test_rejects_a_non_oid_id_and_a_blank_title(self):
+        dash, _ = _make_deleter()
+        assert dash.delete_dashboard("Sales Report", "Sales Report")["ok"] is False
+        assert dash.delete_dashboard(_DEL_ID, "")["ok"] is False
+
+    def test_api_failure(self):
+        dash, _ = _make_deleter()
+        result = self._with_delete(dash, status=500).delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")
+        assert result["ok"] is False and result["status_code"] == 500
+
+    def test_no_response(self):
+        dash, _ = _make_deleter()
+        dash.api_client._delete[f"/api/v1/dashboards/{_DEL_ID}"] = None
+        assert dash.delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# validate_dashboard_queries
+# ---------------------------------------------------------------------------
+
+_V_ID = "6a99ada4ea52ffb5c87c5ba3"
+_V_LIVE = {"title": "fes_assistant", "id": "live:fes_assistant", "fullname": "live:fes_assistant", "live": True}
+_V_ECOM = {"title": "Sample ECommerce", "fullname": "localhost/Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", "address": "LocalHost", "database": "aSampleIAAaECommerce", "live": False}
+_V_EXPORT = {
+    "oid": _V_ID,
+    "title": "Board",
+    "datasource": _V_LIVE,
+    "filters": [
+        {"instanceid": "f1", "jaql": {"dim": "[region.r_name]", "table": "region", "column": "r_name", "datasource": _V_LIVE, "filter": {"members": ["ASIA"]}}},
+        {
+            "instanceid": "f2",
+            "levels": [
+                {"dim": "[@trips.pickup (Calendar)]", "level": "months", "filter": {"level": "months", "all": True, "filter": {"next": {"count": 1, "offset": 1}, "level": "months"}}},
+                {"dim": "[@trips.dropoff (Calendar)]", "level": "years", "filter": {"level": "years", "all": True}},
+            ],
+        },
+        {"instanceid": "f3", "jaql": {"dim": "[Commerce.Age Range]", "datasource": _V_ECOM, "filter": {"members": ["19-24"]}}},
+        {"instanceid": "f4", "disabled": True, "jaql": {"dim": "[region.r_comment]", "filter": {"members": ["x"]}}},
+    ],
+    "widgets": [
+        {
+            "oid": "w-ind",
+            "type": "indicator",
+            "title": "Total",
+            "datasource": _V_LIVE,
+            "metadata": {
+                "ignore": {"dimensions": [], "ids": [], "all": False},
+                "panels": [
+                    {"name": "value", "items": [{"jaql": {"dim": "[region.r_regionkey]", "agg": "sum"}}]},
+                    {"name": "secondary", "items": []},
+                    {"name": "filters", "items": [{"jaql": {"dim": "[@trips.fare_amount]", "datasource": _V_LIVE, "filter": {"members": ["-4"]}}}]},
+                ],
+            },
+        },
+        {
+            "oid": "w-piv",
+            "type": "pivot2",
+            "title": "Pivot",
+            "metadata": {
+                "ignore": {"all": True},
+                "panels": [
+                    {"name": "rows", "items": [{"jaql": {"dim": "[region.r_name]"}}]},
+                    {"name": "values", "items": [{"jaql": {"formula": "SUM([A])", "context": {"[A]": {"dim": "[region.r_regionkey]"}}}}, {"disabled": True, "jaql": {"dim": "[region.r_comment]"}}]},
+                    {"name": "columns", "items": [{"jaql": {"dim": "[region.r_comment]"}}]},
+                ],
+            },
+        },
+        {
+            "oid": "w-line",
+            "type": "chart/line",
+            "title": "Line",
+            "datasource": _V_ECOM,
+            "metadata": {
+                "panels": [
+                    {"name": "x-axis", "items": [{"jaql": {"dim": "[Commerce.Date (Calendar)]", "level": "weeks"}}]},
+                    {"name": "values", "items": [{"jaql": {"dim": "[Commerce.Revenue]", "agg": "sum"}}]},
+                ]
+            },
+        },
+        {"oid": "w-rich", "type": "richtexteditor", "title": "", "metadata": {"panels": []}},
+        {"oid": "w-empty", "type": "BloX", "title": "Empty", "metadata": {"panels": [{"name": "items", "items": []}]}},
+        {"oid": "w-plugin", "type": "somePlugin", "title": "Plugin", "metadata": {}, "query": {"metadata": [{"jaql": {"dim": "[region.r_name]"}, "panel": "rows"}]}},
+    ],
+}
+
+
+class _JaqlRecordingClient(_RecordingDashClient):
+    """Answers each POST /api/datasources/<name>/jaql according to a per-datasource plan."""
+
+    def __init__(self, plan, **kwargs):
+        super().__init__(**kwargs)
+        self.plan = plan  # datasource title -> FakeResponse | None
+
+    def post(self, url, data=None, **kwargs):
+        if "/jaql" in url:
+            self.posted.append((url, data))
+            name = url.split("/api/datasources/")[1].split("/jaql")[0]
+            return self.plan.get(name, FakeResponse(200, {"values": [[]]}))
+        return super().post(url, data=data, **kwargs)
+
+
+_V_SCHEMA = {
+    "oid": "dm-live",
+    "title": "fes_assistant",
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    {"oid": "t-region", "name": "region", "columns": [{"oid": "c-rkey", "name": "r_regionkey"}, {"oid": "c-rname", "name": "r_name"}, {"oid": "c-rcomment", "name": "r_comment"}]},
+                    {"oid": "t-trips", "name": "@trips", "columns": [{"oid": "c-fare", "name": "fare_amount"}, {"oid": "c-pick", "name": "pickup"}, {"oid": "c-drop", "name": "dropoff"}]},
+                ]
+            },
+        }
+    ],
+    "relations": [],
+}
+# a perspective keeping every column the widgets and filters use
+_V_FULL_PERSP = {
+    "oid": "p1",
+    "name": "fes_persp",
+    "parentOid": "dm-live",
+    "datamodelOid": "dm-live",
+    "tables": [
+        {"oid": "t-region", "diffType": "include", "columnsDiff": [{"oid": "c-rkey", "enabled": True}, {"oid": "c-rname", "enabled": True}, {"oid": "c-rcomment", "enabled": True}]},
+        {"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-pick", "enabled": True}, {"oid": "c-drop", "enabled": True}]},
+    ],
+}
+# a perspective that dropped the pickup column and the whole region table
+_V_NARROW_PERSP = {
+    "oid": "p2",
+    "name": "narrow_persp",
+    "parentOid": "dm-live",
+    "datamodelOid": "dm-live",
+    "tables": [{"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-drop", "enabled": True}]}],
+}
+
+
+def _make_validator(plan=None, catalogue=None, perspectives=None):
+    client = _JaqlRecordingClient(
+        plan or {},
+        get_responses={
+            "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": _V_ID, "title": "Board"}]),
+            "/api/v1/dashboards/export": FakeResponse(200, [_V_EXPORT]),
+            "/api/datasources": FakeResponse(200, catalogue if catalogue is not None else [_V_LIVE, _V_ECOM]),
+            "/api/v2/perspectives": FakeResponse(200, perspectives if perspectives is not None else [_V_FULL_PERSP, _V_NARROW_PERSP]),
+            "/api/v2/datamodels/dm-live/schema": FakeResponse(200, _V_SCHEMA),
+            "/api/v2/datamodels/schema": FakeResponse(200, {"oid": "dm-live", "title": "fes_assistant"}),
+        },
+        logger=FakeLogger(),
+    )
+    return Dashboard(api_client=client), client
+
+
+class TestValidateDashboardQueries:
+    def _bodies(self, client):
+        return {url.split("/api/datasources/")[1].split("/jaql")[0] + ":" + str(i): body for i, (url, body) in enumerate(client.posted)}
+
+    def test_every_queryable_widget_runs_once_against_its_own_datasource(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID)
+        assert result["all_passed"] is True and result["counts"] == {"ok": 4, "failed": 0, "unreachable": 0, "skipped": 2}
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "ok" and by_id["w-ind"]["datasource"] == "fes_assistant"
+        assert by_id["w-line"]["datasource"] == "Sample ECommerce"
+        assert by_id["w-rich"]["status"] == "skipped" and "do not query" in by_id["w-rich"]["error"]
+        assert by_id["w-empty"]["status"] == "skipped" and "no fields" in by_id["w-empty"]["error"]
+        assert by_id["w-plugin"]["status"] == "ok"  # fields taken from query.metadata
+        urls = [u for u, _ in client.posted]
+        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+
+    def test_slot_names_map_to_canonical_panels_and_disabled_items_drop(self):
+        dash, client = _make_validator()
+        dash.validate_dashboard_queries(_V_ID)
+        pivot = next(body for url, body in client.posted if any(m["jaql"].get("formula") for m in body["metadata"]))
+        panels = [(m["panel"], m["jaql"].get("dim") or m["jaql"].get("formula")) for m in pivot["metadata"]]
+        assert panels == [("rows", "[region.r_name]"), ("measures", "SUM([A])"), ("columns", "[region.r_comment]")]  # ignore.all -> no dashboard filters
+        line = next(body for url, body in client.posted if "Sample ECommerce" in url)
+        assert [m["panel"] for m in line["metadata"]] == ["rows", "measures", "scope"]  # x-axis -> rows; only the ECommerce filter applies
+        assert line["metadata"][2]["jaql"]["dim"] == "[Commerce.Age Range]"
+        assert all("value" not in m["panel"] for body in (pivot, line) for m in body["metadata"])
+
+    def test_dashboard_filters_inject_with_levels_background_and_datasource_scoping(self):
+        dash, client = _make_validator()
+        dash.validate_dashboard_queries(_V_ID)
+        ind = next(body for url, body in client.posted if any(m["jaql"].get("agg") == "sum" and m["jaql"].get("dim") == "[region.r_regionkey]" for m in body["metadata"]))
+        scope = [m for m in ind["metadata"] if m["panel"] == "scope"]
+        dims = [(m["jaql"]["dim"], m.get("isBackground", False)) for m in scope]
+        assert dims == [
+            ("[@trips.fare_amount]", False),  # the widget's own filter
+            ("[region.r_name]", False),  # dashboard filter on the same datasource
+            ("[@trips.pickup (Calendar)]", True),  # nested restriction -> background entry
+            ("[@trips.pickup (Calendar)]", False),
+            ("[@trips.dropoff (Calendar)]", False),
+        ]  # the Sample ECommerce filter and the disabled filter are absent
+        background = next(m for m in scope if m.get("isBackground"))
+        assert background["jaql"]["filter"] == {"next": {"count": 1, "offset": 1}, "level": "months"}
+        assert all("datasource" not in m["jaql"] for m in scope[1:])  # injected dashboard filters carry no embedded datasource
+        assert ind["count"] == 1 and ind["datasource"] == _V_LIVE
+
+    def test_datasource_override_runs_own_datasource_widgets_against_it_only(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID, datasource="fes_persp")
+        assert result["datasource"] == "fes_persp"
+        urls = [u for u, _ in client.posted]
+        assert urls.count("/api/datasources/fes_persp/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+        persp_body = next(body for url, body in client.posted if "fes_persp" in url)
+        assert persp_body["datasource"] == {"title": "fes_persp", "id": "live:fes_persp", "fullname": "live:fes_persp", "live": True}
+
+    def test_fields_missing_from_the_target_perspective_fail_without_querying(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID, datasource="narrow_persp")
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "failed"
+        assert by_id["w-ind"]["error"] == "not found in 'narrow_persp': [region.r_regionkey], [region.r_name], [@trips.pickup (Calendar)]"
+        assert by_id["w-piv"]["status"] == "failed" and "[region.r_name]" in by_id["w-piv"]["error"]
+        assert by_id["w-line"]["status"] == "ok"  # other datasource, unaffected
+        assert not any("narrow_persp" in url for url, _ in client.posted)  # nothing was sent for the failing widgets
+        assert result["all_passed"] is False and result["counts"]["failed"] == 3
+
+    def test_fields_present_in_the_target_model_are_not_flagged(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID, datasource="fes_assistant")
+        assert result["counts"]["failed"] == 0 and any("fes_assistant" in url for url, _ in client.posted)
+
+    def test_failed_and_unreachable_are_told_apart(self):
+        plan = {"fes_assistant": FakeResponse(400, {"error": {"message": "Table 'region' not found"}}), "Sample ECommerce": None}
+        dash, _ = _make_validator(plan=plan)
+        result = dash.validate_dashboard_queries(_V_ID)
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "failed" and "Table 'region' not found" in by_id["w-ind"]["error"]
+        assert by_id["w-line"]["status"] == "unreachable"
+        assert result["all_passed"] is False and result["counts"]["failed"] == 3 and result["counts"]["unreachable"] == 1
+
+    def test_unknown_datasource_and_unknown_dashboard(self):
+        dash, client = _make_validator()
+        assert dash.validate_dashboard_queries(_V_ID, datasource="nope")["ok"] is False and client.posted == []
+        other = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
+        assert other.validate_dashboard_queries("6a99ada4ea52ffb5c87c5ba4")["ok"] is False

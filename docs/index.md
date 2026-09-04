@@ -19,7 +19,7 @@ The documentation is organized by feature/module. Click on any section to learn 
   [Blox Examples](../examples/blox_example.md)
 
 - [Dashboard](dashboard.md)  
-  Read, export, share, change ownership, and manage widgets on dashboards.
+  Read, export, share, change ownership, and manage widgets on dashboards; find dashboards by data model, duplicate one, change the datasource it queries, and validate every widget's query.
   [Dashboard Examples](../examples/dashboard_example.md)
 
 - [Folder](folder.md)  
@@ -27,7 +27,7 @@ The documentation is organized by feature/module. Click on any section to learn 
   [Folder Examples](../examples/folder_example.md)
 
 - [Data Model](datamodel.md)  
-  Inspect datasets, tables, columns, and schema definitions.
+  Inspect datasets, tables, columns, and schema definitions; list, create, delete, and analyze perspectives.
   [Data Model Examples](../examples/datamodel_example.md)
 
 - [Migration](migration.md)  
@@ -69,7 +69,9 @@ Inherently administrative operations require a dedicated Sisense admin user's to
 - Granting permissions across environments
 - System-wide migrations
 
-See [`examples/config.yaml`](../examples/config.yaml) for a template.
+The same keys can be supplied as a JSON file (`config_file="config.json"`) or as a Python dict (`config_file={...}`); `Migration` and `MergeTool` accept the same forms via `source_config` / `target_config`.
+
+See [`examples/config.yaml`](../examples/config.yaml) or [`examples/config.json`](../examples/config.json) for a template.
 
 ---
 

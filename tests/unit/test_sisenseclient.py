@@ -361,3 +361,45 @@ class TestSisenseClientTimeouts:
         with patch.object(client.session, "get", return_value=MagicMock(status_code=200)) as mock_get:
             client.get("/api/v1/users")
         assert mock_get.call_args.kwargs["timeout"] == (5.0, 45.0)
+
+
+class TestSisenseClientConfigSources:
+    def test_json_config_file(self, tmp_path):
+        config = tmp_path / "config.json"
+        config.write_text('{"domain": "myhost", "is_ssl": false, "token": "secret", "port": 4000}')
+        client = SisenseClient(config_file=str(config))
+        assert client.base_url == "http://myhost:4000"
+        assert client.token == "secret"
+
+    def test_pathlike_config_file(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("domain: myhost\ntoken: secret\n")
+        client = SisenseClient(config_file=config)
+        assert client.base_url == "https://myhost"
+
+    def test_dict_config(self):
+        client = SisenseClient(config_file={"domain": "myhost", "token": "secret", "is_ssl": False, "port": 9001})
+        assert client.base_url == "http://myhost:9001"
+        assert client.token == "secret"
+
+    def test_dict_config_is_not_mutated_by_kwarg_overrides(self):
+        config = {"domain": "myhost", "token": "secret"}
+        client = SisenseClient(config_file=config, is_ssl=False, retries=False)
+        assert client.base_url == "http://myhost:30845"
+        assert config == {"domain": "myhost", "token": "secret"}
+
+    def test_dict_config_honours_optional_keys(self):
+        client = SisenseClient(config_file={"domain": "myhost", "token": "secret", "retries": False, "timeout": 90, "operating_system": "windows"})
+        assert client.retries_enabled is False
+        assert client.request_timeout == (5.0, 90.0)
+        assert client.operating_system == "windows"
+
+    def test_config_missing_token_raises_clear_error(self):
+        with pytest.raises(ValueError, match="token"):
+            SisenseClient(config_file={"domain": "myhost"})
+
+    def test_config_missing_domain_raises_clear_error(self, tmp_path):
+        config = tmp_path / "config.json"
+        config.write_text('{"token": "secret"}')
+        with pytest.raises(ValueError, match="domain"):
+            SisenseClient(config_file=str(config))

@@ -1,7 +1,7 @@
 # SisenseClient Module Documentation
 
 This module defines the `SisenseClient` class, which handles low-level interactions with Sisense APIs.  
-It supports HTTP methods, YAML-based configuration, logging, and helper functions for data export and transformation.
+It supports HTTP methods, configuration from a YAML file, a JSON file, or a Python dict, logging, and helper functions for data export and transformation.
 
 ---
 
@@ -9,11 +9,19 @@ It supports HTTP methods, YAML-based configuration, logging, and helper function
 
 ### `__init__(self, config_file="config.yaml", debug=False, *, domain=None, token=None, is_ssl=None, port=None, operating_system="linux", verify_ssl=None, ssl_path=None, retries=None, timeout=None, connect_timeout=None)`
 
-Initializes the Sisense client, sets up logging, and prepares headers. Supports YAML-based config or direct inline connection.
+Initializes the Sisense client, sets up logging, and prepares headers. Supports config-based init (a YAML file, a JSON file, or a dict) or direct inline connection.
 
 **Parameters:**
 
-- `config_file` (str): Path to the YAML config file. Ignored when `domain` and `token` are provided directly.
+- `config_file` (str | os.PathLike | Mapping): Path to a YAML (`.yaml`/`.yml`) or JSON (`.json`) config file, or an in-memory dict with the same keys. A dict is copied, never modified. Ignored when `domain` and `token` are provided directly. Raises `ValueError` when the config lacks `domain` or `token`.
+
+```python
+client = SisenseClient(config_file="config.yaml")
+client = SisenseClient(config_file="config.json")
+client = SisenseClient(config_file={"domain": "your-domain.com", "token": "<token>", "is_ssl": True})
+```
+
+Every config key below that says "in the YAML config file" applies equally to a JSON file or a dict.
 - `debug` (bool): If True, enables debug logging.
 - `domain` (str, optional): Sisense hostname or IP. When provided together with `token`, YAML config is bypassed.
 - `token` (str, optional): Sisense admin API token for direct connection mode.
@@ -32,15 +40,15 @@ Initializes the Sisense client, sets up logging, and prepares headers. Supports 
 
 ### `_load_config(self, config_file)`
 
-Loads configuration from a YAML file.
+Loads configuration from a YAML file, a JSON file, or a mapping. Delegates to `pysisense.load_config`, which is also exported for direct use.
 
 **Parameters:**
 
-- `config_file` (str): Path to the YAML config file.
+- `config_file` (str | os.PathLike | Mapping): Path to a `.yaml`/`.yml` or `.json` file, or an in-memory mapping. Any other file extension is parsed as YAML, which also accepts JSON syntax.
 
 **Returns:**
 
-- `dict`: Parsed configuration dictionary.
+- `dict`: Parsed configuration dictionary (a copy, when a mapping is given).
 
 ---
 

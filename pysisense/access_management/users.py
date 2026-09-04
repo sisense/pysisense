@@ -6,7 +6,7 @@ from typing import Any
 from typing_extensions import deprecated
 
 from ..payloads import CreateUserPayload, UpdateUserPayload
-from ..utils import _extract_error_message
+from ..utils import _extract_error_message, redact_secrets
 
 # Raw Sisense role name -> the display name shown in the Sisense UI.
 # Single source of truth: canonical user rows carry BOTH vocabularies
@@ -162,21 +162,13 @@ class UsersMixin:
             groups cannot be fetched — callers fall back to the user record
             rather than losing the rows entirely.
         """
-        response = self.api_client.get("/api/v1/groups", params={"expand": "users"})
-        if response is None or not response.ok:
+        groups = self._get_groups_expanded()
+        if isinstance(groups, dict):
             self.logger.warning("Could not fetch group-side membership; falling back to the user record.")
-            return {}
-
-        try:
-            groups = response.json() or []
-        except Exception:
-            self.logger.exception("Failed to parse group memberships response JSON.")
             return {}
 
         membership: dict[str, list[tuple[str, str]]] = {}
         for group in groups:
-            if not isinstance(group, dict):
-                continue
             gid, gname = group.get("_id", ""), group.get("name", "")
             for member in group.get("users") or []:
                 if isinstance(member, dict) and member.get("_id"):
@@ -411,9 +403,9 @@ class UsersMixin:
         """Retrieve all users with raw, unmodified role and group objects.
 
         Deprecated alias kept for backward compatibility (behavior frozen) —
-        prefer :meth:`get_users_all`: its canonical rows carry the raw
-        ``ROLE_NAME``, ``GROUP_IDS``, and unfiltered ``GROUPS`` that
-        previously required this method.
+        prefer :meth:`get_users_all`: its canonical rows carry the raw role
+        value in ``ROLE_RAW_NAME`` plus ``GROUP_IDS`` and unfiltered
+        ``GROUPS``, which previously required this method.
 
         Returns
         -------
@@ -477,9 +469,11 @@ class UsersMixin:
         Fetches users with expanded ``groups`` and ``role`` data and returns the
         record matching the provided email address.
 
-        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
-        is now ``ROLE_DISPLAY_NAME``); ``GROUPS`` still holds the group names
-        and is joined by the new ``GROUP_IDS``. See ``docs/upgrading.md``.
+        Changed in 2.0: ``ROLE_NAME`` and ``GROUPS`` keep their 1.x meanings;
+        the row gains ``ROLE_DISPLAY_NAME`` (same value as ``ROLE_NAME``),
+        ``ROLE_RAW_NAME`` (the raw Sisense role value) and ``GROUP_IDS``, and
+        ``Everyone`` is no longer stripped from ``GROUPS``. See
+        ``docs/upgrading.md``.
 
         Parameters
         ----------
@@ -493,11 +487,11 @@ class UsersMixin:
         dict[str, Any]
             The canonical user row: ``USER_ID``, ``USER_NAME``, ``EMAIL``,
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
-            ``ROLE_NAME`` (the raw Sisense value, e.g. ``"consumer"``),
-            ``ROLE_DISPLAY_NAME`` (the name the Sisense UI shows, e.g.
-            ``"viewer"``), ``GROUP_IDS``, and ``GROUPS`` (unfiltered —
-            includes ``Everyone``). Returns ``{"error": "..."}`` when the user
-            is not found or the API call fails.
+            ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME`` (both the name the Sisense
+            UI shows, e.g. ``"viewer"``), ``ROLE_RAW_NAME`` (the raw Sisense
+            value, e.g. ``"consumer"``), ``GROUP_IDS``, and ``GROUPS``
+            (unfiltered — includes ``Everyone``). Returns ``{"error": "..."}``
+            when the user is not found or the API call fails.
         """
         self.logger.debug("Getting user with email: %s", user_email)
 
@@ -626,11 +620,12 @@ class UsersMixin:
         Reports exactly what Sisense stores: group memberships are unfiltered
         (``Everyone`` is included — consumers that want to hide a universal
         group can drop it; a consumer that never received it cannot put it
-        back), and ``ROLE_NAME`` carries the raw Sisense value with the
-        UI-facing name in ``ROLE_DISPLAY_NAME``.
+        back), and each row carries both role vocabularies (``ROLE_NAME`` and
+        ``ROLE_DISPLAY_NAME`` hold the UI name, ``ROLE_RAW_NAME`` the raw
+        Sisense value).
 
-        Changed in 2.0: ``ROLE_NAME`` held the display name in 1.x (that value
-        is now ``ROLE_DISPLAY_NAME``), ``GROUPS`` is joined by the new
+        Changed in 2.0: ``ROLE_NAME`` and ``GROUPS`` keep their 1.x meanings;
+        the row gains ``ROLE_DISPLAY_NAME``, ``ROLE_RAW_NAME`` and
         ``GROUP_IDS``, and ``Everyone`` is no longer filtered out of
         ``GROUPS``. See ``docs/upgrading.md``.
 
@@ -639,9 +634,10 @@ class UsersMixin:
         list[dict[str, Any]] | dict[str, Any]
             One row per user, each with ``USER_ID``, ``USER_NAME``, ``EMAIL``,
             ``FIRST_NAME``, ``LAST_NAME``, ``IS_ACTIVE``, ``ROLE_ID``,
-            ``ROLE_NAME`` (raw, e.g. ``"consumer"``), ``ROLE_DISPLAY_NAME``
-            (UI name, e.g. ``"viewer"``), ``GROUP_IDS``, and ``GROUPS``
-            (unfiltered). Returns ``{"error": "..."}`` on failure.
+            ``ROLE_NAME`` and ``ROLE_DISPLAY_NAME`` (UI name, e.g.
+            ``"viewer"``), ``ROLE_RAW_NAME`` (raw, e.g. ``"consumer"``),
+            ``GROUP_IDS``, and ``GROUPS`` (unfiltered). Returns
+            ``{"error": "..."}`` on failure.
         """
         self.logger.debug("Getting all users")
 
@@ -706,13 +702,16 @@ class UsersMixin:
             dictionary with an ``error`` key if the operation fails. Missing
             required fields are rejected up front, before any API call.
         """
-        self.logger.debug(f"Creating user with data: {user_data}")
+        self.logger.debug(f"Creating user with data: {redact_secrets(user_data)}")
 
         # Validate required fields up front — fail with a clear message before
         # any API call instead of failing mid-flow at role resolution.
         if not isinstance(user_data, dict):
             self.logger.error("create_user requires user_data to be a dict.")
             return {"ok": False, "error": "user_data must be a dictionary."}
+        # Work on a copy: the role/group name-to-ID resolution below rewrites
+        # keys, and the caller's dict must not change under them.
+        user_data = dict(user_data)
         missing = [field for field in ("email", "role") if not user_data.get(field)]
         if missing:
             error_msg = f"create_user requires {' and '.join(f'{f!r}' for f in missing)} in user_data — got fields: {sorted(user_data.keys()) or 'none'}"
@@ -756,7 +755,7 @@ class UsersMixin:
             user_data["groups"] = []
 
         # Step 4: Send POST request to create the user
-        self.logger.debug(f"Final user data for API call: {user_data}")
+        self.logger.debug(f"Final user data for API call: {redact_secrets(user_data)}")
         response = self.api_client.post("/api/v1/users", data=user_data)
 
         if response and response.ok:
@@ -818,10 +817,20 @@ class UsersMixin:
         """
         self.logger.debug("Updating user with email: %s", user_email)
 
+        if not isinstance(user_data, dict):
+            self.logger.error("update_user requires user_data to be a dict.")
+            return {"ok": False, "error": "user_data must be a dictionary."}
+        # Work on a copy: the role/group name-to-ID resolution below rewrites
+        # keys, and the caller's dict must not change under them.
+        user_data = dict(user_data)
+
         user = self.get_user(user_email)
-        if not user:
-            self.logger.error("User with email '%s' not found.", user_email)
-            return {"ok": False, "error": f"User with email '{user_email}' not found."}
+        if not user or "error" in user:
+            # 2.0 get_user always returns a dict (never None), so the first check
+            # is defensive. The key fix: a failure dict is non-empty, so the old
+            # `if not user` guard never fired, and the PATCH call raised KeyError.
+            # get_user already logged the reason and named the user.
+            return user or {"ok": False, "error": f"User with email '{user_email}' not found."}
 
         # Step 1: Resolve role if provided (either vocabulary)
         if "role" in user_data:
@@ -867,7 +876,7 @@ class UsersMixin:
 
                 user_data["groups"] = updated_groups
 
-        self.logger.debug("Final updated user data for API call: %s", user_data)
+        self.logger.debug("Final updated user data for API call: %s", redact_secrets(user_data))
         response = self.api_client.patch(
             f"/api/v1/users/{user['USER_ID']}",
             data=user_data,

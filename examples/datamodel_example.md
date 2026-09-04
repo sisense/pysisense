@@ -765,3 +765,90 @@ shares = [{"partyId": "group_oid_here", "type": "group", "permission": "a"}]
 response = datamodel.update_datamodel_permissions_live("live-datamodel-oid", shares)
 print(response)
 ```
+
+## Example 33: List and Look Up Perspectives
+
+```python
+# Every real perspective on the instance (the hidden per-model "Default" ones are skipped)
+all_perspectives = datamodel.get_perspectives()
+
+# Perspectives built over one root model (ID or title)
+ecommerce_perspectives = datamodel.get_perspectives(datamodel="Sample ECommerce")
+
+# Specific perspectives by name or oid — one string or a list
+sales = datamodel.get_perspectives("Company Sales")
+several = datamodel.get_perspectives(["Company Sales", "9674a154-0bc5-4bf2-b88b-0064f50db2e9"])
+
+# Each object is what Sisense returns: oid, name, datamodelOid, and tables keyed by
+# table/column oids, e.g. {"oid": ..., "diffType": "include", "columnsDiff": [{"oid": ..., "enabled": True}]}
+for perspective in all_perspectives:
+    print(perspective["datamodelTitle"], "->", perspective["name"], len(perspective["tables"]), "tables kept")
+
+# Unknown names fail loudly and still hand back what was found
+result = datamodel.get_perspectives(["Company Sales", "no-such-perspective"])
+if result.get("ok") is False:
+    print(result["error"], "| missing:", result["missing"], "| found:", len(result["results"]))
+```
+
+## Example 34: Delete a Perspective
+
+```python
+# By name (case-insensitive) or by oid. The root model and its data are untouched.
+result = datamodel.delete_perspective("Company Sales")
+# {"success": True, "message": "Perspective 'Company Sales' deleted.", "oid": "...", "name": "Company Sales",
+#  "datamodelOid": "...", "datamodelTitle": "Sample ECommerce"}
+
+# If the same name exists on two models, say which one
+result = datamodel.delete_perspective("Company Sales", datamodel="Sample ECommerce")
+
+# The built-in Default perspective is refused, and unknown names return the standard error dict
+result = datamodel.delete_perspective("no-such-perspective")
+if result.get("ok") is False:
+    print(result["error"])
+```
+
+## Example 35: Create a Perspective
+
+```python
+# Keep three columns of Commerce and every column of Country; every other table is left out.
+result = datamodel.create_perspective(
+    "Sample ECommerce",
+    "commerce_by_country",
+    [
+        {"table": "Commerce", "columns": ["Revenue", "Quantity", "Date"]},
+        "Country",  # a bare name keeps all of its columns
+    ],
+    description="Revenue and quantity by country",
+    ai_context="Online sales; Revenue is the amount paid, Quantity the units sold.",
+)
+# {"success": True, "oid": "...", "name": "commerce_by_country", "datamodelOid": "...", "datamodelTitle": "Sample ECommerce",
+#  "tables": [{"table": "Commerce", "table_oid": "...", "columns_kept": 3, "columns_total": 12},
+#             {"table": "Country", "table_oid": "...", "columns_kept": 5, "columns_total": 5}],
+#  "excluded_tables": ["Brand", "Category"], "warnings": []}
+
+# Typos fail before anything is created
+bad = datamodel.create_perspective("Sample ECommerce", "oops", [{"table": "Country", "columns": ["Country", "zzz"]}])
+# {"ok": False, "error": "Cannot create perspective 'oops' on 'Sample ECommerce': column 'zzz' not found in table 'Country'"}
+```
+
+## Example 36: Analyze What a Perspective Over a Model Must Keep
+
+```python
+# Summary view: the numbers, the tables to keep, the errors, and warning counts
+analysis = datamodel.analyze_perspective_requirements("Sample ECommerce")
+print(analysis["summary"])
+# {"model_tables": 5, "model_columns": 23, "dashboards_analyzed": 101, "dashboards_failed": 0,
+#  "tables_used_by_dashboards": 4, "columns_used_by_dashboards": 20, "columns_required_for_dependencies": 0,
+#  "tables_required_in_perspective": 4, "columns_required_in_perspective": 20,
+#  "tables_not_required": 1, "columns_not_required": 3, "issues": {"error": 14, "warning": 118}}
+print(analysis["perspective_tables"])  # [{"table": "Brand", "columns": ["Brand ID", "test"]}, ...] — what create_perspective takes
+print(analysis["errors"])  # ["Sales by Category: 'DimDates'.'Date' is used but does not exist in data model 'Sample ECommerce'", ...]
+print(analysis["warnings"])  # {"renamed_reference": 73, "script_present": 28, "blox_widget": 17}
+
+# Detailed view: per dashboard, per column, per dependency, every issue
+detailed = datamodel.analyze_perspective_requirements("Sample ECommerce", detailed=True)
+for dash in detailed["dashboards"]["analyzed"]:
+    print(dash["title"], dash["owner_email"], dash["datasource"], dash["tables_used"], "tables,", dash["columns_used"], "columns:", dash["columns"])
+for dep in detailed["dependencies"]["columns"]:
+    print(dep["table"], dep["column"], dep["reason"], "<-", dep["required_by"])
+```

@@ -4,6 +4,158 @@ All notable changes to `pysisense` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows
 [Semantic Versioning](https://semver.org/) — breaking changes land only in a major release.
 
+## [Unreleased]
+
+_Nothing yet._
+
+## [2.1.0] — 2026-09-04
+
+### Changed
+
+- **`get_dashboard_columns` and `get_unused_columns_bulk` now see the whole dashboard.** The
+  shared walk (`_extract_dashboard_references`) reads, in addition to dashboard filters and
+  widget panel items: default filters, measured filters (`filter.by`), **drill hierarchies**
+  (2,357 field references across 509 dashboards on one instance that were never counted),
+  widget drill history, formulas nested inside formulas at any depth, conditional-formatting
+  expressions, `jaql.dimension` wrappers, drill chains (`parent`/`through`), the `query.metadata`
+  block some widgets carry, and table-widget headers — plus a safety net that keeps and flags a
+  reference found anywhere else. Rows keep their shape; `source` gains the value `"hierarchy"`.
+  `get_unused_columns_bulk` no longer counts widgets or filters that point at a different
+  datasource than the model being analysed (a third of widgets on one instance did). A panel
+  item with no `dim` no longer yields a fabricated `Unknown` / `Table` row.
+
+### Added
+
+- **`DataModel.get_perspectives(perspectives=None, datamodel=None, include_default=False)`** — list
+  every perspective on the instance, those built over one root model, or look specific ones up by
+  name or `oid`, in one method; each object also carries `datamodelTitle`. Perspectives are metadata-only views over a root data model that
+  keep a subset of its tables and columns. The hidden per-model `Default` perspective is skipped
+  unless asked for. Unknown references return the standard error dict plus `missing` and `results`.
+- **`DataModel.analyze_perspective_requirements(datamodel, detailed=False)`** — read-only analysis of
+  what a perspective over a model must keep: finds every dashboard on the model (directly, via a widget,
+  or via an existing perspective), reads every field they use, resolves it against the schema (columns
+  referenced by a former name are kept and flagged), adds join, custom-column and custom-table
+  dependencies, and returns the model facts, the summary counts, `perspective_tables` in
+  `create_perspective`'s shape, the error messages and warning counts by kind; `detailed=True` adds the
+  per-dashboard (with owner and datasource), per-column, per-dependency and per-issue detail.
+- **`DataModel.create_perspective(datamodel, name, tables, description="", ai_context=None)`** — create a
+  perspective from table and column **names** (`PerspectiveTableSpec` list, or bare table names for all
+  columns); resolved against the schema before anything is sent, refuses a duplicate name, reads the
+  result back and reports any mismatch in `warnings`. The request carries the kept tables as `include`
+  entries listing only the kept columns. `ai_context` fills the perspective's `aiContext`.
+- **`DataModel.delete_perspective(perspective, datamodel=None)`** — delete a perspective by name or
+  `oid`; the root model is untouched, the built-in `Default` is refused, and a name shared by several
+  models must be disambiguated with `datamodel`.
+- **`Dashboard.get_dashboards_by_datasource(datamodel, deep=False)`** — every dashboard that uses a
+  model, by title or oid, including dashboards linked only through a widget (`match: "widget"`), from
+  one listing call; `deep=True` also exports dashboards with an empty widget-datasource summary.
+  Rows carry the owner's email, folder and last-updated time.
+- **`Dashboard.duplicate_dashboard(dashboard)`** — copy of a dashboard via export + import with Sisense's
+  `duplicate` action; the copy is titled `<original>_perspective_stage` so copies made for testing are
+  easy to find and remove. Returns the new id, both titles and
+  the widget count.
+- **`Dashboard.replace_datasource(dashboard, datasource, from_datasource=None)`** — change the datasource a
+  dashboard queries, e.g. from a model to a perspective over it, via Sisense's own
+  `replace_datasource` route; widgets and filters on the old datasource follow, others are untouched.
+  Sent as owner and read back; Sisense silently ignores a non-owner's call, so an unchanged dashboard triggers a retry with admin access, and a change that still does not apply fails with the dashboard's `owner`. A perspective
+  is addressed through its root model (the datasource catalogue does not reliably list perspectives). Republishes the
+  dashboard afterwards (`publish=True`) so shared viewers see the change; where only the owner may
+  publish, the result carries `owner` instead of `published: True`. Returns the previous
+  datasource object (for reverting), the new one, widget counts and `published`.
+- **`Dashboard.delete_dashboard(dashboard_id, title)`** — delete a dashboard only when both its id and its
+  exact current title match; a stale id or a renamed dashboard is refused.
+- **`Dashboard.validate_dashboard_queries(dashboard, datasource=None)`** — run every widget's query
+  (its own fields plus the applicable dashboard filters, including dependent levels and background
+  restrictions) through `POST /api/datasources/{name}/jaql` and report per widget `ok`, `failed`
+  (with Sisense's error), `unreachable` (no answer within the client timeout) or `skipped`. With
+  `datasource`, widgets on the dashboard's own datasource run against that model or perspective
+  instead, without changing the dashboard; fields the target does not expose are reported as `failed`
+  before any query is sent, since the engine stalls on them.
+- **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
+  `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
+  `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;
+  `source_yaml` / `target_yaml` keep working as aliases. The loader is exported as
+  `pysisense.load_config`. A config missing `domain` or `token` now raises a `ValueError`
+  naming the key instead of a bare `KeyError`.
+
+### Fixed
+
+- **`publish_dashboard` no longer fails outright on Sisense versions that reject `adminAccess`.** It
+  sent `adminAccess=true` by default; live-observed, this version answers 422 "must NOT have
+  additional properties" to that flag, so every publish failed. It now sends the plain call first and
+  retries with the flag only on a 403; a 422 on the retry yields the original 403, which is the honest
+  answer (only the owner may publish). Failures go through the shared error helper.
+- **Error dicts now relay Sisense's message from nested error bodies.** Sisense wraps some failures as
+  `{"error": {"code": 5002, "message": "Invalid token.", "status": 401, ...}}`; the shared error helper
+  read only the top level and reported `unrecognized error body (HTTP 401)`. It now looks one level
+  inside `error`, so a bad token reads `Invalid token. (HTTP 401)` everywhere in the SDK, and appends the
+  first `subErrors[].message` of a validation failure, e.g. `... schema validation error: must match
+  pattern "^[0-9a-fA-F]{24}$" (HTTP 422)`.
+- **`get_datamodel_columns` no longer returns nothing for models whose per-dataset endpoints fail, and
+  no longer crashes on `null` schema entries.** It read `/schema/datasets` then `/datasets/{id}/tables`;
+  live-observed, that path answers "Elasticube not found" for some models while the full schema is
+  available, and a `null` in a column list raised `AttributeError`. It now reads the full schema in one
+  call (identical rows on every comparable model), falls back to the per-dataset endpoints only when
+  that yields nothing, and skips malformed entries. `get_unused_columns_bulk` inherits both fixes.
+- **`get_unused_columns_bulk` now finds dashboards that reach the model only through a widget.** It
+  discovered dashboards with the listing's `datasourceTitle` filter, which matches a dashboard's own
+  datasource only; live-reproduced, a dashboard built on model B with a widget and a filter on model A
+  was never examined for A, so the columns they used were reported unused. Discovery is now the same
+  as `get_dashboards_by_datasource` (dashboard- and widget-level matches, case-insensitive).
+- **`get_unused_columns_bulk` and `get_dashboard_columns` no longer misread field references,
+  so columns that dashboards use are no longer reported unused.** Both read a field as
+  `dim.strip("[]").split(".", 1)`, which assumes the table name has no dot. Any table with a
+  dot in its name — every CSV upload is called `something.csv` — came out as table `T1` /
+  column `csv.C1`, never matched the schema, and every such column was marked unused (82
+  references across 20 of 509 dashboards on one instance). Names that begin with `[` or end
+  with `]` (Sisense enforces no naming restriction and emits them raw, e.g. `[[region.col]`)
+  lost the bracket the same way. The two methods now share one traversal
+  (`_extract_dashboard_columns`) that reads the same places as before — dashboard filters,
+  dependent filter levels, widget panel items and formula `context` — and takes each node's
+  explicit `table` and `column` keys, which Sisense writes beside `dim`, parsing `dim` only as
+  a fallback through a permissive candidate parser. When a name itself contains dots and only
+  `dim` is available, the model's own columns decide where the table ends; a case difference
+  between dashboard and model resolves to the model's spelling. The deprecated
+  `get_unused_columns` alias inherits the fix. `get_dashboard_columns` rows now carry the
+  column name as the model spells it, without the `" (Calendar)"` suffix Sisense appends to
+  date dimensions in `dim`.
+- `get_dashboard_columns` reported `widget_id` from the widget's position in the dashboard
+  layout, which is wrong for any layout with more than one column; it now reports the
+  widget's own `oid`.
+- A filter or panel item whose `dim` is `null` crashed both walkers with `TypeError`; it is
+  now skipped.
+- `update_user` with an unknown email raised `KeyError` instead of returning the standard
+  failure dict — the 2.0 `get_user` failure dict is never empty, so the old `if not user`
+  guard never fired.
+- `create_user` / `update_user` no longer modify the caller's payload dict while resolving
+  `role` and `groups` to IDs, and no longer write the raw payload (which may carry
+  `password`) to the debug log.
+- `get_user` / `get_users_all` docstrings described `ROLE_NAME` as the raw role value; it
+  keeps the 1.x display-name meaning, as the changelog and upgrade guide say.
+
+### Changed
+
+- `users_per_group(name)` no longer makes a separate `?name=` lookup before fetching the
+  expanded group listing — one fewer request per call, same results and same error for an
+  unknown name. `get_groups(name=...)` sends the name as a URL-encoded query parameter.
+
+### For downstream tool generators
+
+- **Methods renamed:** none.
+- **New methods:** `DataModel.get_perspectives`, `DataModel.create_perspective`, `DataModel.delete_perspective`,
+  `DataModel.analyze_perspective_requirements`; `Dashboard.get_dashboards_by_datasource`,
+  `Dashboard.duplicate_dashboard`, `Dashboard.replace_datasource`, `Dashboard.delete_dashboard`,
+  `Dashboard.validate_dashboard_queries`. New mixin file `datamodel/perspectives.py` (facade `Modules`
+  entry `perspectives`).
+- **Params that gained a TypedDict contract:** `DataModel.create_perspective(tables=...)` →
+  `PerspectiveTableSpec` (required `table`; optional `columns: list[str] | "all"`), exported from
+  `pysisense`.
+- **Params that gained a `Literal` enum:** none.
+- **Additive shape changes (consumers matching exact key sets must widen):** `get_dashboard_columns` rows
+  may carry `source: "hierarchy"`; `get_unused_columns_bulk` no longer emits the fabricated
+  `Unknown`/`Table` row; error dicts from nested Sisense error bodies now carry the real message and may
+  append a validation sub-error.
+
 ## [2.0.1] — 2026-08-31
 
 ### Fixed
