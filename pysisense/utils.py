@@ -103,8 +103,9 @@ def _extract_error_message(response, context, api_client=None):
     Distinguishes three failure kinds:
     - HTTP error with a body: relays the Sisense reason and the HTTP status.
       The reason is taken best-effort from the JSON body ("detail", then
-      "message", then "title", then "error"), falling back to the raw body
-      text truncated to a safe length.
+      "message", then "title", then "error"), looking one level inside a
+      nested ``{"error": {...}}`` object as well, falling back to the raw
+      body text truncated to a safe length.
     - HTTP error with an empty body: says so, with the HTTP status.
     - No response at all (connection failure): names the target domain and
       carries no invented status code.
@@ -143,11 +144,23 @@ def _extract_error_message(response, context, api_client=None):
             raw_body = raw_text
     else:
         if isinstance(body, dict):
-            for key in ("detail", "message", "title", "error"):
-                value = body.get(key)
-                if isinstance(value, str) and value.strip():
-                    reason = value.strip()
+            # Sisense uses both flat bodies ({"message": ...}) and nested ones
+            # ({"error": {"code": 5002, "message": "Invalid token.", ...}}); read one level in.
+            candidates = [body] + [body["error"]] if isinstance(body.get("error"), dict) else [body]
+            for candidate in candidates:
+                for key in ("detail", "message", "title", "error"):
+                    value = candidate.get(key)
+                    if isinstance(value, str) and value.strip():
+                        reason = value.strip()
+                        break
+                if reason is not None:
                     break
+            # Validation failures carry the specific complaint in error.subErrors[].message.
+            nested = body.get("error") if isinstance(body.get("error"), dict) else None
+            if reason is not None and nested is not None and isinstance(nested.get("subErrors"), list):
+                details = [s["message"].strip() for s in nested["subErrors"] if isinstance(s, dict) and isinstance(s.get("message"), str) and s["message"].strip()]
+                if details:
+                    reason = f"{reason}: {details[0]}" + (f" (+{len(details) - 1} more)" if len(details) > 1 else "")
             if reason is None and body:
                 raw_body = str(body)
         elif body not in (None, "", [], {}):

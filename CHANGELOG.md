@@ -52,6 +52,12 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **Error dicts now relay Sisense's message from nested error bodies.** Sisense wraps some failures as
+  `{"error": {"code": 5002, "message": "Invalid token.", "status": 401, ...}}`; the shared error helper
+  read only the top level and reported `unrecognized error body (HTTP 401)`. It now looks one level
+  inside `error`, so a bad token reads `Invalid token. (HTTP 401)` everywhere in the SDK, and appends the
+  first `subErrors[].message` of a validation failure, e.g. `... schema validation error: must match
+  pattern "^[0-9a-fA-F]{24}$" (HTTP 422)`.
 - **`get_datamodel_columns` no longer returns nothing for models whose per-dataset endpoints fail, and
   no longer crashes on `null` schema entries.** It read `/schema/datasets` then `/datasets/{id}/tables`;
   live-observed, that path answers "Elasticube not found" for some models while the full schema is

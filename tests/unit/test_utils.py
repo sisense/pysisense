@@ -36,6 +36,53 @@ class TestRedactSecrets:
         assert redact_secrets(42) == 42
 
 
+class TestExtractErrorMessageNestedBody:
+    """Sisense wraps some errors as {"error": {"code", "message", "status", "httpMessage"}}."""
+
+    def test_nested_error_object_message_is_relayed(self):
+        from helpers import FakeResponse
+
+        from pysisense.utils import _extract_error_message
+
+        body = {"error": {"code": 5002, "message": "Invalid token.", "status": 401, "httpMessage": "Unauthorized"}}
+        failure = _extract_error_message(FakeResponse(401, body), "Failed to do X")
+        assert failure == {"ok": False, "error": "Failed to do X: Invalid token. (HTTP 401)", "status_code": 401}
+
+    def test_flat_message_still_wins_over_nested(self):
+        from helpers import FakeResponse
+
+        from pysisense.utils import _extract_error_message
+
+        failure = _extract_error_message(FakeResponse(400, {"message": "flat", "error": {"message": "nested"}}), "ctx")
+        assert failure["error"] == "ctx: flat (HTTP 400)"
+
+    def test_validation_sub_error_detail_is_appended(self):
+        from helpers import FakeResponse
+
+        from pysisense.utils import _extract_error_message
+
+        body = {
+            "error": {
+                "subErrors": [{"moreInfo": {"instancePath": "/query/dashboardId"}, "code": 300, "message": 'must match pattern "^[0-9a-fA-F]{24}$"', "status": 422}],
+                "code": 300,
+                "message": "Request validation failed: schema validation error",
+                "status": 422,
+                "httpMessage": "Unprocessable Entity",
+            }
+        }
+        failure = _extract_error_message(FakeResponse(422, body), "Failed to replace datasource")
+        assert failure["error"] == 'Failed to replace datasource: Request validation failed: schema validation error: must match pattern "^[0-9a-fA-F]{24}$" (HTTP 422)'
+        assert "raw_body" not in failure
+
+    def test_nested_without_text_is_still_unrecognized(self):
+        from helpers import FakeResponse
+
+        from pysisense.utils import _extract_error_message
+
+        failure = _extract_error_message(FakeResponse(422, {"error": {"code": 1, "subErrors": []}}), "ctx")
+        assert failure["error"] == "ctx: unrecognized error body (HTTP 422)" and "raw_body" in failure
+
+
 class TestConvertToDataframe:
     def test_list_of_dicts_returns_dataframe(self):
         data = [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
