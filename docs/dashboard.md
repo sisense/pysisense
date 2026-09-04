@@ -476,3 +476,18 @@ Deletes a dashboard via `DELETE /api/v1/dashboards/{dashboard_id}`, but only if 
 **Returns:**
 
 - `dict`: `{"success": True, "message": "...", "dashboard_id", "title", "owner"}` on success. On failure (not found, title mismatch, or an API error), the standard error dict `{"ok": False, "error": "..."}`.
+
+* * * * *
+
+### `validate_dashboard_queries(dashboard, datasource=None)`
+
+Runs every widget's query and reports which widgets answer, fail, or cannot be queried. Reads the dashboard's widgets and filters, builds each widget's query the way the widget itself does — its own fields plus the dashboard filters that apply to it (plain, dependent-level and background restrictions, honouring a widget's "ignore dashboard filters" settings; filters on another datasource are left out) — and runs it through `POST /api/datasources/{name}/jaql` with a row count of one. Widget slot names are mapped to the panel names the query endpoint understands (`rows`, `columns`, `measures`, `scope`). Nothing on the dashboard is modified. With `datasource` given, widgets and filters that use the dashboard's own datasource are run against that datasource instead, which answers "would this dashboard still work on that model or perspective" without changing anything. Before running, each widget's fields are checked against what that datasource exposes — a perspective's kept columns, or a model's columns — and a widget that references a missing field is reported `failed` with the missing dims listed, since the query engine does not answer for such a query.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard, as an ID or title.
+- `datasource` (str, optional): Title of a data model or perspective to run the queries against in place of the dashboard's own datasource. Default: each widget runs against its own datasource.
+
+**Returns:**
+
+- `dict`: `{"dashboard_id", "title", "datasource", "all_passed", "counts": {"ok", "failed", "unreachable", "skipped"}, "widgets": [...]}`. Each widget entry carries `widget_id`, `title`, `type`, `datasource`, `status` — `"ok"` (answered), `"failed"` (Sisense returned an error, in `error`), `"unreachable"` (no answer within the client's read timeout, in `error`) or `"skipped"` (nothing to query, reason in `error`) — and `seconds`. `all_passed` is true when no widget failed or was unreachable. Cold queries on a slow instance can exceed the client's default read timeout and show as `unreachable`; raise the client's `timeout` setting for validation runs where that happens. On failure to read the dashboard or resolve `datasource`, the standard error dict `{"ok": False, "error": "..."}`.

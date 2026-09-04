@@ -512,6 +512,24 @@ dashboard.delete_dashboard(copy["dashboard_id"], "Sales Overview")
 # {"ok": False, "error": "Refusing to delete dashboard '...': its title is 'Sales Overview_perspective_stage', not 'Sales Overview'."}
 ```
 
+## Example 27: Check That Every Widget on a Dashboard Still Answers
+
+```python
+report = dashboard.validate_dashboard_queries("Sales Overview")
+# {"dashboard_id": "...", "title": "Sales Overview", "datasource": "Sample ECommerce", "all_passed": True,
+#  "counts": {"ok": 6, "failed": 0, "unreachable": 0, "skipped": 1},
+#  "widgets": [{"widget_id": "...", "title": "Revenue", "type": "indicator", "datasource": "Sample ECommerce",
+#               "status": "ok", "error": None, "seconds": 0.3}, ...]}
+
+# Would the dashboard still work on another model or a perspective? Nothing is changed.
+# A widget using a field the perspective left out is reported straight away:
+report = dashboard.validate_dashboard_queries("Sales Overview", datasource="commerce_by_country")
+for widget in report["widgets"]:
+    if widget["status"] == "failed":
+        print(widget["title"], "->", widget["error"])
+        # Revenue by Brand -> not found in 'commerce_by_country': [Brand.Brand]
+```
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

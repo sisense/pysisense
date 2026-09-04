@@ -5,7 +5,8 @@ import time
 from typing import Any
 from urllib.parse import quote
 
-from ..utils import _datasource_title, _discover_dashboards_on_datasource, _extract_error_message
+from ..queries import Queries
+from ..utils import _build_schema_index, _column_name_variants, _datasource_title, _discover_dashboards_on_datasource, _extract_error_message, _iter_dim_nodes, _reference_from_jaql
 
 
 class DashboardCoreMixin:
@@ -772,6 +773,257 @@ class DashboardCoreMixin:
         owner = self._owner_email(doc.get("owner")) or doc.get("owner")
         self.logger.info(f"Deleted dashboard '{stored}' ({dashboard_id}), owner {owner}")
         return {"success": True, "message": f"Dashboard '{stored}' deleted.", "dashboard_id": dashboard_id, "title": stored, "owner": owner}
+
+    _NON_QUERY_WIDGET_TYPES = {"richtexteditor", "widgetstabber", "filter"}
+
+    @staticmethod
+    def _jaql_panel(panel_name: str, jaql: dict[str, Any]) -> str:
+        """Map a widget slot name to the panel name the JAQL endpoint understands.
+
+        Widgets store their fields under slot names such as ``value``, ``values``,
+        ``categories`` or ``break by``; the query endpoint accepts only ``rows``,
+        ``columns``, ``measures`` and ``scope`` (an unknown name stalls the query).
+        """
+        name = (panel_name or "").strip().lower()
+        if name == "filters":
+            return "scope"
+        if "agg" in jaql or "formula" in jaql or name in ("values", "value", "measures", "secondary", "min", "max", "size", "color"):
+            return "measures"
+        if name in ("columns", "break by", "breakby"):
+            return "columns"
+        return "rows"
+
+    def _widget_query(self, widget: dict[str, Any], dashboard: dict[str, Any], datasource: dict[str, Any], replaced_title: str | None) -> list[dict[str, Any]]:
+        """Build the metadata list a widget's query needs: its own items plus the dashboard filters that apply to it."""
+        metadata: list[dict[str, Any]] = []
+        metadata_block = widget.get("metadata") if isinstance(widget.get("metadata"), dict) else {}
+        panels = metadata_block.get("panels") or []
+        if not panels and isinstance(widget.get("query"), dict):
+            for item in widget["query"].get("metadata") or []:  # some plugin widgets keep their query here
+                if isinstance(item, dict) and isinstance(item.get("jaql"), dict):
+                    panels = [{"name": item.get("panel") or "rows", "items": [item]}]
+                    metadata_block = {}
+                    break
+        for panel in panels:
+            if not isinstance(panel, dict):
+                continue
+            for item in panel.get("items") or []:
+                jaql = item.get("jaql") if isinstance(item, dict) else None
+                if not isinstance(jaql, dict) or item.get("disabled"):
+                    continue
+                jaql = dict(jaql)
+                if replaced_title and _datasource_title(jaql.get("datasource")) == replaced_title:
+                    jaql.pop("datasource", None)
+                metadata.append({"jaql": jaql, "panel": self._jaql_panel(panel.get("name"), jaql)})
+
+        ignore = metadata_block.get("ignore") if isinstance(metadata_block.get("ignore"), dict) else {}
+        if ignore.get("all"):
+            return metadata
+        ignored_dims = {d for d in (ignore.get("dimensions") or []) if isinstance(d, str)}
+        ignored_ids = {i for i in (ignore.get("ids") or []) if isinstance(i, str)}
+        widget_ds = _datasource_title(datasource)
+        dashboard_ds = _datasource_title(dashboard.get("datasource"))
+
+        def belongs(jaql: dict[str, Any]) -> bool:
+            owner = _datasource_title(jaql.get("datasource")) or dashboard_ds
+            return owner == widget_ds or (replaced_title is not None and owner == replaced_title)
+
+        def add_filter(jaql: dict[str, Any], instance_id: Any) -> None:
+            if not isinstance(jaql, dict) or not isinstance(jaql.get("dim"), str) or jaql["dim"] in ignored_dims or (instance_id in ignored_ids) or not belongs(jaql):
+                return
+            jaql = dict(jaql)
+            jaql.pop("datasource", None)
+            filter_clause = jaql.get("filter") if isinstance(jaql.get("filter"), dict) else None
+            background = filter_clause.get("filter") if filter_clause and isinstance(filter_clause.get("filter"), dict) else None
+            if background is not None:  # a dependent filter's nested restriction is sent as its own background entry
+                jaql["filter"] = {k: v for k, v in filter_clause.items() if k != "filter"}
+                metadata.append({"jaql": dict(jaql, filter=background), "panel": "scope", "isBackground": True})
+            metadata.append({"jaql": jaql, "panel": "scope"})
+
+        for entry in dashboard.get("filters") or []:
+            if not isinstance(entry, dict) or entry.get("disabled"):
+                continue
+            if isinstance(entry.get("jaql"), dict):
+                add_filter(entry["jaql"], entry.get("instanceid"))
+            for level in entry.get("levels") or []:
+                if isinstance(level, dict):
+                    add_filter(level, level.get("instanceid") or entry.get("instanceid"))
+        return metadata
+
+    def _available_fields(self, datasource_title: str) -> set[tuple[str, str]] | None:
+        """Lower-cased ``(table, column)`` pairs a datasource exposes: a perspective's kept columns, or all of a model's.
+
+        Returns ``None`` when the datasource cannot be resolved to a model schema.
+        """
+        wanted = _datasource_title(datasource_title)
+        perspective = None
+        response = self.api_client.get("/api/v2/perspectives")
+        if response is not None and response.status_code == 200:
+            try:
+                perspective = next((p for p in response.json() if isinstance(p, dict) and isinstance(p.get("name"), str) and p["name"].strip().lower() == wanted and p.get("parentOid")), None)
+            except Exception:
+                perspective = None
+        model_oid = perspective.get("datamodelOid") if perspective else None
+        if model_oid is None:
+            listing = self.api_client.get("/api/v2/datamodels/schema", params={"title": datasource_title})
+            if listing is None or listing.status_code != 200:
+                return None
+            try:
+                body = listing.json()
+                model = body if isinstance(body, dict) else next((m for m in body if isinstance(m, dict) and m.get("oid")), None)
+            except Exception:
+                return None
+            model_oid = model.get("oid") if isinstance(model, dict) else None
+        if not isinstance(model_oid, str):
+            return None
+        schema = self.api_client.get(f"/api/v2/datamodels/{model_oid}/schema")
+        if schema is None or schema.status_code != 200:
+            return None
+        try:
+            index = _build_schema_index(schema.json())
+        except Exception:
+            return None
+        fields: set[tuple[str, str]] = set()
+        if perspective is None:
+            for table in index["tables"].values():
+                for column in table["columns"].values():
+                    if isinstance(table.get("name"), str) and isinstance(column.get("name"), str):
+                        fields.add((table["name"].strip().lower(), column["name"].strip().lower()))
+            return fields
+        for entry in perspective.get("tables") or []:
+            if not isinstance(entry, dict) or entry.get("diffType") == "exclude":
+                continue
+            table = index["tables"].get(entry.get("oid"))
+            if table is None or not isinstance(table.get("name"), str):
+                continue
+            for diff in entry.get("columnsDiff") or []:
+                if isinstance(diff, dict) and diff.get("enabled", True):
+                    column = table["columns"].get(diff.get("oid"))
+                    if column is not None and isinstance(column.get("name"), str):
+                        fields.add((table["name"].strip().lower(), column["name"].strip().lower()))
+        return fields
+
+    @staticmethod
+    def _missing_fields(metadata: list[dict[str, Any]], available: set[tuple[str, str]]) -> list[str]:
+        """Dims in a widget query whose (table, column) is not among ``available``."""
+        missing: list[str] = []
+        for entry in metadata:
+            for node, _ds, _path in _iter_dim_nodes(entry.get("jaql"), None, "$"):
+                reference = _reference_from_jaql(node)
+                if reference is None:
+                    continue
+                table, column = reference
+                # date dims carry a " (Calendar)" suffix the column itself does not have
+                if not any((table.strip().lower(), variant.strip().lower()) in available for variant in _column_name_variants(column)):
+                    dim = node.get("dim") if isinstance(node.get("dim"), str) else f"[{table}.{column}]"
+                    if dim not in missing:
+                        missing.append(dim)
+        return missing
+
+    def validate_dashboard_queries(self, dashboard: str, datasource: str | None = None) -> dict[str, Any]:
+        """Run every widget's query and report which widgets answer, fail, or cannot be queried.
+
+        Reads the dashboard's widgets and filters, builds each widget's query the
+        way the widget itself does — its own fields plus the dashboard filters that
+        apply to it, honouring a widget's "ignore dashboard filters" settings — and
+        runs it through ``POST /api/datasources/{name}/jaql`` with a row count of
+        one. Nothing on the dashboard is modified. With ``datasource`` given, widgets
+        and filters that use the dashboard's own datasource are run against that
+        datasource instead, which answers "would this dashboard still work on that
+        model or perspective" without changing anything. Before running, each
+        widget's fields are checked against what that datasource exposes — a
+        perspective's kept columns, or a model's columns — and a widget that
+        references a missing field is reported ``"failed"`` with the missing dims,
+        since the query engine does not answer for such a query.
+
+        Parameters
+        ----------
+        dashboard : str
+            The dashboard, as an ID or title.
+        datasource : str | None, optional
+            Title of a data model or perspective to run the queries against in place of the
+            dashboard's own datasource. Default: each widget runs against its own datasource.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"dashboard_id", "title", "datasource", "all_passed", "counts": {"ok", "failed",
+            "unreachable", "skipped"}, "widgets": [...]}``. Each widget entry carries ``widget_id``,
+            ``title``, ``type``, ``datasource``, ``status`` — ``"ok"`` (answered), ``"failed"``
+            (Sisense returned an error, in ``error``), ``"unreachable"`` (no answer within the client's
+            timeout, in ``error``) or ``"skipped"`` (nothing to query, reason in ``error``) — and
+            ``seconds``. ``all_passed`` is true when no widget failed or was unreachable. On failure
+            to read the dashboard or resolve ``datasource``, the standard ``{"ok": False, "error": "...",
+            ...}`` dict.
+        """
+        ref = self.resolve_dashboard_reference(dashboard)
+        if not ref.get("success"):
+            return self._fail(f"Dashboard '{dashboard}' could not be resolved: {ref.get('error') or 'not found'}", status_code=ref.get("status_code"))
+        dashboard_id = ref["dashboard_id"]
+        exported = self.export_dashboard(dashboard_id)
+        if not isinstance(exported, dict) or exported.get("ok") is False or ("error" in exported and "title" not in exported):
+            return exported if isinstance(exported, dict) else {"ok": False, "error": f"Unexpected export result for dashboard '{dashboard_id}'."}
+        title = exported.get("title")
+        own_ds = exported.get("datasource") if isinstance(exported.get("datasource"), dict) else {}
+        target: dict[str, Any] | None = None
+        replaced_title: str | None = None
+        if datasource is not None:
+            target = self._datasource_object(datasource)
+            if target is None:
+                return self._fail(f"Datasource '{datasource}' not found: it is neither a data model nor a perspective on this instance.")
+            replaced_title = _datasource_title(own_ds)
+
+        available = self._available_fields(datasource) if datasource is not None else None
+        if datasource is not None and available is None:
+            self.logger.debug(f"Could not read the fields of '{datasource}'; widgets will be validated by running their queries only.")
+
+        queries = Queries(api_client=self.api_client)
+        results: list[dict[str, Any]] = []
+        for widget in exported.get("widgets") or []:
+            if not isinstance(widget, dict):
+                continue
+            widget_ds = widget.get("datasource") if isinstance(widget.get("datasource"), dict) else own_ds
+            run_ds = target if (target is not None and _datasource_title(widget_ds) == replaced_title) else widget_ds
+            entry: dict[str, Any] = {
+                "widget_id": widget.get("oid"),
+                "title": widget.get("title") or "",
+                "type": widget.get("type"),
+                "datasource": (run_ds or {}).get("title"),
+                "status": "skipped",
+                "error": None,
+                "seconds": 0.0,
+            }
+            widget_type = str(widget.get("type") or "").lower()
+            metadata = [] if widget_type in self._NON_QUERY_WIDGET_TYPES else self._widget_query(widget, exported, run_ds or {}, replaced_title if run_ds is target else None)
+            if not any(m["panel"] != "scope" for m in metadata):
+                entry["error"] = "widget has no fields to query" if widget_type not in self._NON_QUERY_WIDGET_TYPES else f"{widget.get('type')} widgets do not query data"
+                results.append(entry)
+                continue
+            if available is not None and run_ds is target:
+                missing = self._missing_fields(metadata, available)
+                if missing:
+                    # Asking Sisense would only stall: the query engine does not answer for a field the
+                    # perspective does not expose. Report the gap the way the dashboard would show it.
+                    entry["status"] = "failed"
+                    entry["error"] = f"not found in '{datasource}': " + ", ".join(missing)
+                    results.append(entry)
+                    continue
+            body = {"datasource": run_ds, "metadata": metadata, "count": 1, "offset": 0, "format": "json"}
+            started = time.time()
+            response = queries.elasticube_run_jaql_query((run_ds or {}).get("title") or "", body)
+            entry["seconds"] = round(time.time() - started, 1)
+            if isinstance(response, dict) and (response.get("ok") is False or "error" in response):
+                entry["status"] = "failed" if response.get("status_code") is not None else "unreachable"
+                entry["error"] = response.get("error")
+            else:
+                entry["status"] = "ok"
+            self.logger.debug(f"validate_dashboard_queries: widget {entry['widget_id']} ({entry['type']}) -> {entry['status']} in {entry['seconds']}s")
+            results.append(entry)
+
+        counts = {status: sum(1 for r in results if r["status"] == status) for status in ("ok", "failed", "unreachable", "skipped")}
+        all_passed = counts["failed"] == 0 and counts["unreachable"] == 0
+        self.logger.info(f"Validated dashboard '{title}' ({dashboard_id}) against '{(target or own_ds).get('title')}': {counts}")
+        return {"dashboard_id": dashboard_id, "title": title, "datasource": (target or own_ds).get("title"), "all_passed": all_passed, "counts": counts, "widgets": results}
 
     def _datasource_object(self, title: str) -> dict[str, Any] | None:
         """Build the datasource object Sisense expects for a perspective or data model title.

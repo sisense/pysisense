@@ -1439,3 +1439,228 @@ class TestDeleteDashboard:
         dash, _ = _make_deleter()
         dash.api_client._delete[f"/api/v1/dashboards/{_DEL_ID}"] = None
         assert dash.delete_dashboard(_DEL_ID, "Sales Report_perspective_stage")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# validate_dashboard_queries
+# ---------------------------------------------------------------------------
+
+_V_ID = "6a99ada4ea52ffb5c87c5ba3"
+_V_LIVE = {"title": "fes_assistant", "id": "live:fes_assistant", "fullname": "live:fes_assistant", "live": True}
+_V_ECOM = {"title": "Sample ECommerce", "fullname": "localhost/Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", "address": "LocalHost", "database": "aSampleIAAaECommerce", "live": False}
+_V_EXPORT = {
+    "oid": _V_ID,
+    "title": "Board",
+    "datasource": _V_LIVE,
+    "filters": [
+        {"instanceid": "f1", "jaql": {"dim": "[region.r_name]", "table": "region", "column": "r_name", "datasource": _V_LIVE, "filter": {"members": ["ASIA"]}}},
+        {
+            "instanceid": "f2",
+            "levels": [
+                {"dim": "[@trips.pickup (Calendar)]", "level": "months", "filter": {"level": "months", "all": True, "filter": {"next": {"count": 1, "offset": 1}, "level": "months"}}},
+                {"dim": "[@trips.dropoff (Calendar)]", "level": "years", "filter": {"level": "years", "all": True}},
+            ],
+        },
+        {"instanceid": "f3", "jaql": {"dim": "[Commerce.Age Range]", "datasource": _V_ECOM, "filter": {"members": ["19-24"]}}},
+        {"instanceid": "f4", "disabled": True, "jaql": {"dim": "[region.r_comment]", "filter": {"members": ["x"]}}},
+    ],
+    "widgets": [
+        {
+            "oid": "w-ind",
+            "type": "indicator",
+            "title": "Total",
+            "datasource": _V_LIVE,
+            "metadata": {
+                "ignore": {"dimensions": [], "ids": [], "all": False},
+                "panels": [
+                    {"name": "value", "items": [{"jaql": {"dim": "[region.r_regionkey]", "agg": "sum"}}]},
+                    {"name": "secondary", "items": []},
+                    {"name": "filters", "items": [{"jaql": {"dim": "[@trips.fare_amount]", "datasource": _V_LIVE, "filter": {"members": ["-4"]}}}]},
+                ],
+            },
+        },
+        {
+            "oid": "w-piv",
+            "type": "pivot2",
+            "title": "Pivot",
+            "metadata": {
+                "ignore": {"all": True},
+                "panels": [
+                    {"name": "rows", "items": [{"jaql": {"dim": "[region.r_name]"}}]},
+                    {"name": "values", "items": [{"jaql": {"formula": "SUM([A])", "context": {"[A]": {"dim": "[region.r_regionkey]"}}}}, {"disabled": True, "jaql": {"dim": "[region.r_comment]"}}]},
+                    {"name": "columns", "items": [{"jaql": {"dim": "[region.r_comment]"}}]},
+                ],
+            },
+        },
+        {
+            "oid": "w-line",
+            "type": "chart/line",
+            "title": "Line",
+            "datasource": _V_ECOM,
+            "metadata": {
+                "panels": [
+                    {"name": "x-axis", "items": [{"jaql": {"dim": "[Commerce.Date (Calendar)]", "level": "weeks"}}]},
+                    {"name": "values", "items": [{"jaql": {"dim": "[Commerce.Revenue]", "agg": "sum"}}]},
+                ]
+            },
+        },
+        {"oid": "w-rich", "type": "richtexteditor", "title": "", "metadata": {"panels": []}},
+        {"oid": "w-empty", "type": "BloX", "title": "Empty", "metadata": {"panels": [{"name": "items", "items": []}]}},
+        {"oid": "w-plugin", "type": "somePlugin", "title": "Plugin", "metadata": {}, "query": {"metadata": [{"jaql": {"dim": "[region.r_name]"}, "panel": "rows"}]}},
+    ],
+}
+
+
+class _JaqlRecordingClient(_RecordingDashClient):
+    """Answers each POST /api/datasources/<name>/jaql according to a per-datasource plan."""
+
+    def __init__(self, plan, **kwargs):
+        super().__init__(**kwargs)
+        self.plan = plan  # datasource title -> FakeResponse | None
+
+    def post(self, url, data=None, **kwargs):
+        if "/jaql" in url:
+            self.posted.append((url, data))
+            name = url.split("/api/datasources/")[1].split("/jaql")[0]
+            return self.plan.get(name, FakeResponse(200, {"values": [[]]}))
+        return super().post(url, data=data, **kwargs)
+
+
+_V_SCHEMA = {
+    "oid": "dm-live",
+    "title": "fes_assistant",
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    {"oid": "t-region", "name": "region", "columns": [{"oid": "c-rkey", "name": "r_regionkey"}, {"oid": "c-rname", "name": "r_name"}, {"oid": "c-rcomment", "name": "r_comment"}]},
+                    {"oid": "t-trips", "name": "@trips", "columns": [{"oid": "c-fare", "name": "fare_amount"}, {"oid": "c-pick", "name": "pickup"}, {"oid": "c-drop", "name": "dropoff"}]},
+                ]
+            },
+        }
+    ],
+    "relations": [],
+}
+# a perspective keeping every column the widgets and filters use
+_V_FULL_PERSP = {
+    "oid": "p1",
+    "name": "fes_persp",
+    "parentOid": "dm-live",
+    "datamodelOid": "dm-live",
+    "tables": [
+        {"oid": "t-region", "diffType": "include", "columnsDiff": [{"oid": "c-rkey", "enabled": True}, {"oid": "c-rname", "enabled": True}, {"oid": "c-rcomment", "enabled": True}]},
+        {"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-pick", "enabled": True}, {"oid": "c-drop", "enabled": True}]},
+    ],
+}
+# a perspective that dropped the pickup column and the whole region table
+_V_NARROW_PERSP = {
+    "oid": "p2",
+    "name": "narrow_persp",
+    "parentOid": "dm-live",
+    "datamodelOid": "dm-live",
+    "tables": [{"oid": "t-trips", "diffType": "include", "columnsDiff": [{"oid": "c-fare", "enabled": True}, {"oid": "c-drop", "enabled": True}]}],
+}
+
+
+def _make_validator(plan=None, catalogue=None, perspectives=None):
+    client = _JaqlRecordingClient(
+        plan or {},
+        get_responses={
+            "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": _V_ID, "title": "Board"}]),
+            "/api/v1/dashboards/export": FakeResponse(200, [_V_EXPORT]),
+            "/api/datasources": FakeResponse(200, catalogue if catalogue is not None else [_V_LIVE, _V_ECOM]),
+            "/api/v2/perspectives": FakeResponse(200, perspectives if perspectives is not None else [_V_FULL_PERSP, _V_NARROW_PERSP]),
+            "/api/v2/datamodels/dm-live/schema": FakeResponse(200, _V_SCHEMA),
+            "/api/v2/datamodels/schema": FakeResponse(200, {"oid": "dm-live", "title": "fes_assistant"}),
+        },
+        logger=FakeLogger(),
+    )
+    return Dashboard(api_client=client), client
+
+
+class TestValidateDashboardQueries:
+    def _bodies(self, client):
+        return {url.split("/api/datasources/")[1].split("/jaql")[0] + ":" + str(i): body for i, (url, body) in enumerate(client.posted)}
+
+    def test_every_queryable_widget_runs_once_against_its_own_datasource(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID)
+        assert result["all_passed"] is True and result["counts"] == {"ok": 4, "failed": 0, "unreachable": 0, "skipped": 2}
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "ok" and by_id["w-ind"]["datasource"] == "fes_assistant"
+        assert by_id["w-line"]["datasource"] == "Sample ECommerce"
+        assert by_id["w-rich"]["status"] == "skipped" and "do not query" in by_id["w-rich"]["error"]
+        assert by_id["w-empty"]["status"] == "skipped" and "no fields" in by_id["w-empty"]["error"]
+        assert by_id["w-plugin"]["status"] == "ok"  # fields taken from query.metadata
+        urls = [u for u, _ in client.posted]
+        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+
+    def test_slot_names_map_to_canonical_panels_and_disabled_items_drop(self):
+        dash, client = _make_validator()
+        dash.validate_dashboard_queries(_V_ID)
+        pivot = next(body for url, body in client.posted if any(m["jaql"].get("formula") for m in body["metadata"]))
+        panels = [(m["panel"], m["jaql"].get("dim") or m["jaql"].get("formula")) for m in pivot["metadata"]]
+        assert panels == [("rows", "[region.r_name]"), ("measures", "SUM([A])"), ("columns", "[region.r_comment]")]  # ignore.all -> no dashboard filters
+        line = next(body for url, body in client.posted if "Sample ECommerce" in url)
+        assert [m["panel"] for m in line["metadata"]] == ["rows", "measures", "scope"]  # x-axis -> rows; only the ECommerce filter applies
+        assert line["metadata"][2]["jaql"]["dim"] == "[Commerce.Age Range]"
+        assert all("value" not in m["panel"] for body in (pivot, line) for m in body["metadata"])
+
+    def test_dashboard_filters_inject_with_levels_background_and_datasource_scoping(self):
+        dash, client = _make_validator()
+        dash.validate_dashboard_queries(_V_ID)
+        ind = next(body for url, body in client.posted if any(m["jaql"].get("agg") == "sum" and m["jaql"].get("dim") == "[region.r_regionkey]" for m in body["metadata"]))
+        scope = [m for m in ind["metadata"] if m["panel"] == "scope"]
+        dims = [(m["jaql"]["dim"], m.get("isBackground", False)) for m in scope]
+        assert dims == [
+            ("[@trips.fare_amount]", False),  # the widget's own filter
+            ("[region.r_name]", False),  # dashboard filter on the same datasource
+            ("[@trips.pickup (Calendar)]", True),  # nested restriction -> background entry
+            ("[@trips.pickup (Calendar)]", False),
+            ("[@trips.dropoff (Calendar)]", False),
+        ]  # the Sample ECommerce filter and the disabled filter are absent
+        background = next(m for m in scope if m.get("isBackground"))
+        assert background["jaql"]["filter"] == {"next": {"count": 1, "offset": 1}, "level": "months"}
+        assert all("datasource" not in m["jaql"] for m in scope[1:])  # injected dashboard filters carry no embedded datasource
+        assert ind["count"] == 1 and ind["datasource"] == _V_LIVE
+
+    def test_datasource_override_runs_own_datasource_widgets_against_it_only(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID, datasource="fes_persp")
+        assert result["datasource"] == "fes_persp"
+        urls = [u for u, _ in client.posted]
+        assert urls.count("/api/datasources/fes_persp/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+        persp_body = next(body for url, body in client.posted if "fes_persp" in url)
+        assert persp_body["datasource"] == {"title": "fes_persp", "id": "live:fes_persp", "fullname": "live:fes_persp", "live": True}
+
+    def test_fields_missing_from_the_target_perspective_fail_without_querying(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID, datasource="narrow_persp")
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "failed"
+        assert by_id["w-ind"]["error"] == "not found in 'narrow_persp': [region.r_regionkey], [region.r_name], [@trips.pickup (Calendar)]"
+        assert by_id["w-piv"]["status"] == "failed" and "[region.r_name]" in by_id["w-piv"]["error"]
+        assert by_id["w-line"]["status"] == "ok"  # other datasource, unaffected
+        assert not any("narrow_persp" in url for url, _ in client.posted)  # nothing was sent for the failing widgets
+        assert result["all_passed"] is False and result["counts"]["failed"] == 3
+
+    def test_fields_present_in_the_target_model_are_not_flagged(self):
+        dash, client = _make_validator()
+        result = dash.validate_dashboard_queries(_V_ID, datasource="fes_assistant")
+        assert result["counts"]["failed"] == 0 and any("fes_assistant" in url for url, _ in client.posted)
+
+    def test_failed_and_unreachable_are_told_apart(self):
+        plan = {"fes_assistant": FakeResponse(400, {"error": {"message": "Table 'region' not found"}}), "Sample ECommerce": None}
+        dash, _ = _make_validator(plan=plan)
+        result = dash.validate_dashboard_queries(_V_ID)
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "failed" and "Table 'region' not found" in by_id["w-ind"]["error"]
+        assert by_id["w-line"]["status"] == "unreachable"
+        assert result["all_passed"] is False and result["counts"]["failed"] == 3 and result["counts"]["unreachable"] == 1
+
+    def test_unknown_datasource_and_unknown_dashboard(self):
+        dash, client = _make_validator()
+        assert dash.validate_dashboard_queries(_V_ID, datasource="nope")["ok"] is False and client.posted == []
+        other = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
+        assert other.validate_dashboard_queries("6a99ada4ea52ffb5c87c5ba4")["ok"] is False

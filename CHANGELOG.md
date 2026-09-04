@@ -53,6 +53,13 @@ All notable changes to `pysisense` are documented here. The format follows
   datasource object (for reverting), the new one, widget counts and `published`.
 - **`Dashboard.delete_dashboard(dashboard_id, title)`** — delete a dashboard only when both its id and its
   exact current title match; a stale id or a renamed dashboard is refused.
+- **`Dashboard.validate_dashboard_queries(dashboard, datasource=None)`** — run every widget's query
+  (its own fields plus the applicable dashboard filters, including dependent levels and background
+  restrictions) through `POST /api/datasources/{name}/jaql` and report per widget `ok`, `failed`
+  (with Sisense's error), `unreachable` (no answer within the client timeout) or `skipped`. With
+  `datasource`, widgets on the dashboard's own datasource run against that model or perspective
+  instead, without changing the dashboard; fields the target does not expose are reported as `failed`
+  before any query is sent, since the engine stalls on them.
 - **Config from JSON or a dict, not only YAML.** `SisenseClient(config_file=...)` now accepts a
   `.yaml`/`.yml` path, a `.json` path, an `os.PathLike`, or a plain dict with the same keys.
   `Migration` and `MergeTool` gain `source_config` / `target_config` taking the same forms;
