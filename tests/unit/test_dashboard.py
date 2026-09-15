@@ -1516,13 +1516,19 @@ class _JaqlRecordingClient(_RecordingDashClient):
 
     def __init__(self, plan, **kwargs):
         super().__init__(**kwargs)
-        self.plan = plan  # datasource title -> FakeResponse | None
+        self.plan = plan  # datasource title -> FakeResponse | None, or a list of them answered in order (last one repeats)
+        self._sequence: dict[str, int] = {}
 
     def post(self, url, data=None, **kwargs):
         if "/jaql" in url:
             self.posted.append((url, data))
             name = url.split("/api/datasources/")[1].split("/jaql")[0]
-            return self.plan.get(name, FakeResponse(200, {"values": [[]]}))
+            answer = self.plan.get(name, FakeResponse(200, {"values": [[]]}))
+            if isinstance(answer, list):
+                index = self._sequence.get(name, 0)
+                self._sequence[name] = index + 1
+                answer = answer[min(index, len(answer) - 1)]
+            return answer
         return super().post(url, data=data, **kwargs)
 
 
@@ -1664,3 +1670,89 @@ class TestValidateDashboardQueries:
         assert dash.validate_dashboard_queries(_V_ID, datasource="nope")["ok"] is False and client.posted == []
         other = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
         assert other.validate_dashboard_queries("6a99ada4ea52ffb5c87c5ba4")["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# compare_dashboard_values
+# ---------------------------------------------------------------------------
+
+_ROWS_ONE = {"values": [[{"data": "ASIA", "text": "ASIA"}, {"data": 10, "text": "10"}], [{"data": "EMEA", "text": "EMEA"}, {"data": 20, "text": "20"}]]}
+_ROWS_ONE_REORDERED = {"values": list(reversed(_ROWS_ONE["values"]))}
+_ROWS_OTHER = {"values": [[{"data": "ASIA", "text": "ASIA"}, {"data": 11, "text": "11"}], [{"data": "EMEA", "text": "EMEA"}, {"data": 20, "text": "20"}]]}
+
+
+class TestCompareDashboardValues:
+    def test_matching_values_in_any_row_order(self):
+        dash, client = _make_validator(plan={"fes_assistant": FakeResponse(200, _ROWS_ONE), "fes_persp": FakeResponse(200, _ROWS_ONE_REORDERED)})
+        result = dash.compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")
+        assert result["all_match"] is True
+        assert result["datasource_a"] == "fes_assistant" and result["datasource_b"] == "fes_persp"
+        assert result["counts"] == {"match": 3, "mismatch": 0, "error": 0, "skipped": 3} and result["compared"] == 3 and result["skipped"] == 3
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "match" and by_id["w-ind"]["rows_a"] == 2 and by_id["w-ind"]["rows_b"] == 2
+        assert by_id["w-piv"]["status"] == "match" and by_id["w-plugin"]["status"] == "match"
+        assert by_id["w-line"]["status"] == "skipped" and "Sample ECommerce" in by_id["w-line"]["error"]  # other datasource
+        assert by_id["w-rich"]["status"] == "skipped" and "do not query" in by_id["w-rich"]["error"]
+        assert by_id["w-empty"]["status"] == "skipped" and "BloX" in by_id["w-empty"]["error"]
+        urls = [u for u, _ in client.posted]
+        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/fes_persp/jaql") == 3
+        assert not any("Sample ECommerce" in u for u in urls)
+
+    def test_one_widget_differs(self):
+        dash, _ = _make_validator(plan={"fes_assistant": FakeResponse(200, _ROWS_ONE), "fes_persp": [FakeResponse(200, _ROWS_ONE), FakeResponse(200, _ROWS_OTHER), FakeResponse(200, _ROWS_ONE)]})
+        result = dash.compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")
+        assert result["all_match"] is False and result["counts"] == {"match": 2, "mismatch": 1, "error": 0, "skipped": 3}
+        statuses = [(w["widget_id"], w["status"]) for w in result["widgets"] if w["status"] != "skipped"]
+        assert statuses == [("w-ind", "match"), ("w-piv", "mismatch"), ("w-plugin", "match")]
+
+    def test_queries_carry_both_datasource_objects_filters_and_the_row_limit(self):
+        dash, client = _make_validator(plan={"fes_assistant": FakeResponse(200, _ROWS_ONE), "fes_persp": FakeResponse(200, _ROWS_ONE)})
+        dash.compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")
+        ind = [body for url, body in client.posted if any(m["jaql"].get("agg") == "sum" and m["jaql"].get("dim") == "[region.r_regionkey]" for m in body["metadata"])]
+        assert [b["datasource"]["title"] for b in ind] == ["fes_assistant", "fes_persp"]
+        assert ind[1]["datasource"] == {"title": "fes_persp", "id": "live:fes_persp", "fullname": "live:fes_persp", "live": True}
+        assert all(b["count"] == 1000 for b in ind)
+        assert [m["panel"] for m in ind[0]["metadata"]] == [m["panel"] for m in ind[1]["metadata"]] == ["measures", "scope", "scope", "scope", "scope", "scope"]
+        assert all("datasource" not in m["jaql"] for b in ind for m in b["metadata"][1:])  # own-datasource references stripped on both sides
+
+    def test_missing_field_on_one_side_is_an_error_without_querying_it(self):
+        dash, client = _make_validator(plan={"fes_assistant": FakeResponse(200, _ROWS_ONE)})
+        result = dash.compare_dashboard_values(_V_ID, "fes_assistant", "narrow_persp")
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "error" and by_id["w-ind"]["error"].startswith("not found in 'narrow_persp':") and "[region.r_regionkey]" in by_id["w-ind"]["error"]
+        assert by_id["w-ind"]["rows_a"] == 2 and by_id["w-ind"]["rows_b"] is None  # side a ran, side b was not sent
+        assert not any("narrow_persp" in url for url, _ in client.posted)
+        assert result["all_match"] is False and result["counts"]["error"] == 3
+
+    def test_failed_or_unreachable_query_is_an_error(self):
+        dash, _ = _make_validator(plan={"fes_assistant": FakeResponse(200, _ROWS_ONE), "fes_persp": FakeResponse(500, {"error": {"message": "engine busy"}})})
+        result = dash.compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")
+        by_id = {w["widget_id"]: w for w in result["widgets"]}
+        assert by_id["w-ind"]["status"] == "error" and "fes_persp" in by_id["w-ind"]["error"] and "engine busy" in by_id["w-ind"]["error"]
+        assert result["all_match"] is False
+        silent, _ = _make_validator(plan={"fes_assistant": None, "fes_persp": FakeResponse(200, _ROWS_ONE)})
+        assert silent.compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")["widgets"][0]["status"] == "error"
+
+    def test_nothing_compared_is_not_a_match(self):
+        export = dict(_V_EXPORT, widgets=[_V_EXPORT["widgets"][2], _V_EXPORT["widgets"][3]])  # only an other-datasource widget and a rich text
+        client = _JaqlRecordingClient(
+            {},
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [{"oid": _V_ID, "title": "Board"}]),
+                "/api/v1/dashboards/export": FakeResponse(200, [export]),
+                "/api/datasources": FakeResponse(200, [_V_LIVE, _V_ECOM]),
+                "/api/v2/perspectives": FakeResponse(200, [_V_FULL_PERSP]),
+                "/api/v2/datamodels/dm-live/schema": FakeResponse(200, _V_SCHEMA),
+                "/api/v2/datamodels/schema": FakeResponse(200, {"oid": "dm-live", "title": "fes_assistant"}),
+            },
+            logger=FakeLogger(),
+        )
+        result = Dashboard(api_client=client).compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")
+        assert result["all_match"] is False and result["compared"] == 0 and result["skipped"] == 2 and client.posted == []
+
+    def test_unknown_datasource_and_unknown_dashboard(self):
+        dash, client = _make_validator()
+        assert dash.compare_dashboard_values(_V_ID, "fes_assistant", "nope")["ok"] is False and client.posted == []
+        assert dash.compare_dashboard_values(_V_ID, "nope", "fes_persp")["ok"] is False
+        other = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [])})
+        assert other.compare_dashboard_values("6a99ada4ea52ffb5c87c5ba4", "fes_assistant", "fes_persp")["ok"] is False

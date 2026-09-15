@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
@@ -969,6 +970,149 @@ class DashboardCoreMixin:
         all_passed = counts["failed"] == 0 and counts["unreachable"] == 0
         self.logger.info(f"Validated dashboard '{title}' ({dashboard_id}) against '{(target or own_ds).get('title')}': {counts}")
         return {"dashboard_id": dashboard_id, "title": title, "datasource": (target or own_ds).get("title"), "all_passed": all_passed, "counts": counts, "widgets": results}
+
+    _COMPARE_ROW_LIMIT = 1000
+
+    def compare_dashboard_values(self, dashboard: str, datasource_a: str, datasource_b: str) -> dict[str, Any]:
+        """Run every widget's query against two datasources and report whether the values match.
+
+        Reads the dashboard's widgets and filters, builds each widget's query the
+        way the widget itself does — its own fields plus the dashboard filters that
+        apply to it, honouring a widget's "ignore dashboard filters" settings — and
+        runs it through ``POST /api/datasources/{name}/jaql`` once against
+        ``datasource_a`` and once against ``datasource_b``, up to 1000 rows each,
+        then compares the two result sets row for row, ignoring row order. This
+        answers "does the dashboard show the same numbers on both": a perspective
+        against its root model, or one model against another. Nothing on the
+        dashboard is modified. Before querying, each widget's fields are checked
+        against what each datasource exposes — a perspective's kept columns, or a
+        model's columns — and a widget that references a missing field is reported
+        ``"error"`` with the missing dims, since the query engine does not answer
+        for such a query. Widgets on another datasource than the dashboard's own,
+        BloX widgets and widgets with nothing to query are ``"skipped"``.
+
+        Parameters
+        ----------
+        dashboard : str
+            The dashboard, as an ID or title.
+        datasource_a : str
+            Title of the first data model or perspective, the reference.
+        datasource_b : str
+            Title of the second data model or perspective, the one under test.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"dashboard_id", "title", "datasource_a", "datasource_b", "all_match", "compared",
+            "skipped", "counts": {"match", "mismatch", "error", "skipped"}, "widgets": [...]}``. Each
+            widget entry carries ``widget_id``, ``title``, ``type``, ``status`` — ``"match"``,
+            ``"mismatch"``, ``"error"`` (a query failed, stalled or names a field a datasource lacks;
+            detail in ``error``) or ``"skipped"`` (reason in ``error``) — ``rows_a``, ``rows_b`` (row
+            counts returned by each datasource, ``None`` when not queried) and ``seconds``. ``all_match``
+            is true only when at least one widget was compared and none is ``"mismatch"`` or
+            ``"error"``. On failure to read the dashboard or resolve a datasource, the standard
+            ``{"ok": False, "error": "...", ...}`` dict.
+        """
+        ref = self.resolve_dashboard_reference(dashboard)
+        if not ref.get("success"):
+            return self._fail(f"Dashboard '{dashboard}' could not be resolved: {ref.get('error') or 'not found'}", status_code=ref.get("status_code"))
+        dashboard_id = ref["dashboard_id"]
+        exported = self.export_dashboard(dashboard_id)
+        if not isinstance(exported, dict) or exported.get("ok") is False or ("error" in exported and "title" not in exported):
+            return exported if isinstance(exported, dict) else {"ok": False, "error": f"Unexpected export result for dashboard '{dashboard_id}'."}
+        title = exported.get("title")
+        own_ds = exported.get("datasource") if isinstance(exported.get("datasource"), dict) else {}
+        own_title = _datasource_title(own_ds)
+
+        sides: list[tuple[str, dict[str, Any], set[tuple[str, str]] | None]] = []
+        for wanted in (datasource_a, datasource_b):
+            resolved = self._datasource_object(wanted)
+            if resolved is None:
+                return self._fail(f"Datasource '{wanted}' not found: it is neither a data model nor a perspective on this instance.")
+            available = self._available_fields(wanted)
+            if available is None:
+                self.logger.debug(f"Could not read the fields of '{wanted}'; widgets will be compared by running their queries only.")
+            sides.append((wanted, resolved, available))
+
+        queries = Queries(api_client=self.api_client)
+
+        def run(ds: dict[str, Any], metadata: list[dict[str, Any]]) -> tuple[Any, str | None]:
+            body = {"datasource": ds, "metadata": metadata, "count": self._COMPARE_ROW_LIMIT, "offset": 0, "format": "json"}
+            response = queries.elasticube_run_jaql_query(ds.get("title") or "", body)
+            if isinstance(response, dict) and (response.get("ok") is False or "error" in response):
+                return None, f"query on '{ds.get('title')}' failed: {response.get('error')}"
+            values = response.get("values") if isinstance(response, dict) else None
+            if not isinstance(values, list):
+                return None, f"query on '{ds.get('title')}' returned no values"
+            return values, None
+
+        results: list[dict[str, Any]] = []
+        for widget in exported.get("widgets") or []:
+            if not isinstance(widget, dict):
+                continue
+            entry: dict[str, Any] = {
+                "widget_id": widget.get("oid"),
+                "title": widget.get("title") or "",
+                "type": widget.get("type"),
+                "status": "skipped",
+                "rows_a": None,
+                "rows_b": None,
+                "error": None,
+                "seconds": 0.0,
+            }
+            widget_type = str(widget.get("type") or "").lower()
+            widget_ds = widget.get("datasource") if isinstance(widget.get("datasource"), dict) else own_ds
+            if widget_type in self._NON_QUERY_WIDGET_TYPES:
+                entry["error"] = f"{widget.get('type')} widgets do not query data"
+            elif widget_type == "blox":
+                entry["error"] = "BloX widgets query through their own actions and templates; not compared"
+            elif _datasource_title(widget_ds) != own_title:
+                entry["error"] = f"widget queries '{(widget_ds or {}).get('title')}', not the dashboard's datasource"
+            if entry["error"] is not None:
+                results.append(entry)
+                continue
+            started = time.time()
+            values_by_side: list[Any] = []
+            for label, (wanted, ds, available) in zip(("a", "b"), sides, strict=True):
+                metadata = self._widget_query(widget, exported, ds, own_title)
+                if not any(m["panel"] != "scope" for m in metadata):
+                    entry["error"] = "widget has no fields to query"
+                    break
+                if available is not None:
+                    missing = self._missing_fields(metadata, available)
+                    if missing:
+                        entry["status"] = "error"
+                        entry["error"] = f"not found in '{wanted}': " + ", ".join(missing)
+                        break
+                values, error = run(ds, metadata)
+                if error is not None:
+                    entry["status"] = "error"
+                    entry["error"] = error
+                    break
+                entry[f"rows_{label}"] = len(values)
+                values_by_side.append(values)
+            entry["seconds"] = round(time.time() - started, 1)
+            if entry["error"] is None:
+                normalised = [sorted(json.dumps(row, sort_keys=True, default=str) for row in values) for values in values_by_side]
+                entry["status"] = "match" if normalised[0] == normalised[1] else "mismatch"
+            self.logger.debug(f"compare_dashboard_values: widget {entry['widget_id']} ({entry['type']}) -> {entry['status']} in {entry['seconds']}s")
+            results.append(entry)
+
+        counts = {status: sum(1 for r in results if r["status"] == status) for status in ("match", "mismatch", "error", "skipped")}
+        compared = counts["match"] + counts["mismatch"]
+        all_match = compared > 0 and counts["mismatch"] == 0 and counts["error"] == 0
+        self.logger.info(f"Compared dashboard '{title}' ({dashboard_id}) on '{datasource_a}' and '{datasource_b}': {counts}, all_match={all_match}")
+        return {
+            "dashboard_id": dashboard_id,
+            "title": title,
+            "datasource_a": sides[0][1].get("title"),
+            "datasource_b": sides[1][1].get("title"),
+            "all_match": all_match,
+            "compared": compared,
+            "skipped": counts["skipped"],
+            "counts": counts,
+            "widgets": results,
+        }
 
     def _datasource_object(self, title: str) -> dict[str, Any] | None:
         """Build the datasource object Sisense expects for a perspective or data model title.

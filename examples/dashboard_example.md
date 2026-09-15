@@ -530,6 +530,26 @@ for widget in report["widgets"]:
         # Revenue by Brand -> not found in 'commerce_by_country': [Brand.Brand]
 ```
 
+## Example 28: Compare a Dashboard's Numbers on Two Datasources
+
+```python
+# Same widgets, same filters, run against the root model and against a perspective built over it.
+# Row order is ignored; up to 1000 rows per widget and side are compared.
+report = dashboard.compare_dashboard_values("Sales Overview", "Sample ECommerce", "commerce_by_country")
+# {"dashboard_id": "...", "title": "Sales Overview", "datasource_a": "Sample ECommerce", "datasource_b": "commerce_by_country",
+#  "all_match": False, "compared": 5, "skipped": 2, "counts": {"match": 4, "mismatch": 1, "error": 0, "skipped": 2},
+#  "widgets": [{"widget_id": "...", "title": "Revenue", "type": "indicator", "status": "match", "rows_a": 1, "rows_b": 1, "error": None, "seconds": 0.4},
+#              {"widget_id": "...", "title": "Revenue by Brand", "type": "chart/bar", "status": "mismatch", "rows_a": 12, "rows_b": 9, "error": None, "seconds": 0.9},
+#              {"widget_id": "...", "title": "Notes", "type": "richtexteditor", "status": "skipped", "rows_a": None, "rows_b": None,
+#               "error": "richtexteditor widgets do not query data", "seconds": 0.0}, ...]}
+for widget in report["widgets"]:
+    if widget["status"] in ("mismatch", "error"):
+        print(widget["title"], "->", widget["status"], widget["error"] or f"{widget['rows_a']} vs {widget['rows_b']} rows")
+
+# A widget using a field the perspective left out is an error straight away, without waiting on the engine:
+#   Revenue by Brand -> error not found in 'commerce_by_country': [Brand.Brand]
+```
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

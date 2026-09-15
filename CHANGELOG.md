@@ -6,6 +6,19 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`Dashboard.compare_dashboard_values(dashboard, datasource_a, datasource_b)`** — run every
+  widget's query, with the dashboard filters that apply to it, once against each datasource
+  (up to 1000 rows a side) and compare the result sets row for row, ignoring order. Answers
+  "does the dashboard show the same numbers on the perspective as on the root model". Returns
+  `all_match` (true only when at least one widget was compared and none mismatched or errored),
+  `compared`, `skipped`, `counts` by status and a per-widget list with `status`
+  (`match`/`mismatch`/`error`/`skipped`), `rows_a`, `rows_b`, `error` and `seconds`. Fields a
+  datasource does not expose are reported as `error` before any query is sent, since the engine
+  stalls on them; widgets on another datasource, BloX widgets and widgets with nothing to query
+  are `skipped`. Read-only.
+
 ### Changed
 
 - **`analyze_perspective_requirements` keeps only what a perspective actually needs, and asks the
@@ -32,6 +45,7 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### For downstream tool generators
 
+- New method `Dashboard.compare_dashboard_values(dashboard: str, datasource_a: str, datasource_b: str)`.
 - `analyze_perspective_requirements`: additive result keys `perspective_tables_all_paths` (list,
   always present) and `join_path_choices` (list, always present); additive `summary` keys
   `tables_required_all_paths`, `columns_required_all_paths`; additive detailed keys

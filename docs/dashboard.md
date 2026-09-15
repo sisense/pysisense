@@ -491,3 +491,17 @@ Runs every widget's query and reports which widgets answer, fail, or cannot be q
 **Returns:**
 
 - `dict`: `{"dashboard_id", "title", "datasource", "all_passed", "counts": {"ok", "failed", "unreachable", "skipped"}, "widgets": [...]}`. Each widget entry carries `widget_id`, `title`, `type`, `datasource`, `status` — `"ok"` (answered), `"failed"` (Sisense returned an error, in `error`), `"unreachable"` (no answer within the client's read timeout, in `error`) or `"skipped"` (nothing to query, reason in `error`) — and `seconds`. `all_passed` is true when no widget failed or was unreachable. Cold queries on a slow instance can exceed the client's default read timeout and show as `unreachable`; raise the client's `timeout` setting for validation runs where that happens. On failure to read the dashboard or resolve `datasource`, the standard error dict `{"ok": False, "error": "..."}`.
+
+### `compare_dashboard_values(dashboard, datasource_a, datasource_b)`
+
+Runs every widget's query against two datasources and reports whether the values match. Reads the dashboard's widgets and filters, builds each widget's query the way the widget itself does — its own fields plus the dashboard filters that apply to it, honouring a widget's "ignore dashboard filters" settings — and runs it through `POST /api/datasources/{name}/jaql` once against `datasource_a` and once against `datasource_b`, up to 1000 rows each, then compares the two result sets row for row, ignoring row order. This answers "does the dashboard show the same numbers on both": a perspective against its root model, or one model against another. Nothing on the dashboard is modified. Before querying, each widget's fields are checked against what each datasource exposes — a perspective's kept columns, or a model's columns — and a widget that references a missing field is reported `error` with the missing dims, since the query engine does not answer for such a query. Widgets on another datasource than the dashboard's own, BloX widgets and widgets with nothing to query are `skipped`.
+
+**Parameters:**
+
+- `dashboard` (str): The dashboard, as an ID or title.
+- `datasource_a` (str): Title of the first data model or perspective, the reference.
+- `datasource_b` (str): Title of the second data model or perspective, the one under test.
+
+**Returns:**
+
+- `dict`: `{"dashboard_id", "title", "datasource_a", "datasource_b", "all_match", "compared", "skipped", "counts": {"match", "mismatch", "error", "skipped"}, "widgets": [...]}`. Each widget entry carries `widget_id`, `title`, `type`, `status` — `"match"`, `"mismatch"`, `"error"` (a query failed, stalled or names a field a datasource lacks; detail in `error`) or `"skipped"` (reason in `error`) — `rows_a`, `rows_b` (row counts returned by each datasource, `None` when not queried) and `seconds`. `all_match` is true only when at least one widget was compared and none is `mismatch` or `error`, so a dashboard with nothing to compare never passes. Two datasources that both return zero rows for a widget are a `match`; `rows_a`/`rows_b` show it. On failure to read the dashboard or resolve a datasource, the standard error dict `{"ok": False, "error": "..."}`.
