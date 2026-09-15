@@ -6,7 +6,42 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`analyze_perspective_requirements` keeps only what a perspective actually needs, and asks the
+  engine which join path it uses.** A perspective evaluates custom columns and custom tables through
+  its root model, so the columns a custom column reads and the tables a custom table selects from
+  are no longer added (on one model this had turned 2 used columns into 24 tables and 155 columns).
+  Join columns and intermediate tables are now added only between tables that meet in one query —
+  a widget's own tables plus the dashboard's filter and hierarchy tables (a filter counts even for a
+  widget that has switched it off, so the perspective survives the toggle) — instead of between
+  every pair of used tables, so widgets on separate tables with no shared filter keep no join at
+  all. Where a pair is connected by more than one equally short path through tables no dashboard
+  uses, the method sends each widget's query to `POST /api/datasources/{model}/jaql/sql`
+  (translation only, nothing runs) and reads which candidate tables the engine joins through:
+  `perspective_tables` keeps only those paths, the new `perspective_tables_all_paths` keeps every
+  path, and the new `join_path_choices` lists the pair (`from`, `to`, `needed_by`, `resolved`,
+  `paths` as `{"via": [...], "in_use": ...}`). When the translation cannot be obtained or names
+  none of the candidates, both lists keep every path and the pair is counted in `warnings` as
+  `ambiguous_join_path`. `perspective_tables[].columns` is now always an explicit list of names.
+  `summary` gains `tables_required_all_paths` and `columns_required_all_paths`. In the detailed
+  view, `dependencies.columns` carries only `join_column` reasons plus an `in_use` flag,
+  `dependencies.tables` lists every table kept purely as a join path in `perspective_tables` (it
+  previously listed only tables kept with no columns, which a join path never is), and
+  `dependencies.tables_all_paths` does the same for every path.
+
+### For downstream tool generators
+
+- `analyze_perspective_requirements`: additive result keys `perspective_tables_all_paths` (list,
+  always present) and `join_path_choices` (list, always present); additive `summary` keys
+  `tables_required_all_paths`, `columns_required_all_paths`; additive detailed keys
+  `dependencies.tables_all_paths` and `dependencies.columns[].in_use`. Consumers matching exact
+  key sets must widen. `perspective_tables` remains valid to pass to `create_perspective`
+  unchanged; `perspective_tables[].columns` is now always `list[str]` (never `"all"`). Dropped
+  `reason` values in the detailed `dependencies.columns`: `custom_column_expression`,
+  `custom_table_source`. Dropped warning kinds: `custom_column_token_unresolved`,
+  `custom_table_sql_unresolved`, `custom_table_sql_column_unresolved`, `custom_table_sql_complex`,
+  `custom_table_sql_no_source`. New warning kind: `ambiguous_join_path`.
 
 ## [2.1.0] — 2026-09-04
 

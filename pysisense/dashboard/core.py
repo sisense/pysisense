@@ -6,7 +6,17 @@ from typing import Any
 from urllib.parse import quote
 
 from ..queries import Queries
-from ..utils import _build_schema_index, _column_name_variants, _datasource_title, _discover_dashboards_on_datasource, _extract_error_message, _iter_dim_nodes, _reference_from_jaql
+from ..utils import (
+    _build_schema_index,
+    _column_name_variants,
+    _datasource_title,
+    _discover_dashboards_on_datasource,
+    _extract_error_message,
+    _iter_dim_nodes,
+    _jaql_panel,
+    _reference_from_jaql,
+    _widget_query_metadata,
+)
 
 
 class DashboardCoreMixin:
@@ -778,77 +788,12 @@ class DashboardCoreMixin:
 
     @staticmethod
     def _jaql_panel(panel_name: str, jaql: dict[str, Any]) -> str:
-        """Map a widget slot name to the panel name the JAQL endpoint understands.
-
-        Widgets store their fields under slot names such as ``value``, ``values``,
-        ``categories`` or ``break by``; the query endpoint accepts only ``rows``,
-        ``columns``, ``measures`` and ``scope`` (an unknown name stalls the query).
-        """
-        name = (panel_name or "").strip().lower()
-        if name == "filters":
-            return "scope"
-        if "agg" in jaql or "formula" in jaql or name in ("values", "value", "measures", "secondary", "min", "max", "size", "color"):
-            return "measures"
-        if name in ("columns", "break by", "breakby"):
-            return "columns"
-        return "rows"
+        """Map a widget slot name to the panel name the JAQL endpoint understands."""
+        return _jaql_panel(panel_name, jaql)
 
     def _widget_query(self, widget: dict[str, Any], dashboard: dict[str, Any], datasource: dict[str, Any], replaced_title: str | None) -> list[dict[str, Any]]:
         """Build the metadata list a widget's query needs: its own items plus the dashboard filters that apply to it."""
-        metadata: list[dict[str, Any]] = []
-        metadata_block = widget.get("metadata") if isinstance(widget.get("metadata"), dict) else {}
-        panels = metadata_block.get("panels") or []
-        if not panels and isinstance(widget.get("query"), dict):
-            for item in widget["query"].get("metadata") or []:  # some plugin widgets keep their query here
-                if isinstance(item, dict) and isinstance(item.get("jaql"), dict):
-                    panels = [{"name": item.get("panel") or "rows", "items": [item]}]
-                    metadata_block = {}
-                    break
-        for panel in panels:
-            if not isinstance(panel, dict):
-                continue
-            for item in panel.get("items") or []:
-                jaql = item.get("jaql") if isinstance(item, dict) else None
-                if not isinstance(jaql, dict) or item.get("disabled"):
-                    continue
-                jaql = dict(jaql)
-                if replaced_title and _datasource_title(jaql.get("datasource")) == replaced_title:
-                    jaql.pop("datasource", None)
-                metadata.append({"jaql": jaql, "panel": self._jaql_panel(panel.get("name"), jaql)})
-
-        ignore = metadata_block.get("ignore") if isinstance(metadata_block.get("ignore"), dict) else {}
-        if ignore.get("all"):
-            return metadata
-        ignored_dims = {d for d in (ignore.get("dimensions") or []) if isinstance(d, str)}
-        ignored_ids = {i for i in (ignore.get("ids") or []) if isinstance(i, str)}
-        widget_ds = _datasource_title(datasource)
-        dashboard_ds = _datasource_title(dashboard.get("datasource"))
-
-        def belongs(jaql: dict[str, Any]) -> bool:
-            owner = _datasource_title(jaql.get("datasource")) or dashboard_ds
-            return owner == widget_ds or (replaced_title is not None and owner == replaced_title)
-
-        def add_filter(jaql: dict[str, Any], instance_id: Any) -> None:
-            if not isinstance(jaql, dict) or not isinstance(jaql.get("dim"), str) or jaql["dim"] in ignored_dims or (instance_id in ignored_ids) or not belongs(jaql):
-                return
-            jaql = dict(jaql)
-            jaql.pop("datasource", None)
-            filter_clause = jaql.get("filter") if isinstance(jaql.get("filter"), dict) else None
-            background = filter_clause.get("filter") if filter_clause and isinstance(filter_clause.get("filter"), dict) else None
-            if background is not None:  # a dependent filter's nested restriction is sent as its own background entry
-                jaql["filter"] = {k: v for k, v in filter_clause.items() if k != "filter"}
-                metadata.append({"jaql": dict(jaql, filter=background), "panel": "scope", "isBackground": True})
-            metadata.append({"jaql": jaql, "panel": "scope"})
-
-        for entry in dashboard.get("filters") or []:
-            if not isinstance(entry, dict) or entry.get("disabled"):
-                continue
-            if isinstance(entry.get("jaql"), dict):
-                add_filter(entry["jaql"], entry.get("instanceid"))
-            for level in entry.get("levels") or []:
-                if isinstance(level, dict):
-                    add_filter(level, level.get("instanceid") or entry.get("instanceid"))
-        return metadata
+        return _widget_query_metadata(widget, dashboard, datasource, replaced_title)
 
     def _available_fields(self, datasource_title: str) -> set[tuple[str, str]] | None:
         """Lower-cased ``(table, column)`` pairs a datasource exposes: a perspective's kept columns, or all of a model's.

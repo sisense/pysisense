@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -915,6 +916,114 @@ def _build_schema_index(schema: dict[str, Any]) -> dict[str, Any]:
     return {"tables": tables, "tables_by_name": tables_by_name, "relations": relations}
 
 
+def _jaql_panel(panel_name: str, jaql: dict[str, Any]) -> str:
+    """Map a widget slot name to the panel name the JAQL endpoint understands.
+
+    Widgets store their fields under slot names such as ``value``, ``values``,
+    ``categories`` or ``break by``; the query endpoints accept only ``rows``,
+    ``columns``, ``measures`` and ``scope`` (an unknown name stalls the query).
+    """
+    name = (panel_name or "").strip().lower()
+    if name == "filters":
+        return "scope"
+    if "agg" in jaql or "formula" in jaql or name in ("values", "value", "measures", "secondary", "min", "max", "size", "color"):
+        return "measures"
+    if name in ("columns", "break by", "breakby"):
+        return "columns"
+    return "rows"
+
+
+def _widget_query_metadata(widget: dict[str, Any], dashboard: dict[str, Any], datasource: dict[str, Any] | None, replaced_title: str | None, *, honour_ignore: bool = True) -> list[dict[str, Any]]:
+    """Build the metadata list a widget's query needs: its own items plus the dashboard filters that reach it.
+
+    ``honour_ignore=False`` adds every dashboard filter on the widget's datasource even when the widget
+    has switched it off, to see the query as it would be with every filter applied.
+    """
+    metadata: list[dict[str, Any]] = []
+    metadata_block = widget.get("metadata") if isinstance(widget.get("metadata"), dict) else {}
+    panels = metadata_block.get("panels") or []
+    if not panels and isinstance(widget.get("query"), dict):
+        for item in widget["query"].get("metadata") or []:  # some plugin widgets keep their query here
+            if isinstance(item, dict) and isinstance(item.get("jaql"), dict):
+                panels = [{"name": item.get("panel") or "rows", "items": [item]}]
+                metadata_block = {}
+                break
+    for panel in panels:
+        if not isinstance(panel, dict):
+            continue
+        for item in panel.get("items") or []:
+            jaql = item.get("jaql") if isinstance(item, dict) else None
+            if not isinstance(jaql, dict) or item.get("disabled"):
+                continue
+            jaql = dict(jaql)
+            if replaced_title and _datasource_title(jaql.get("datasource")) == replaced_title:
+                jaql.pop("datasource", None)
+            metadata.append({"jaql": jaql, "panel": _jaql_panel(panel.get("name"), jaql)})
+
+    ignore = metadata_block.get("ignore") if isinstance(metadata_block.get("ignore"), dict) and honour_ignore else {}
+    if ignore.get("all"):
+        return metadata
+    ignored_dims = {d for d in (ignore.get("dimensions") or []) if isinstance(d, str)}
+    ignored_ids = {i for i in (ignore.get("ids") or []) if isinstance(i, str)}
+    widget_ds = _datasource_title(datasource)
+    dashboard_ds = _datasource_title(dashboard.get("datasource"))
+
+    def belongs(jaql: dict[str, Any]) -> bool:
+        owner = _datasource_title(jaql.get("datasource")) or dashboard_ds
+        return owner == widget_ds or (replaced_title is not None and owner == replaced_title)
+
+    def add_filter(jaql: dict[str, Any], instance_id: Any) -> None:
+        if not isinstance(jaql, dict) or not isinstance(jaql.get("dim"), str) or jaql["dim"] in ignored_dims or (instance_id in ignored_ids) or not belongs(jaql):
+            return
+        jaql = dict(jaql)
+        jaql.pop("datasource", None)
+        filter_clause = jaql.get("filter") if isinstance(jaql.get("filter"), dict) else None
+        background = filter_clause.get("filter") if filter_clause and isinstance(filter_clause.get("filter"), dict) else None
+        if background is not None:  # a dependent filter's nested restriction is sent as its own background entry
+            jaql["filter"] = {k: v for k, v in filter_clause.items() if k != "filter"}
+            metadata.append({"jaql": dict(jaql, filter=background), "panel": "scope", "isBackground": True})
+        metadata.append({"jaql": jaql, "panel": "scope"})
+
+    for entry in dashboard.get("filters") or []:
+        if not isinstance(entry, dict) or entry.get("disabled"):
+            continue
+        if isinstance(entry.get("jaql"), dict):
+            add_filter(entry["jaql"], entry.get("instanceid"))
+        for level in entry.get("levels") or []:
+            if isinstance(level, dict):
+                add_filter(level, level.get("instanceid") or entry.get("instanceid"))
+    return metadata
+
+
+def _encode_cube_identifier(name: str) -> str:
+    """Spell a model table or column name the way an ElastiCube's SQL identifiers do.
+
+    ``a`` followed by the name, each character that is not a letter or digit replaced by the
+    base64 of ``(char, 0x00, 0x1A)`` — ``_`` becomes ``XwAa``, a space ``IAAa``.
+    """
+    out = ["a"]
+    for ch in name:
+        if ch.isalnum() and ord(ch) < 128:
+            out.append(ch)
+        else:
+            out.append(base64.b64encode(bytes([ord(ch) & 0xFF, 0, 0x1A])).decode("ascii"))
+    return "".join(out)
+
+
+def _sql_names_table(sql: str, table: dict[str, Any]) -> bool:
+    """Whether a translated query mentions a model table, by any spelling the engine uses for it.
+
+    ElastiCube SQL uses the encoded model name; live-model SQL uses the table's ``id`` (the physical
+    name, or the ``tq_…`` alias of a custom table). A spelling counts only as a whole identifier.
+    """
+    spellings = set()
+    for value in (table.get("name"), table.get("id")):
+        if isinstance(value, str) and value.strip():
+            spellings.add(value.strip())
+            spellings.add(_encode_cube_identifier(value.strip()))
+    return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(spelling) + r"(?![A-Za-z0-9])", sql) for spelling in spellings)
+
+
 def _compute_dependency_closure(
     index: dict[str, Any],
     used: set[_ColumnKey],
@@ -923,14 +1032,17 @@ def _compute_dependency_closure(
     custom_columns: bool = True,
     custom_tables: bool = True,
     custom_table_columns: Literal["all", "parsed"] = "all",
+    join_pairs: set[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Compute everything a set of columns depends on beyond the columns themselves.
 
     Runs three closures to a fixpoint over the retained set: join paths between
-    every pair of retained tables (both join columns of every edge on every
+    pairs of retained tables (both join columns of every edge on every
     shortest path, and the intermediate tables), custom-column formulas
     (the columns they read), and custom-table SQL (the tables and columns it
-    selects from). Each retained entry carries the reasons it was kept.
+    selects from). Each retained entry carries the reasons it was kept. When a
+    pair of tables has more than one shortest path, every path is kept and all
+    of them are listed in ``join_paths``.
 
     Parameters
     ----------
@@ -947,12 +1059,17 @@ def _compute_dependency_closure(
     custom_table_columns : {"all", "parsed"}, optional
         ``"all"`` keeps every column of every table a custom table's SQL references;
         ``"parsed"`` keeps only the columns the SQL names (``select *`` still keeps all).
+    join_pairs : set[tuple[str, str]] | None, optional
+        The ``(table_oid, table_oid)`` pairs that must be joinable, in either order. Default
+        ``None`` joins every pair of retained endpoint tables.
 
     Returns
     -------
     dict[str, Any]
         ``{"retained": {(table_oid, column_oid): [reason, ...]}, "tables": {table_oid: [reason, ...]},
-        "join_paths": [{"from", "to", "tables"}], "issues": [{"severity", "kind", "detail"}], "options": {...}}``.
+        "join_paths": [{"from", "to", "tables", "paths"}], "issues": [{"severity", "kind", "detail"}], "options": {...}}``.
+        ``paths`` lists every shortest path as a table-oid sequence from ``from`` to ``to``;
+        ``tables`` is their union ordered by distance from ``from``.
         ``retained`` holds dependency columns only (never the ``used`` input); ``tables`` lists tables
         kept for a table-level reason — an intermediate table on a join path or the source table of a
         custom table — with their reasons, whether or not they also have retained columns.
@@ -1001,7 +1118,7 @@ def _compute_dependency_closure(
     for _ in range(50):  # fixpoint; each pass only adds
         changed = False
         if join_paths:
-            changed |= _close_join_paths(index, endpoint_tables(), keep, keep_table, issue, join_path_report, seen_paths)
+            changed |= _close_join_paths(index, endpoint_tables(), keep, keep_table, issue, join_path_report, seen_paths, pairs=join_pairs)
         if custom_columns:
             for key in sorted((set(used) | set(retained)) - processed_columns):
                 processed_columns.add(key)
@@ -1020,15 +1137,18 @@ def _compute_dependency_closure(
         "tables": extra_tables,
         "join_paths": join_path_report,
         "issues": issues,
-        "options": {"join_paths": join_paths, "custom_columns": custom_columns, "custom_tables": custom_tables, "custom_table_columns": custom_table_columns},
+        "options": {"join_paths": join_paths, "custom_columns": custom_columns, "custom_tables": custom_tables, "custom_table_columns": custom_table_columns, "join_pairs": join_pairs},
     }
 
 
-def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, seen_paths) -> bool:
+def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, seen_paths, pairs=None) -> bool:
     """Retain the join columns on every shortest path between each pair of needed tables.
 
     ``tables_needed`` are the endpoint tables only; a table that lies on a path
-    is kept as an intermediate but never becomes an endpoint itself.
+    is kept as an intermediate but never becomes an endpoint itself. With
+    ``pairs`` given, only those table pairs are connected; otherwise every pair
+    of needed tables is. A pair with more than one shortest path keeps them all;
+    the report lists every path so the caller can tell.
     """
     tables = index["tables"]
     adjacency: dict[str, dict[str, list[tuple[_ColumnKey, _ColumnKey]]]] = {}
@@ -1038,31 +1158,51 @@ def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, see
                 if a[0] != b[0] and a[0] in tables and b[0] in tables:
                     adjacency.setdefault(a[0], {}).setdefault(b[0], []).append((a, b))
     changed = False
-    needed = sorted(t for t in tables_needed if t in tables)
-    for i, source in enumerate(needed):
+    if pairs is None:
+        needed = sorted(t for t in tables_needed if t in tables)
+        wanted = [(source, target) for i, source in enumerate(needed) for target in needed[i + 1 :]]
+    else:
+        wanted = sorted({tuple(sorted(pair)) for pair in pairs if pair[0] != pair[1] and pair[0] in tables and pair[1] in tables})
+        needed = sorted({t for pair in wanted for t in pair})
+    for source, target in wanted:
+        if (source, target) in seen_paths:
+            continue
+        seen_paths.add((source, target))
         distances = _bfs(adjacency, source)
-        for target in needed[i + 1 :]:
-            if (source, target) in seen_paths:
-                continue
-            seen_paths.add((source, target))
-            if target not in distances:
-                issue("info", "tables_not_joined", f"no relation path between '{tables[source]['name']}' and '{tables[target]['name']}'")
-                continue
-            back = _bfs(adjacency, target)
-            total = distances[target]
-            on_path = {t for t in distances if t in back and distances[t] + back[t] == total}
-            for u in on_path:
-                for v, pairs in adjacency.get(u, {}).items():
-                    if v in on_path and distances.get(v) == distances[u] + 1:
-                        for a, b in pairs:
-                            label = f"join {tables[a[0]]['name']} -> {tables[b[0]]['name']} on the path {tables[source]['name']} .. {tables[target]['name']}"
-                            changed |= keep(a, "join_column", (source, target), label)
-                            changed |= keep(b, "join_column", (source, target), label)
-            for t in on_path - set(needed):
-                keep_table(t, "join_path_table", (source, target), f"intermediate table between '{tables[source]['name']}' and '{tables[target]['name']}'")
-                changed = True
-            report.append({"from": source, "to": target, "tables": sorted(on_path, key=lambda t: distances[t])})
+        if target not in distances:
+            issue("info", "tables_not_joined", f"no relation path between '{tables[source]['name']}' and '{tables[target]['name']}'")
+            continue
+        back = _bfs(adjacency, target)
+        total = distances[target]
+        on_path = {t for t in distances if t in back and distances[t] + back[t] == total}
+        for u in on_path:
+            for v, pairs_uv in adjacency.get(u, {}).items():
+                if v in on_path and distances.get(v) == distances[u] + 1:
+                    for a, b in pairs_uv:
+                        label = f"join {tables[a[0]]['name']} -> {tables[b[0]]['name']} on the path {tables[source]['name']} .. {tables[target]['name']}"
+                        changed |= keep(a, "join_column", (source, target), label)
+                        changed |= keep(b, "join_column", (source, target), label)
+        for t in on_path - set(needed):
+            keep_table(t, "join_path_table", (source, target), f"intermediate table between '{tables[source]['name']}' and '{tables[target]['name']}'")
+            changed = True
+        report.append({"from": source, "to": target, "tables": sorted(on_path, key=lambda t: (distances[t], t)), "paths": _enumerate_shortest_paths(adjacency, source, target, distances, on_path)})
     return changed
+
+
+def _enumerate_shortest_paths(adjacency, source, target, distances, on_path, limit: int = 50) -> list[list[str]]:
+    """List every shortest path from ``source`` to ``target`` as table-oid sequences, at most ``limit``."""
+    paths: list[list[str]] = []
+    stack: list[list[str]] = [[source]]
+    while stack and len(paths) < limit:
+        path = stack.pop()
+        node = path[-1]
+        if node == target:
+            paths.append(path)
+            continue
+        for neighbour in sorted(adjacency.get(node, {}), reverse=True):
+            if neighbour in on_path and distances.get(neighbour) == distances[node] + 1:
+                stack.append(path + [neighbour])
+    return sorted(paths)
 
 
 def _bfs(adjacency, start) -> dict[str, int]:
