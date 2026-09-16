@@ -1528,10 +1528,11 @@ class TestAnalyzePerspectiveRequirements:
         a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
         assert a["perspective_tables"] == [
             {"table": "Customers", "columns": ["City", "CustomerID", "test"]},  # City (filter), test (renamed, hierarchy), CustomerID (join)
-            {"table": "Orders", "columns": ["Amount", "CustomerID", "Total"]},  # Total (widget), Amount (custom column source), CustomerID (join)
+            {"table": "Orders", "columns": ["CustomerID", "Total"]},  # Total (widget), CustomerID (join); Amount is read by the custom column Total but the root model computes it
         ]
         assert a["not_required"]["tables"] == ["Archive"]
-        assert {(c["table"], c["column"]) for c in a["not_required"]["columns"]} == {("Orders", "Note")}
+        assert {(c["table"], c["column"]) for c in a["not_required"]["columns"]} == {("Orders", "Note"), ("Orders", "Amount")}
+        assert a["join_path_choices"] == []
 
     def test_required_columns_say_where_and_by_whom(self):
         a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
@@ -1543,10 +1544,9 @@ class TestAnalyzePerspectiveRequirements:
     def test_dependencies_carry_reasons(self):
         a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
         deps = {(d["table"], d["column"], d["reason"]) for d in a["dependencies"]["columns"]}
-        assert ("Orders", "CustomerID", "join_column") in deps and ("Customers", "CustomerID", "join_column") in deps
-        assert ("Orders", "Amount", "custom_column_expression") in deps
+        assert deps == {("Orders", "CustomerID", "join_column"), ("Customers", "CustomerID", "join_column")}
         assert a["dependencies"]["join_paths"] == [["Customers", "Orders"]]
-        assert a["summary"]["columns_required_for_dependencies"] == 3
+        assert a["summary"]["columns_required_for_dependencies"] == 2
 
     def test_issues_distinguish_renamed_stale_and_ignore_foreign(self):
         a = _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)
@@ -1578,11 +1578,13 @@ class TestAnalyzePerspectiveRequirements:
             "dashboards_failed": 0,
             "tables_used_by_dashboards": 2,
             "columns_used_by_dashboards": 3,
-            "columns_required_for_dependencies": 3,
+            "columns_required_for_dependencies": 2,
             "tables_required_in_perspective": 2,
-            "columns_required_in_perspective": 6,
+            "columns_required_in_perspective": 5,
+            "tables_required_all_paths": 2,
+            "columns_required_all_paths": 5,
             "tables_not_required": 1,
-            "columns_not_required": 2,
+            "columns_not_required": 3,
             "issues": {"error": 1, "warning": 1},
         }
 
@@ -1594,7 +1596,7 @@ class TestAnalyzePerspectiveRequirements:
 
     def test_default_view_is_the_summary_only(self):
         a = _make_analyzer().analyze_perspective_requirements("dm-a")
-        assert set(a) == {"datamodel", "summary", "perspective_tables", "errors", "warnings"}
+        assert set(a) == {"datamodel", "summary", "perspective_tables", "perspective_tables_all_paths", "join_path_choices", "errors", "warnings"}
         assert a["errors"] == ["Sales: 'Orders'.'Ghost' is used but does not exist in data model 'Model A'"]
         assert a["warnings"] == {"renamed_reference": 1}
         assert a["perspective_tables"] == _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)["perspective_tables"]
@@ -1602,3 +1604,235 @@ class TestAnalyzePerspectiveRequirements:
     def test_unknown_model(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/nope/schema": FakeResponse(404, {}), "/api/v2/datamodels/schema": FakeResponse(404, {})})
         assert dm.analyze_perspective_requirements("nope")["ok"] is False
+
+
+# Two dimensions joined through two fact tables (a diamond), a custom table selecting from a third table.
+def _b_table(oid, name, columns, sql=None):
+    t = {"oid": oid, "name": name, "type": "custom" if sql else "base", "columns": [{"oid": f"{oid}-{c}", "name": c} for c in columns]}
+    if sql:
+        t["expression"] = {"expression": sql}
+    return t
+
+
+_B_SCHEMA = {
+    "oid": "dm-b",
+    "title": "Model B",
+    "type": "live",
+    "datasets": [
+        {
+            "oid": "ds",
+            "schema": {
+                "tables": [
+                    _b_table("dash", "dim_dashboard", ["dashboard_id", "title", "owner"]),
+                    _b_table("model", "dim_datamodels", ["datamodel_id", "name", "type"]),
+                    _b_table("users", "dim_users", ["user_id", "email"]),
+                    _b_table("fa", "fact_a", ["dashboard_id", "datamodel_id", "views"]),
+                    _b_table("fb", "fact_b", ["dashboard_id", "datamodel_id", "builds"]),
+                    _b_table("view", "v_active_users", ["user_id", "active"], sql="select [user_id], 1 as active from [dim_users]"),
+                ]
+            },
+        }
+    ],
+    "relations": [
+        {"oid": "r1", "columns": [{"dataset": "ds", "table": "dash", "column": "dash-dashboard_id"}, {"dataset": "ds", "table": "fa", "column": "fa-dashboard_id"}]},
+        {"oid": "r2", "columns": [{"dataset": "ds", "table": "model", "column": "model-datamodel_id"}, {"dataset": "ds", "table": "fa", "column": "fa-datamodel_id"}]},
+        {"oid": "r3", "columns": [{"dataset": "ds", "table": "dash", "column": "dash-dashboard_id"}, {"dataset": "ds", "table": "fb", "column": "fb-dashboard_id"}]},
+        {"oid": "r4", "columns": [{"dataset": "ds", "table": "model", "column": "model-datamodel_id"}, {"dataset": "ds", "table": "fb", "column": "fb-datamodel_id"}]},
+    ],
+}
+_B_DS = {"title": "Model B", "id": "live:Model B", "fullname": "live:Model B", "live": True}
+
+
+def _b_widget(oid, *fields):
+    items = [{"jaql": {"dim": f"[{t}.{c}]", "table": t, "column": c}} for t, c in fields]
+    return {"oid": oid, "type": "chart/column", "datasource": _B_DS, "metadata": {"panels": [{"name": "categories", "items": items}]}}
+
+
+def _b_export(widgets, filters=()):
+    return {
+        "oid": "db1",
+        "title": "Governance",
+        "datasource": _B_DS,
+        "filters": [{"jaql": {"dim": f"[{t}.{c}]", "table": t, "column": c, "filter": {"members": ["x"]}}} for t, c in filters],
+        "widgets": widgets,
+    }
+
+
+def _make_analyzer_b(export, sql=None, sql_status=200):
+    listing = [{"oid": "db1", "title": "Governance", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]}]
+    post = {"/api/datasources/Model B/jaql/sql": FakeResponse(sql_status, None, text=sql)} if sql is not None else None
+    return _make_dm(
+        get_responses={
+            "/api/v2/datamodels/dm-b/schema": FakeResponse(200, _B_SCHEMA),
+            "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-b", "title": "Model B"}]),
+            "/api/v2/perspectives": FakeResponse(200, []),
+            "/api/v1/dashboards/admin": FakeResponse(200, listing),
+            "/api/v1/dashboards/export": FakeResponse(200, [export]),
+            "/api/v1/users": FakeResponse(200, []),
+        },
+        post_responses=post,
+    )
+
+
+# The SQL a live model's translator returns: physical names, custom tables as CTEs; here fact_a's id is "fact_a".
+_SQL_VIA_FACT_A = """SELECT `t`.`name` FROM (SELECT `datamodel_id`, `name` FROM `dw`.`dim_datamodels`) AS `t`
+ INNER JOIN (SELECT `dashboard_id`, `datamodel_id` FROM `dw`.`fact_a`) AS `t0` ON `t`.`datamodel_id` = `t0`.`datamodel_id`
+ INNER JOIN (SELECT `dashboard_id`, `owner` FROM `dw`.`dim_dashboard`) AS `t1` ON `t0`.`dashboard_id` = `t1`.`dashboard_id`"""
+
+
+class TestAnalyzePerspectiveJoins:
+    def test_separate_widgets_on_separate_tables_need_no_join(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))])
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["title"]}, {"table": "dim_datamodels", "columns": ["name"]}]
+        assert a["join_path_choices"] == [] and a["dependencies"] == {"columns": [], "tables": [], "tables_all_paths": [], "join_paths": []}
+        assert a["perspective_tables_all_paths"] == a["perspective_tables"]
+        assert a["summary"]["tables_required_in_perspective"] == 2 and a["summary"]["columns_required_in_perspective"] == 2
+        assert a["warnings"] == {} and a["errors"] == []
+
+    def test_dashboard_filter_forces_the_join_and_reports_both_paths(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == [
+            {"table": "dim_dashboard", "columns": ["dashboard_id", "owner", "title"]},
+            {"table": "dim_datamodels", "columns": ["datamodel_id", "name"]},
+            {"table": "fact_a", "columns": ["dashboard_id", "datamodel_id"]},
+            {"table": "fact_b", "columns": ["dashboard_id", "datamodel_id"]},
+        ]
+        assert a["perspective_tables_all_paths"] == a["perspective_tables"]
+        assert a["join_path_choices"] == [
+            {
+                "from": "dim_dashboard",
+                "to": "dim_datamodels",
+                "needed_by": ["Governance: dashboard filter on 'dim_dashboard' applies to 1 widget on 'dim_datamodels'"],
+                "resolved": False,
+                "paths": [{"via": ["fact_a"], "in_use": None}, {"via": ["fact_b"], "in_use": None}],
+            }
+        ]
+        assert a["warnings"] == {"ambiguous_join_path": 1} and a["errors"] == []
+        assert "could not be obtained" in a["issues"][-1]["detail"]
+        assert a["dependencies"]["tables"] == ["fact_a", "fact_b"] and a["dependencies"]["tables_all_paths"] == ["fact_a", "fact_b"]
+        assert a["dependencies"]["join_paths"] == [["dim_dashboard", "fact_a", "fact_b", "dim_datamodels"]]
+        assert all(d["in_use"] for d in a["dependencies"]["columns"])
+        assert a["summary"]["columns_required_for_dependencies"] == 6 and a["summary"]["tables_required_all_paths"] == 4
+
+    def test_translated_query_resolves_the_path(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        a = _make_analyzer_b(export, sql=_SQL_VIA_FACT_A).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == [
+            {"table": "dim_dashboard", "columns": ["dashboard_id", "owner", "title"]},
+            {"table": "dim_datamodels", "columns": ["datamodel_id", "name"]},
+            {"table": "fact_a", "columns": ["dashboard_id", "datamodel_id"]},
+        ]
+        assert [t["table"] for t in a["perspective_tables_all_paths"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
+        assert a["join_path_choices"] == [
+            {
+                "from": "dim_dashboard",
+                "to": "dim_datamodels",
+                "needed_by": ["Governance: dashboard filter on 'dim_dashboard' applies to 1 widget on 'dim_datamodels'"],
+                "resolved": True,
+                "paths": [{"via": ["fact_a"], "in_use": True}, {"via": ["fact_b"], "in_use": False}],
+            }
+        ]
+        assert a["warnings"] == {} and a["errors"] == []
+        assert a["dependencies"]["tables"] == ["fact_a"] and a["dependencies"]["tables_all_paths"] == ["fact_a", "fact_b"]
+        assert {(d["table"], d["column"]) for d in a["dependencies"]["columns"] if not d["in_use"]} == {("fact_b", "dashboard_id"), ("fact_b", "datamodel_id")}
+        assert a["summary"]["tables_required_in_perspective"] == 3 and a["summary"]["tables_required_all_paths"] == 4
+        assert a["summary"]["columns_required_for_dependencies"] == 4 and a["summary"]["columns_required_in_perspective"] == 7
+        assert a["summary"]["columns_not_required"] == 16 - 7  # 16 model columns, 7 kept
+
+    def test_translated_query_is_sent_with_dashboard_filters_as_scope(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        dm = _make_analyzer_b(export, sql=_SQL_VIA_FACT_A)
+        posts: list[tuple[str, object]] = []
+        original_post = dm.api_client.post
+        dm.api_client.post = lambda url, data=None, **kw: (posts.append((url, data)), original_post(url, data, **kw))[1]
+        dm.analyze_perspective_requirements("dm-b")
+        assert len(posts) == 1, posts  # only the widget behind the ambiguous pair is translated
+        assert posts[0][0] == "/api/datasources/Model B/jaql/sql"
+        body = posts[0][1]
+        assert body["datasource"] == "Model B"
+        assert [(m["panel"], m["jaql"]["table"]) for m in body["metadata"]] == [("rows", "dim_datamodels"), ("scope", "dim_dashboard")]
+
+    def test_translated_query_naming_no_candidate_keeps_all_paths(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        a = _make_analyzer_b(export, sql="SELECT 1 FROM `dw`.`dim_datamodels`").analyze_perspective_requirements("dm-b", detailed=True)
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
+        assert a["join_path_choices"][0]["resolved"] is False
+        assert "names none of the candidate tables" in a["issues"][-1]["detail"]
+
+    def test_translation_failure_keeps_all_paths(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        a = _make_analyzer_b(export, sql="boom", sql_status=500).analyze_perspective_requirements("dm-b")
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
+        assert a["join_path_choices"][0]["resolved"] is False and a["warnings"] == {"ambiguous_join_path": 1}
+
+    def test_cube_sql_matches_encoded_identifiers(self):
+        sql = 'SELECT 1 FROM "aModelIAAaB"."adimXwAadatamodels" WHERE x IN (SELECT y FROM "aModelIAAaB"."afactXwAab")'
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        a = _make_analyzer_b(export, sql=sql).analyze_perspective_requirements("dm-b")
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_b"]
+        assert a["join_path_choices"][0]["paths"] == [{"via": ["fact_a"], "in_use": False}, {"via": ["fact_b"], "in_use": True}]
+
+    def test_widget_mixing_two_tables_needs_the_join_too(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title"), ("dim_datamodels", "name"))])
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b")
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
+        assert a["join_path_choices"][0]["needed_by"] == ["Governance: 1 widget uses both 'dim_dashboard' and 'dim_datamodels'"]
+
+    def test_needed_by_collapses_widgets_per_dashboard_and_reason(self):
+        export = _b_export(
+            [_b_widget("w1", ("dim_datamodels", "name")), _b_widget("w2", ("dim_datamodels", "type")), _b_widget("w3", ("dim_dashboard", "title"), ("dim_datamodels", "name"))],
+            filters=[("dim_dashboard", "owner")],
+        )
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b")
+        assert a["join_path_choices"][0]["needed_by"] == [
+            "Governance: 1 widget uses both 'dim_dashboard' and 'dim_datamodels'",
+            "Governance: dashboard filter on 'dim_dashboard' applies to 2 widgets on 'dim_datamodels'",
+        ]
+
+    def test_no_choice_when_every_candidate_table_is_used_anyway(self):
+        # Both facts are used directly, so picking one path would drop no table: all join columns kept, nothing to decide.
+        export = _b_export(
+            [_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name")), _b_widget("w3", ("fact_a", "views")), _b_widget("w4", ("fact_b", "builds"))],
+            filters=[("dim_dashboard", "owner")],
+        )
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b", detailed=True)
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
+        assert {(d["table"], d["column"]) for d in a["dependencies"]["columns"]} >= {("fact_a", "datamodel_id"), ("fact_b", "datamodel_id"), ("dim_datamodels", "datamodel_id")}
+        assert a["join_path_choices"] == [] and "ambiguous_join_path" not in a["warnings"]
+        assert len(a["dependencies"]["join_paths"]) == 3  # dashboard..datamodels (2 paths), dashboard..fact_a, dashboard..fact_b
+
+    def test_single_path_join_is_silent(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title"), ("fact_a", "views"))])
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b")
+        assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["dashboard_id", "title"]}, {"table": "fact_a", "columns": ["dashboard_id", "views"]}]
+        assert a["join_path_choices"] == [] and a["warnings"] == {}
+
+    def test_custom_table_does_not_pull_in_its_source(self):
+        export = _b_export([_b_widget("w1", ("v_active_users", "active"))])
+        a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == [{"table": "v_active_users", "columns": ["active"]}]
+        assert "dim_users" in a["not_required"]["tables"]
+
+    def test_filters_apply_per_dashboard_not_across_dashboards(self):
+        # Filter and widget on different tables in one dashboard join; a second dashboard's widget is not drawn in.
+        first = _b_export([_b_widget("w1", ("dim_dashboard", "title"))], filters=[("dim_dashboard", "owner")])
+        second = dict(_b_export([_b_widget("w9", ("dim_datamodels", "name"))]), oid="db2", title="Models")
+        listing = [
+            {"oid": "db1", "title": "Governance", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]},
+            {"oid": "db2", "title": "Models", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]},
+        ]
+        dm = _make_dm(
+            get_responses={
+                "/api/v2/datamodels/dm-b/schema": FakeResponse(200, _B_SCHEMA),
+                "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-b", "title": "Model B"}]),
+                "/api/v2/perspectives": FakeResponse(200, []),
+                "/api/v1/dashboards/admin": FakeResponse(200, listing),
+                "/api/v1/dashboards/export": FakeResponse(200, [first, second]),
+                "/api/v1/users": FakeResponse(200, []),
+            }
+        )
+        a = dm.analyze_perspective_requirements("dm-b")
+        assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["owner", "title"]}, {"table": "dim_datamodels", "columns": ["name"]}]
+        assert a["join_path_choices"] == []

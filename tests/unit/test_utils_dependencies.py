@@ -124,12 +124,32 @@ class TestJoinPaths:
         assert _keys(result) == {("T_ord", "c_cust"), ("T_cus", "c_cid"), ("T_cus", "c_rid"), ("T_reg", "c_rgid")}
         assert set(result["tables"]) == {"T_cus"}
         assert result["tables"]["T_cus"][0]["reason"] == "join_path_table"
-        assert result["join_paths"] == [{"from": "T_ord", "to": "T_reg", "tables": ["T_ord", "T_cus", "T_reg"]}]
+        assert result["join_paths"] == [{"from": "T_ord", "to": "T_reg", "tables": ["T_ord", "T_cus", "T_reg"], "paths": [["T_ord", "T_cus", "T_reg"]]}]
+        assert result["issues"] == []  # one path: nothing to decide
 
-    def test_diamond_keeps_every_shortest_path(self):
+    def test_diamond_keeps_every_shortest_path_and_reports_the_choice(self):
         result = compute_dependency_closure(INDEX, {("T_ord", "c_amt"), ("T_hub", "c_h_name")}, custom_columns=False, custom_tables=False)
         assert _keys(result) == {("T_ord", "c_shipa"), ("T_sa", "c_sa_o"), ("T_sa", "c_sa_h"), ("T_ord", "c_shipb"), ("T_sb", "c_sb_o"), ("T_sb", "c_sb_h"), ("T_hub", "c_h_id")}
         assert set(result["tables"]) == {"T_sa", "T_sb"}
+        assert result["join_paths"] == [{"from": "T_hub", "to": "T_ord", "tables": ["T_hub", "T_sa", "T_sb", "T_ord"], "paths": [["T_hub", "T_sa", "T_ord"], ["T_hub", "T_sb", "T_ord"]]}]
+        assert result["issues"] == []  # listing the paths is the helper's job; judging them is the caller's
+
+    def test_join_pairs_restrict_which_tables_are_connected(self):
+        used = {("T_ord", "c_amt"), ("T_reg", "c_rname"), ("T_prd", "c_pname")}
+        everything = compute_dependency_closure(INDEX, used, custom_columns=False, custom_tables=False)
+        assert {("T_ord", "c_prod"), ("T_prd", "c_pid"), ("T_ord", "c_cust")} <= _keys(everything)  # all three pairs joined
+        scoped = compute_dependency_closure(INDEX, used, custom_columns=False, custom_tables=False, join_pairs={("T_reg", "T_ord")})
+        assert _keys(scoped) == {("T_ord", "c_cust"), ("T_cus", "c_cid"), ("T_cus", "c_rid"), ("T_reg", "c_rgid")}  # Products left alone
+        assert [(p["from"], p["to"]) for p in scoped["join_paths"]] == [("T_ord", "T_reg")]
+        assert scoped["options"]["join_pairs"] == {("T_reg", "T_ord")}
+
+    def test_join_pairs_empty_joins_nothing(self):
+        result = compute_dependency_closure(INDEX, {("T_ord", "c_amt"), ("T_reg", "c_rname")}, custom_columns=False, custom_tables=False, join_pairs=set())
+        assert result["retained"] == {} and result["tables"] == {} and result["join_paths"] == []
+
+    def test_join_pairs_ignore_unknown_and_self_pairs(self):
+        result = compute_dependency_closure(INDEX, {("T_ord", "c_amt")}, custom_columns=False, custom_tables=False, join_pairs={("T_ord", "T_ord"), ("T_ord", "ghost")})
+        assert result["retained"] == {} and result["join_paths"] == [] and result["issues"] == []
 
     def test_unrelated_tables_are_reported_not_invented(self):
         result = compute_dependency_closure(INDEX, {("T_ord", "c_amt"), ("T_isl", "c_i1")}, custom_columns=False, custom_tables=False)
@@ -215,7 +235,7 @@ class TestCustomTables:
 
 def test_options_echoed_and_unknown_used_ignored():
     result = compute_dependency_closure(INDEX, {("nope", "x"), ("T_ord", "c_amt")})
-    assert result["options"] == {"join_paths": True, "custom_columns": True, "custom_tables": True, "custom_table_columns": "all"}
+    assert result["options"] == {"join_paths": True, "custom_columns": True, "custom_tables": True, "custom_table_columns": "all", "join_pairs": None}
     assert result["retained"] == {}
 
 
