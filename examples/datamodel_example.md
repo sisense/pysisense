@@ -346,6 +346,16 @@ response = datamodel.deploy_datamodel(
     # These will be internally set to "publish" and ignored
 )
 print(json.dumps(response, indent=4))
+
+# Wait for the build to finish before doing anything that needs the built model,
+# for example querying a perspective created over it. Polls GET /api/v2/builds/{oid}.
+response = datamodel.deploy_datamodel("MyDataModel_ec2", build_type="schema_changes", wait=True, timeout=900, poll_interval=5)
+# {"oid": "2d81...", "datamodelId": "c7ba...", "buildType": "schema-changes", "status": "done",
+#  "datamodelTitle": "MyDataModel_ec2", "datamodelType": "extract", "started": "...", "completed": "...", ...}
+if response.get("ok") is False:
+    print(response["error"])  # "Build of DataModel 'MyDataModel_ec2' failed: ..." or "... did not finish within 900s (last status: building)."
+    print(response.get("build"))  # the last build object read, as Sisense reported it
+    print(response.get("model"))  # {"lastBuildTime": ..., "lastSuccessfulBuildTime": ..., "lastPublishTime": ...}
 ```
 
 ---

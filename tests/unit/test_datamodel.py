@@ -340,6 +340,82 @@ class TestDeployDatamodel:
         result = dm.deploy_datamodel("LiveModel")
         assert result.get("oid") == "build2"
 
+    @staticmethod
+    def _waiting_dm(build_reads, accepted=None, model_times=None, model_type="EXTRACT"):
+        accepted = accepted if accepted is not None else {"oid": "build1", "datamodelId": "dm1", "buildType": "schema-changes", "status": None, "started": None}
+        model = _DATAMODEL_EXTRACT if model_type == "EXTRACT" else _DATAMODEL_LIVE
+        times = (
+            model_times
+            if model_times is not None
+            else {"lastBuildTime": "2026-09-16T00:32:03.152Z", "lastSuccessfulBuildTime": "2026-09-16T00:32:03.152Z", "lastPublishTime": "2026-09-16T00:32:03.152Z"}
+        )
+        times_reads = times if isinstance(times, list) else [times]
+        # first read resolves the model by title; the following reads are the timestamp checks
+        schema_reads = [FakeResponse(200, model)] + [FakeResponse(200, [dict(model, oid=model["oid"], **t)]) for t in times_reads]
+        return _make_dm(
+            get_responses={"/api/v2/datamodels/schema": schema_reads, "/api/v2/builds/build1": build_reads},
+            post_responses={"/api/v2/builds": FakeResponse(201, accepted)},
+        )
+
+    _DONE = {"oid": "build1", "status": "done", "started": "2026-09-16T00:31:25.893+00:00", "completed": "2026-09-16T00:32:03.114+00:00"}
+
+    def test_wait_polls_until_done_and_the_model_confirms_it(self):
+        reads = [FakeResponse(404, {}), FakeResponse(200, {"oid": "build1", "status": "building"}), FakeResponse(200, self._DONE)]
+        result = self._waiting_dm(reads).deploy_datamodel("SalesModel", build_type="schema_changes", wait=True, poll_interval=0, timeout=30)
+        assert result == self._DONE
+
+    def test_wait_gives_the_model_a_moment_to_stamp_the_build(self):
+        stale = {"lastBuildTime": "2026-08-10T08:06:57Z", "lastSuccessfulBuildTime": "2026-08-10T08:06:57Z", "lastPublishTime": None}
+        fresh = {"lastBuildTime": "2026-09-16T00:32:03Z", "lastSuccessfulBuildTime": "2026-09-16T00:32:03Z", "lastPublishTime": None}
+        result = self._waiting_dm([FakeResponse(200, self._DONE)], model_times=[stale, fresh]).deploy_datamodel("SalesModel", wait=True, poll_interval=0, timeout=30)
+        assert result == self._DONE
+
+    def test_wait_refuses_a_done_build_the_model_never_confirms(self):
+        # A failed rebuild keeps the previous build running: lastBuildTime moves, lastSuccessfulBuildTime does not.
+        stale = {"lastBuildTime": "2026-09-16T00:32:03Z", "lastSuccessfulBuildTime": "2026-08-10T08:06:57.206Z", "lastPublishTime": None}
+        result = self._waiting_dm([FakeResponse(200, self._DONE)], model_times=stale).deploy_datamodel("SalesModel", wait=True, poll_interval=0, timeout=0)
+        assert result["ok"] is False
+        assert (
+            result["error"]
+            == "Build build1 of DataModel 'SalesModel' reported done, but the model's lastSuccessfulBuildTime is still 2026-08-10T08:06:57.206Z (build started 2026-09-16T00:31:25.893+00:00)."
+        )
+        assert result["build"] == self._DONE and result["model"] == stale
+
+    def test_wait_on_a_live_model_checks_the_publish_time(self):
+        live_done = dict(self._DONE, buildType="publish")
+        times = {"lastBuildTime": None, "lastSuccessfulBuildTime": None, "lastPublishTime": "2026-09-16T00:32:03Z"}
+        result = self._waiting_dm([FakeResponse(200, live_done)], model_times=times, model_type="LIVE").deploy_datamodel("LiveModel", wait=True, poll_interval=0, timeout=30)
+        assert result == live_done
+
+    def test_wait_reports_a_failed_build_with_its_object_and_the_model_times(self):
+        reads = [FakeResponse(200, {"oid": "build1", "status": "building"}), FakeResponse(200, {"oid": "build1", "status": "failed", "message": "Table 'x' has no columns"})]
+        stale = {"lastBuildTime": "2026-09-16T00:32:03Z", "lastSuccessfulBuildTime": "2026-08-10T08:06:57.206Z", "lastPublishTime": None}
+        result = self._waiting_dm(reads, model_times=stale).deploy_datamodel("SalesModel", wait=True, poll_interval=0, timeout=30)
+        assert result["ok"] is False
+        assert result["error"] == "Build of DataModel 'SalesModel' failed: Table 'x' has no columns The model still serves its last successful build (2026-08-10T08:06:57.206Z)."
+        assert result["build"]["status"] == "failed" and result["model"] == stale
+
+    def test_wait_times_out_with_the_last_status(self):
+        reads = FakeResponse(200, {"oid": "build1", "status": "building"})
+        result = self._waiting_dm(reads).deploy_datamodel("SalesModel", wait=True, poll_interval=0, timeout=0)
+        assert result["ok"] is False and result["error"] == "Build of DataModel 'SalesModel' did not finish within 0s (last status: building)."
+        assert result["build"]["status"] == "building" and "lastSuccessfulBuildTime" in result["model"]
+
+    def test_wait_accepts_done_when_the_model_times_cannot_be_read(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": [FakeResponse(200, _DATAMODEL_EXTRACT), FakeResponse(500, {})], "/api/v2/builds/build1": FakeResponse(200, self._DONE)},
+            post_responses={"/api/v2/builds": FakeResponse(201, {"oid": "build1", "status": None})},
+        )
+        assert dm.deploy_datamodel("SalesModel", wait=True, poll_interval=0, timeout=30) == self._DONE
+
+    def test_wait_without_a_build_id_is_an_error(self):
+        result = self._waiting_dm([], accepted={"status": None}).deploy_datamodel("SalesModel", wait=True, poll_interval=0)
+        assert result["ok"] is False and "no build id" in result["error"] and result["build"] == {"status": None}
+
+    def test_without_wait_the_accepted_build_is_returned_as_before(self):
+        result = self._waiting_dm([FakeResponse(200, self._DONE)]).deploy_datamodel("SalesModel")
+        assert result["status"] is None and result["oid"] == "build1"
+
 
 # ---------------------------------------------------------------------------
 # describe_datamodel_raw
