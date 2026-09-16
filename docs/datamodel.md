@@ -293,9 +293,9 @@ Sets up a DataModel using an existing connection by creating a DataModel, datase
 
 ---
 
-### `deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest")`
+### `deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest", wait=False, timeout=900, poll_interval=5)`
 
-Deploys (builds or publishes) the specified DataModel based on its type.
+Deploys (builds or publishes) the specified DataModel based on its type. Sends `POST /api/v2/builds`, which only accepts the build: the returned object has `status: null` and the build runs in the background. With `wait=True` the method polls `GET /api/v2/builds/{oid}` every `poll_interval` seconds until the build reaches a final state or `timeout` elapses, so that whatever follows — a query, a perspective built over the model — sees the finished build.
 
 #### Parameters:
 
@@ -317,9 +317,15 @@ Deploys (builds or publishes) the specified DataModel based on its type.
 
   * `running`
 
+* `wait` (bool, optional): Poll the build until it finishes instead of returning as soon as it is accepted. Defaults to `False`.
+
+* `timeout` (float, optional): Seconds to wait for the build when `wait` is true. Defaults to `900`.
+
+* `poll_interval` (float, optional): Seconds between status reads when `wait` is true; also the pause before the first read, since a build is not readable in its first moments. Defaults to `5`.
+
 #### Returns:
 
-* `dict`: Deployment result including build or publish status. For Elasticube, includes build outcome. For Live model, includes publish status, e.g., `{ "publishElasticube": true }`. If failed, returns error details.
+* `dict`: The build object from `POST /api/v2/builds` — `oid`, `datamodelId`, `buildType`, `status` (`null` when just accepted), `datamodelTitle`, `datamodelType`, `created`, `started`, `completed`, and so on. With `wait=True`, the same object as last read with `status: "done"`, once the model's `lastSuccessfulBuildTime` (`lastPublishTime` for a live model) has moved to the build's start or later — a failed rebuild leaves the previous build running and moves only `lastBuildTime`, so the build's own status is confirmed against the model. When the build ends in any other final state (`failed`, `cancelled`), the model never confirms it, or it does not finish within `timeout`, the standard error dict `{"ok": False, "error": "...", "build": {...}, "model": {...}}` with the last build object read, every field Sisense reported on it, and the model's `lastBuildTime`, `lastSuccessfulBuildTime` and `lastPublishTime`. `{"ok": False, "error": "..."}` when the model is not found or the build is refused.
 
 ---
 

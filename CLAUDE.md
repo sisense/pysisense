@@ -637,7 +637,13 @@ datamodel.deploy_datamodel(name, build_type="by_table", schema_origin="latest")
 
 # Live model — no extra params needed
 datamodel.deploy_datamodel(name)
+
+# Block until the build finishes (polls GET /api/v2/builds/{oid}); error dict on failure or timeout
+datamodel.deploy_datamodel(name, build_type="schema_changes", wait=True, timeout=900, poll_interval=5)
 ```
+
+A perspective is never built by name: build its **root model** (a perspective on an ElastiCube becomes
+queryable only after the parent is built again; `deploy_datamodel(<perspective name>)` returns 404).
 
 ### Supported connection types for `generate_connections_payload`
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from ..utils import _extract_error_message
@@ -479,13 +481,21 @@ class BuildMixin:
         build_type: Literal["full", "by_table", "schema_changes"] = "full",
         row_limit: int = 0,
         schema_origin: Literal["latest", "running"] = "latest",
+        wait: bool = False,
+        timeout: float = 900,
+        poll_interval: float = 5,
     ) -> dict[str, Any]:
         """Deploy (build or publish) the specified data model based on its type.
 
         Supports both Elasticube (EXTRACT) and Live models. For EXTRACT models a
         build is triggered using ``build_type``, ``row_limit``, and ``schema_origin``.
         For LIVE models a publish is triggered and ``row_limit`` and
-        ``schema_origin`` are ignored.
+        ``schema_origin`` are ignored. Sends ``POST /api/v2/builds``, which only
+        accepts the build: the returned object has ``status`` ``None`` and the build
+        runs in the background. With ``wait=True`` the method then polls
+        ``GET /api/v2/builds/{oid}`` every ``poll_interval`` seconds until the build
+        reaches a final state or ``timeout`` elapses, so that whatever follows — a
+        query, a perspective built over the model — sees the finished build.
 
         Parameters
         ----------
@@ -504,12 +514,31 @@ class BuildMixin:
             Schema source for EXTRACT builds. One of ``"latest"`` (schema as seen
             in the Data page, the default) or ``"running"`` (last successfully built
             version). Ignored for LIVE models.
+        wait : bool, optional
+            Poll the build until it finishes instead of returning as soon as it is
+            accepted. Default ``False``.
+        timeout : float, optional
+            Seconds to wait for the build to finish when ``wait`` is true. Default ``900``.
+        poll_interval : float, optional
+            Seconds between two status reads when ``wait`` is true; also the pause before
+            the first read, since the build is not readable in its first moments. Default ``5``.
 
         Returns
         -------
         dict[str, Any]
-            Deployment result including status on success, or ``{"error": "..."}``
-            on failure.
+            The build object from ``POST /api/v2/builds`` (``oid``, ``datamodelId``,
+            ``buildType``, ``status`` — ``None`` when just accepted — ``datamodelTitle``,
+            ``datamodelType``, ``created``, ``started``, ``completed``, ...). With ``wait=True``,
+            the same object as last read, with ``status`` ``"done"``, once the model's
+            ``lastSuccessfulBuildTime`` (``lastPublishTime`` for a live model) has moved to the
+            build's start or later — a failed rebuild leaves the previous build running and moves
+            only ``lastBuildTime``, so the build's own status is confirmed against the model. When
+            the build ends in any other final state (``"failed"``, ``"cancelled"``), the model never
+            confirms it, or it does not finish within ``timeout``, the standard ``{"ok": False,
+            "error": "...", ...}`` dict with the last build object read under ``build`` — every field
+            Sisense reported on it, verbatim — and the model's ``lastBuildTime``,
+            ``lastSuccessfulBuildTime`` and ``lastPublishTime`` under ``model`` when readable.
+            ``{"ok": False, "error": "..."}`` when the model is not found or the build is refused.
         """
         self.logger.debug(f"[START] Deploying DataModel '{datamodel_name}'")
 
@@ -539,10 +568,114 @@ class BuildMixin:
         self.logger.debug(f"Sending POST request to '{endpoint}' with payload: {payload}")
         response = self.api_client.post(endpoint, data=payload)
 
-        if response and response.status_code == 201:
-            self.logger.info(f"DataModel '{datamodel_name}' deployed successfully.")
-            return response.json()
-        else:
+        if not response or response.status_code != 201:
             failure = _extract_error_message(response, f"Failed to deploy DataModel '{datamodel_name}'", self.api_client)
             self.logger.error(failure["error"])
             return failure
+        try:
+            accepted = response.json()
+        except Exception:
+            accepted = {}
+        if not isinstance(accepted, dict):
+            accepted = {}
+        if not wait:
+            self.logger.info(f"DataModel '{datamodel_name}' build accepted (build {accepted.get('oid')}).")
+            return accepted
+        build_oid = accepted.get("oid")
+        if not isinstance(build_oid, str) or not build_oid:
+            return {"ok": False, "error": f"Build of DataModel '{datamodel_name}' was accepted but no build id was returned; cannot wait for it.", "build": accepted}
+        return self._wait_for_build(datamodel_name, datamodel_id, datamodel_type, build_oid, accepted, timeout=timeout, poll_interval=poll_interval)
+
+    _BUILD_SUCCESS_STATUSES = {"done"}
+    _BUILD_FAILURE_STATUSES = {"failed", "cancelled", "canceled", "error", "aborted"}
+    _BUILD_TIME_FIELDS = ("lastBuildTime", "lastSuccessfulBuildTime", "lastPublishTime")
+
+    def _model_build_times(self, datamodel_id: str) -> dict[str, Any] | None:
+        """Read the model's build timestamps from ``GET /api/v2/datamodels/schema``; ``None`` when unreadable."""
+        response = self.api_client.get("/api/v2/datamodels/schema", params={"fields": "oid,title,type," + ",".join(self._BUILD_TIME_FIELDS)})
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            body = response.json()
+        except Exception:
+            return None
+        entries = body if isinstance(body, list) else [body] if isinstance(body, dict) else []
+        entry = next((e for e in entries if isinstance(e, dict) and e.get("oid") == datamodel_id), None)
+        return {field: entry.get(field) for field in self._BUILD_TIME_FIELDS} if entry else None
+
+    @staticmethod
+    def _parse_time(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    def _wait_for_build(self, datamodel_name: str, datamodel_id: str, datamodel_type: str, build_oid: str, accepted: dict[str, Any], *, timeout: float, poll_interval: float) -> dict[str, Any]:
+        """Poll ``GET /api/v2/builds/{oid}`` until the build reaches a final state or ``timeout`` elapses.
+
+        A finished build is confirmed against the model itself: its last successful build time
+        (last publish time for a live model) must have moved to at or after the build's start,
+        since a failed rebuild leaves the previous build running and only ``lastBuildTime`` moves.
+        """
+        interval = max(float(poll_interval), 0.0)
+        deadline = time.monotonic() + max(float(timeout), 0.0)
+        last: dict[str, Any] = dict(accepted)
+        stamp_field = "lastPublishTime" if str(datamodel_type or "").upper() == "LIVE" else "lastSuccessfulBuildTime"
+        model_times: dict[str, Any] | None = None
+
+        def pause() -> None:
+            if interval:
+                time.sleep(min(interval, max(deadline - time.monotonic(), 0.0)))
+
+        def failure(message: str) -> dict[str, Any]:
+            self.logger.error(message)
+            result: dict[str, Any] = {"ok": False, "error": message, "build": last}
+            if model_times is not None:
+                result["model"] = model_times
+            return result
+
+        while True:
+            pause()
+            response = self.api_client.get(f"/api/v2/builds/{build_oid}")
+            if response is not None and response.status_code == 200:
+                try:
+                    body = response.json()
+                except Exception:
+                    body = None
+                if isinstance(body, dict):
+                    last = body
+            else:
+                # The build is not readable in its first moments (404); keep waiting for it.
+                self.logger.debug(f"Build {build_oid} of '{datamodel_name}' not readable yet (status={getattr(response, 'status_code', None)})")
+            status = last.get("status")
+            status_key = status.strip().lower() if isinstance(status, str) else None
+            self.logger.debug(f"Build {build_oid} of '{datamodel_name}': status={status}")
+            if status_key in self._BUILD_FAILURE_STATUSES:
+                model_times = self._model_build_times(datamodel_id)
+                detail = next((str(last[k]) for k in ("error", "errorMessage", "message", "details", "reason") if last.get(k)), None)
+                return failure(
+                    f"Build of DataModel '{datamodel_name}' {status}"
+                    + (f": {detail}" if detail else ".")
+                    + (f" The model still serves its last successful build ({model_times.get(stamp_field)})." if model_times and model_times.get(stamp_field) else "")
+                )
+            if status_key in self._BUILD_SUCCESS_STATUSES:
+                started = self._parse_time(last.get("started")) or self._parse_time(last.get("created"))
+                model_times = self._model_build_times(datamodel_id)
+                stamp = self._parse_time((model_times or {}).get(stamp_field))
+                if started is None or model_times is None:
+                    self.logger.debug(f"Build {build_oid} of '{datamodel_name}' done; model timestamps not verifiable (started={last.get('started')}, model={model_times}).")
+                    return last
+                if stamp is not None and stamp >= started - timedelta(seconds=1):
+                    self.logger.info(f"DataModel '{datamodel_name}' built: build {build_oid} done, {stamp_field}={model_times.get(stamp_field)}.")
+                    return last
+                if time.monotonic() >= deadline:
+                    return failure(
+                        f"Build {build_oid} of DataModel '{datamodel_name}' reported done, but the model's {stamp_field} is still {model_times.get(stamp_field)} (build started {last.get('started')})."
+                    )
+                self.logger.debug(f"Build {build_oid} done; waiting for the model's {stamp_field} ({model_times.get(stamp_field)}) to reach {last.get('started')}.")
+                continue
+            if time.monotonic() >= deadline:
+                model_times = self._model_build_times(datamodel_id)
+                return failure(f"Build of DataModel '{datamodel_name}' did not finish within {timeout:g}s (last status: {status}).")

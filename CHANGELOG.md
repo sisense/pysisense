@@ -19,6 +19,16 @@ All notable changes to `pysisense` are documented here. The format follows
   stalls on them; widgets on another datasource, BloX widgets and widgets with nothing to query
   are `skipped`. Read-only.
 
+- **`DataModel.deploy_datamodel(..., wait=False, timeout=900, poll_interval=5)`** — with
+  `wait=True` the method polls `GET /api/v2/builds/{oid}` after the build is accepted until it
+  reaches a final state, confirms a `done` build against the model's `lastSuccessfulBuildTime`
+  (`lastPublishTime` for a live model — a failed rebuild keeps the previous build running and
+  moves only `lastBuildTime`), and returns the final build object (`status: "done"`). A build
+  that ends `failed` or `cancelled`, is never confirmed by the model, or does not finish within
+  `timeout`, returns the standard error dict with the last build object read under `build` and
+  the model's build timestamps under `model`. Without `wait` the behaviour is unchanged: the
+  accepted build object with `status: null`.
+
 ### Changed
 
 - **`analyze_perspective_requirements` keeps only what a perspective actually needs, and asks the
@@ -56,6 +66,8 @@ All notable changes to `pysisense` are documented here. The format follows
   `custom_table_source`. Dropped warning kinds: `custom_column_token_unresolved`,
   `custom_table_sql_unresolved`, `custom_table_sql_column_unresolved`, `custom_table_sql_complex`,
   `custom_table_sql_no_source`. New warning kind: `ambiguous_join_path`.
+- `deploy_datamodel`: additive params `wait: bool`, `timeout: float`, `poll_interval: float`.
+  Failure dict gains the additive keys `build` and `model`.
 
 ## [2.1.0] — 2026-09-04
 
