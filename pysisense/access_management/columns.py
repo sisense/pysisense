@@ -4,7 +4,7 @@ from typing import Any
 
 from typing_extensions import deprecated
 
-from ..utils import _discover_dashboards_on_datasource, _extract_dashboard_columns
+from ..utils import _co_authoring_enabled, _dashboard_for_reading, _discover_dashboards_on_datasource, _extract_dashboard_columns
 
 
 class ColumnsMixin:
@@ -205,6 +205,10 @@ class ColumnsMixin:
         total_filters = 0
         total_widgets = 0
 
+        # Under Dashboard Co-Authoring the export is the owner's private copy; viewers see the shared copy, which is
+        # read in its place (as administrator or as owner). A shared copy neither can read fails the whole analysis:
+        # an unused-column list that silently skipped a dashboard would be wrong in the unsafe direction.
+        co_authoring = _co_authoring_enabled(self.api_client, next(iter(dashboard_ids), None))
         for dashboard_id in dashboard_ids:
             dashboard_url = f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true"
             response = self.api_client.get(dashboard_url)
@@ -218,6 +222,13 @@ class ColumnsMixin:
             if dashboard is None:
                 self.logger.error(f"Unexpected export structure for dashboard with ID '{dashboard_id}'")
                 continue
+            dashboard, copy_read, shared_status = _dashboard_for_reading(self.api_client, self.logger, dashboard, co_authoring)
+            if dashboard is None:
+                return {
+                    "ok": False,
+                    "error": f"The shared copy of dashboard '{dashboard_id}' — what viewers see — could not be read (HTTP {shared_status}); an owner or administrator token is required.",
+                    "status_code": shared_status,
+                }
             dashboard_name = dashboard.get("title", "Unknown Dashboard")
             self.logger.debug(f"Analyzing Dashboard '{dashboard_name}' (ID: {dashboard_id})")
 
@@ -277,6 +288,13 @@ class ColumnsMixin:
         Run unused-column analysis for one or more data models and return a
         combined per-model outcome.
 
+
+        Under Dashboard Co-Authoring the export returns the owner's private copy, while
+        viewers see the shared copy; for a published dashboard the shared copy is read
+        instead — its own filters, hierarchies and widgets — as administrator
+        (``GET /api/dashboards/{id}?adminAccess=true``) or as owner (``sharedMode=true``).
+        A shared copy neither route can read fails that model's analysis with the standard
+        error dict under ``"errors"`` rather than the private copy being analysed in its place.
         Parameters
         ----------
         datamodels : str or list of str

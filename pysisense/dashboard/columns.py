@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..utils import _extract_dashboard_columns, _extract_error_message
+from ..utils import _co_authoring_enabled, _dashboard_for_reading, _extract_dashboard_columns, _extract_error_message
 
 
 class ColumnsMixin:
@@ -19,6 +19,13 @@ class ColumnsMixin:
         and ``[Table].[Column]`` references are understood, and table or column
         names may contain any character. The final list is deduplicated by
         ``table`` and ``column``.
+
+        Under Dashboard Co-Authoring the export returns the owner's private copy, while
+        viewers see the shared copy; for a published dashboard the shared copy is read
+        instead — its own filters, hierarchies and widgets — as administrator
+        (``GET /api/dashboards/{id}?adminAccess=true``) or as owner (``sharedMode=true``).
+        A shared copy neither route can read returns the standard error dict rather than
+        the private copy being analysed in its place.
 
         Parameters
         ----------
@@ -70,6 +77,13 @@ class ColumnsMixin:
         self.logger.debug(f"Analyzing dashboard '{dashboard.get('title', dashboard_name)}' (ID: {dashboard_id})")
 
         # Step 3: Extract every column reference from filters and widgets (shared walk)
+        dashboard, _copy_read, shared_status = _dashboard_for_reading(self.api_client, self.logger, dashboard, _co_authoring_enabled(self.api_client, dashboard_id))
+        if dashboard is None:
+            return {
+                "ok": False,
+                "error": f"The shared copy of dashboard '{dashboard_name}' — what viewers see — could not be read (HTTP {shared_status}); an owner or administrator token is required.",
+                "status_code": shared_status,
+            }
         dashboard_columns = _extract_dashboard_columns(dashboard, dashboard_name, logger=self.logger)
         self.logger.info(
             f"Processed {len(dashboard.get('filters') or [])} filters and {len(dashboard.get('widgets') or [])} widgets, "

@@ -88,37 +88,34 @@ Returns the `widgets` collection from an admin **export** of the dashboard—the
 
 * * * * *
 
-### `add_dashboard_script(dashboard_id, script, executing_user=None)`
+### `add_dashboard_script(dashboard_id, script, executing_user=None, act_as_owner=False)`
 
-Adds or overwrites the dashboard-level JavaScript script. Sisense only allows the **dashboard owner** to modify scripts.
+Adds or overwrites the dashboard-level JavaScript script via `PUT /api/dashboards/{dashboard_id}` with `{"script": ...}`.
 
 **Script input**
 
 -   A JSON string whose parsed object is sent to the API (for example a payload containing a `script` field), **or**
 -   A raw JavaScript string (multi-line). If the string does **not** start with `{`, it is wrapped automatically as `{"script": "<your code>"}` before the request.
 
-**`executing_user` (optional)**
+**Copies.** With Dashboard Co-Authoring on (system setting `dashboardCoAuthoring`), a published dashboard has a shared copy — what viewers see — and a private copy per owner; a write without `sharedMode=true` reaches only the private copy. The script is written on both copies, shared first with `sharedMode=true`, and the dashboard is republished (never with `force=true`, which empties the owner's private copy under co-authoring); the result carries `published` (and `publish_error`). A never-published dashboard, or an instance with the feature off, has a single copy and is written once.
 
--   Sisense **username** (login) of the API token user. When provided, the method temporarily changes dashboard ownership to that user (using admin APIs), reapplies the script, then restores the previous owner and prior share rows.
--   When omitted, the code assumes the token user is already the dashboard owner. If the PUT fails with **404** and no `executing_user` was passed, a hint is appended to the `error` sentence explaining that the token may not be the owner and suggesting passing `executing_user` or making the token user the owner.
+**Ownership.** Only the owner may write. A non-owner is refused before anything is written, with `owner` and `co_owners` named — unless `act_as_owner=True` and the token belongs to an administrator, in which case ownership is transferred to the token's user for the duration of the change (`POST /api/v1/dashboards/{id}/change_owner`) and ownership and the exact share list are restored afterwards, even when the write fails; the result then carries `ownership_transferred_temporarily: True` and `original_owner`. `executing_user` (a Sisense user's email) is the older form of the same thing and is deprecated in favour of `act_as_owner`: when given, ownership is borrowed for that user instead of the token's user. If the PUT fails with **404** and neither was passed, a hint is appended to the `error` sentence.
 
 **Returns:**
 
--   `dict`: `{"success": True, "message": "..."}` on success, or the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure. An invalid JSON script returns `{"ok": False, "error": "Dashboard Script must be a valid JSON string."}`.
+-   `dict`: `{"success": True, "message": "...", "copies_updated": [...], "published": bool | None}` on success (`published` is `None` when no shared copy exists), plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed; the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure, with `owner` and `co_owners` when the token's user is not the owner. An invalid JSON script returns `{"ok": False, "error": "Dashboard Script must be a valid JSON string."}`.
 
 * * * * *
 
-### `add_widget_script(dashboard_id, widget_id, script, executing_user=None)`
+### `add_widget_script(dashboard_id, widget_id, script, executing_user=None, act_as_owner=False)`
 
-Adds or overwrites the JavaScript script for one widget. Same **owner** and **`executing_user`** semantics as `add_dashboard_script` (temporary ownership, share restore, owner restore when `executing_user` is set).
+Adds or overwrites the JavaScript script for one widget via `PUT /api/dashboards/{dashboard_id}/widgets/{widget_id}` with `{"script": ...}`. Same script input, copies and ownership semantics as `add_dashboard_script`.
 
-**After a successful script update**, the dashboard is **republished** via `POST /api/v1/dashboards/{dashboard_id}/publish?force=true`. A **204** response is treated as success; otherwise the standard error dict is returned, stating that the script was added but republishing the dashboard failed.
-
-If the PUT fails with **403** and `executing_user` was not provided, a hint is appended to the `error` sentence suggesting the token user is not the owner and recommending `executing_user` or changing ownership.
+**After the write** the dashboard is republished via `POST /api/v1/dashboards/{dashboard_id}/publish` — with `force=true` only when Dashboard Co-Authoring is off, since a forced publish empties the owner's private copy under it. If the PUT fails with **403** and neither `executing_user` nor `act_as_owner` was passed, a hint is appended to the `error` sentence.
 
 **Returns:**
 
--   `dict`: `{"success": True, "message": "..."}` on success, or the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure (including when the script was added but the republish failed). An invalid JSON script returns `{"ok": False, "error": "Widget Script must be a valid JSON string."}`.
+-   `dict`: `{"success": True, "message": "...", "copies_updated": [...], "published": bool}` on success (with `publish_error` when the republish failed), plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed; the standard error dict on failure, with `owner` and `co_owners` when the token's user is not the owner. An invalid JSON script returns `{"ok": False, "error": "Widget Script must be a valid JSON string."}`.
 
 * * * * *
 
@@ -172,6 +169,8 @@ Adds or updates sharing settings for a dashboard.
 Extracts distinct columns used in a dashboard (filters and widgets).
 
 Reads dashboard and default filters (plain, dependent-level and measured `filter.by`), drill hierarchies, every widget panel item (including formulas nested inside formulas, conditional-formatting expressions and drill chains), widget drill history, widget `query.metadata` and table-widget headers. A field reference found anywhere else in the dashboard is kept as well. Widgets on another datasource are included, since the dashboard references them. Both `[Table.Column]` and `[Table].[Column]` references are understood, and table or column names may contain any character — Sisense enforces no naming restriction. The `" (Calendar)"` suffix Sisense adds to date dimensions is ignored when deduplicating.
+
+Under Dashboard Co-Authoring the export returns the owner's private copy, while viewers see the shared copy; for a published dashboard the shared copy is read instead — its own filters, hierarchies and widgets, as administrator via `GET /api/dashboards/{id}?adminAccess=true` or as owner via `sharedMode=true`. A shared copy neither route can read returns the standard error dict rather than the private copy being analysed in its place.
 
 **Parameters:**
 
@@ -241,33 +240,41 @@ If that fails or the reference does not look like an ID, it falls back to `get_d
 
 * * * * *
 
-### `move_dashboard_to_folder(dashboard_id, folder_id)`
+### `move_dashboard_to_folder(dashboard_id, folder_id, act_as_owner=False)`
 
-Moves a dashboard into a folder by PATCHing ``parentFolder`` on ``/api/dashboards/{dashboard_id}``.
+Moves a dashboard into a folder by updating `parentFolder` on `/api/dashboards/{dashboard_id}` — `PATCH`, or `PUT` on versions without the PATCH route. The folder is one property of the dashboard, shared by its copies under Dashboard Co-Authoring, so a single write moves it for everyone and nothing is republished.
+
+**Ownership.** Only the owner may write. A non-owner is refused before anything is written, with `owner` and `co_owners` named — unless `act_as_owner=True` and the token belongs to an administrator, in which case ownership is transferred to the token's user for the duration of the change (`POST /api/v1/dashboards/{id}/change_owner`) and ownership and the exact share list are restored afterwards, even when the write fails; the result then carries `ownership_transferred_temporarily: True` and `original_owner`.
 
 **Parameters:**
 
 - `dashboard_id` (str): Dashboard ``oid``.
 - `folder_id` (str): Target folder ``oid``.
+- `act_as_owner` (bool, optional): Take ownership temporarily when the token's user is an administrator but not the owner. Defaults to `False`: refuse instead.
 
 **Returns:**
 
-- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. The standard error dict `{"ok": False, "error": "..."}` on failure.
+- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds with an empty body, plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed. The standard error dict `{"ok": False, "error": "..."}` on failure, with `owner` and `co_owners` when the token's user is not the owner.
 
 * * * * *
 
-### `rename_dashboard(dashboard_id, title)`
+### `rename_dashboard(dashboard_id, title, act_as_owner=False)`
 
-Renames a dashboard by PATCHing ``title`` on ``/api/dashboards/{dashboard_id}``.
+Renames a dashboard by updating `title` on `/api/dashboards/{dashboard_id}` — `PATCH`, or `PUT` on versions without the PATCH route.
+
+**Copies.** With Dashboard Co-Authoring on (system setting `dashboardCoAuthoring`), a published dashboard has a shared copy — what viewers see — and a private copy per owner; a write without `sharedMode=true` reaches only the private copy. The title is written on both copies, shared first with `sharedMode=true`, and the dashboard is republished (never with `force=true`, which empties the owner's private copy under co-authoring); the result carries `published` (and `publish_error`). A never-published dashboard, or an instance with the feature off, has a single copy and is written once.
+
+**Ownership.** Only the owner may write. A non-owner is refused before anything is written, with `owner` and `co_owners` named — unless `act_as_owner=True` and the token belongs to an administrator, in which case ownership is transferred to the token's user for the duration of the change (`POST /api/v1/dashboards/{id}/change_owner`) and ownership and the exact share list are restored afterwards, even when the write fails; the result then carries `ownership_transferred_temporarily: True` and `original_owner`.
 
 **Parameters:**
 
 - `dashboard_id` (str): Dashboard ``oid``.
 - `title` (str): New dashboard title.
+- `act_as_owner` (bool, optional): Take ownership temporarily when the token's user is an administrator but not the owner. Defaults to `False`: refuse instead.
 
 **Returns:**
 
-- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds 200 with an empty body. The standard error dict `{"ok": False, "error": "..."}` on failure.
+- `dict`: Updated dashboard object on success, or `{"success": True}` when the API responds with an empty body; `published` (and `publish_error`) when a shared copy was written, and `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed. The standard error dict `{"ok": False, "error": "..."}` on failure, with `owner` and `co_owners` when the token's user is not the owner.
 
 * * * * *
 
@@ -383,21 +390,24 @@ Retrieves a single widget by its dashboard and widget IDs via `GET /api/v1/dashb
 
 * * * * *
 
-### `update_widget(dashboard_id, widget_id, widget_data)`
+### `update_widget(dashboard_id, widget_id, widget_data, act_as_owner=False)`
 
 Writes updated widget data back to Sisense via `PUT /api/dashboards/{dashboard_id}/widgets/{widget_id}`. Server-managed fields (`oid`, `_id`, `owner`, `userId`, `created`, `lastUpdated`, `instanceType`, `dashboardid`) are stripped automatically before the request.
 
-Only the dashboard owner can write widgets. Pair with `change_dashboard_owner` if the API token user is not the owner.
+**Copies.** With Dashboard Co-Authoring on (system setting `dashboardCoAuthoring`), a published dashboard has a shared copy — what viewers see — and a private copy per owner; a write without `sharedMode=true` reaches only the private copy. The widget is written on both copies, shared first with `sharedMode=true`, and the dashboard is republished (never with `force=true`, which empties the owner's private copy under co-authoring); the result carries `published` (and `publish_error`). A never-published dashboard, or an instance with the feature off, has a single copy and is written once.
+
+**Ownership.** Only the owner may write. A non-owner is refused before anything is written, with `owner` and `co_owners` named — unless `act_as_owner=True` and the token belongs to an administrator, in which case ownership is transferred to the token's user for the duration of the change (`POST /api/v1/dashboards/{id}/change_owner`) and ownership and the exact share list are restored afterwards, even when the write fails; the result then carries `ownership_transferred_temporarily: True` and `original_owner`.
 
 **Parameters:**
 
 -   `dashboard_id` (str): The `oid` of the dashboard.
 -   `widget_id` (str): The `oid` of the widget.
 -   `widget_data` (dict): Full widget payload with the desired changes applied. Obtain the current widget from `get_widget_by_id`, modify the relevant fields, and pass the result here.
+-   `act_as_owner` (bool, optional): Take ownership temporarily when the token's user is an administrator but not the owner. Defaults to `False`: refuse instead.
 
 **Returns:**
 
--   `dict`: The API response body on success, or the standard error dict `{"ok": False, "error": "..."}` on failure.
+-   `dict`: The API response body on success (or `{"success": True}` when it is empty); `published` (and `publish_error`) when a shared copy was written, and `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed. The standard error dict `{"ok": False, "error": "..."}` on failure, with `owner` and `co_owners` when the token's user is not the owner.
 
 * * * * *
 
@@ -473,6 +483,8 @@ Changes the datasource a dashboard queries — for example from a data model to 
 
 Deletes a dashboard via `DELETE /api/v1/dashboards/{dashboard_id}`, but only if both its ID and its title match. The dashboard is read first and its stored title compared with `title` exactly; a wrong or stale id, or a dashboard renamed since it was listed, is refused instead of deleted.
 
+Under Dashboard Co-Authoring the shared copy (what viewers see) may carry a different title than the owner's private copy; `title` may match either.
+
 **Parameters:**
 
 - `dashboard_id` (str): The dashboard's 24-character `oid`.
@@ -495,7 +507,7 @@ Runs every widget's query and reports which widgets answer, fail, or cannot be q
 
 **Returns:**
 
-- `dict`: `{"dashboard_id", "title", "datasource", "all_passed", "counts": {"ok", "failed", "unreachable", "skipped"}, "widgets": [...]}`. Each widget entry carries `widget_id`, `title`, `type`, `datasource`, `status` — `"ok"` (answered), `"failed"` (Sisense returned an error, in `error`), `"unreachable"` (no answer within the client's read timeout, in `error`) or `"skipped"` (nothing to query, reason in `error`) — and `seconds`. `all_passed` is true when no widget failed or was unreachable. Cold queries on a slow instance can exceed the client's default read timeout and show as `unreachable`; raise the client's `timeout` setting for validation runs where that happens. On failure to read the dashboard or resolve `datasource`, the standard error dict `{"ok": False, "error": "..."}`.
+- `dict`: `{"dashboard_id", "title", "datasource", "dashboard_copy", "all_passed", "counts": {"ok", "failed", "unreachable", "skipped"}, "widgets": [...]}`. `dashboard_copy` is `"shared"` when, under Dashboard Co-Authoring, the published shared copy viewers see was read — as administrator via `GET /api/dashboards/{id}?adminAccess=true` or as owner via `sharedMode=true`, with its own filters, hierarchies and widgets — otherwise `"private"` (the single copy). When a shared copy exists but neither route can read it, the standard error dict is returned rather than the owner's private copy being used. Each widget entry carries `widget_id`, `title`, `type`, `datasource`, `status` — `"ok"` (answered), `"failed"` (Sisense returned an error, in `error`), `"unreachable"` (no answer within the client's read timeout, in `error`) or `"skipped"` (nothing to query, reason in `error`) — and `seconds`. `all_passed` is true when no widget failed or was unreachable. Cold queries on a slow instance can exceed the client's default read timeout and show as `unreachable`; raise the client's `timeout` setting for validation runs where that happens. On failure to read the dashboard or resolve `datasource`, the standard error dict `{"ok": False, "error": "..."}`.
 
 ### `compare_dashboard_values(dashboard, datasource_a, datasource_b)`
 
@@ -509,4 +521,4 @@ Runs every widget's query against two datasources and reports whether the values
 
 **Returns:**
 
-- `dict`: `{"dashboard_id", "title", "datasource_a", "datasource_b", "all_match", "compared", "skipped", "counts": {"match", "mismatch", "error", "skipped"}, "widgets": [...]}`. Each widget entry carries `widget_id`, `title`, `type`, `status` — `"match"`, `"mismatch"`, `"error"` (a query failed, stalled or names a field a datasource lacks; detail in `error`) or `"skipped"` (reason in `error`) — `rows_a`, `rows_b` (row counts returned by each datasource, `None` when not queried) and `seconds`. `all_match` is true only when at least one widget was compared and none is `mismatch` or `error`, so a dashboard with nothing to compare never passes. Two datasources that both return zero rows for a widget are a `match`; `rows_a`/`rows_b` show it. On failure to read the dashboard or resolve a datasource, the standard error dict `{"ok": False, "error": "..."}`.
+- `dict`: `{"dashboard_id", "title", "dashboard_copy", "datasource_a", "datasource_b", "all_match", "compared", "skipped", "counts": {"match", "mismatch", "error", "skipped"}, "widgets": [...]}`. `dashboard_copy` is `"shared"` when, under Dashboard Co-Authoring, the published shared copy viewers see was read, otherwise `"private"` (the single copy); an unreadable shared copy returns the standard error dict. Each widget entry carries `widget_id`, `title`, `type`, `status` — `"match"`, `"mismatch"`, `"error"` (a query failed, stalled or names a field a datasource lacks; detail in `error`) or `"skipped"` (reason in `error`) — `rows_a`, `rows_b` (row counts returned by each datasource, `None` when not queried) and `seconds`. `all_match` is true only when at least one widget was compared and none is `mismatch` or `error`, so a dashboard with nothing to compare never passes. Two datasources that both return zero rows for a widget are a `match`; `rows_a`/`rows_b` show it. On failure to read the dashboard or resolve a datasource, the standard error dict `{"ok": False, "error": "..."}`.

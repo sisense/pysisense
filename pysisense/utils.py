@@ -1024,6 +1024,368 @@ def _sql_names_table(sql: str, table: dict[str, Any]) -> bool:
     return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(spelling) + r"(?![A-Za-z0-9])", sql) for spelling in spellings)
 
 
+# --------------------------------------------------------------------------- Dashboard Co-Authoring and ownership
+
+_ADMIN_ROLE_NAMES = {"admin", "super"}
+
+
+def _with_query(url: str, query: str) -> str:
+    """Append a ``key=value`` query fragment to a URL that may or may not already carry one."""
+    if not query:
+        return url
+    return url + ("&" if "?" in url else "?") + query
+
+
+def _co_authoring_enabled(api_client: Any, dashboard_id: str | None = None) -> bool:
+    """Whether Dashboard Co-Authoring is on: ``GET /api/v1/settings/system`` ``dashboardCoAuthoring.enabled``.
+
+    When the setting cannot be read, a ``sharedMode=true`` read of ``dashboard_id`` that
+    answers 200 counts as on; any other answer (unknown query parameters are rejected with
+    a 4xx on some versions) counts as off, so ``sharedMode`` is never sent on a write blindly.
+    """
+    response = api_client.get("/api/v1/settings/system")
+    if response is not None and response.status_code == 200:
+        try:
+            flag = ((response.json() or {}).get("dashboardCoAuthoring") or {}).get("enabled")
+        except Exception:
+            flag = None
+        if isinstance(flag, bool):
+            return flag
+    if dashboard_id is None:
+        return False
+    probe = api_client.get(f"/api/v1/dashboards/{dashboard_id}?sharedMode=true")
+    return probe is not None and probe.status_code == 200
+
+
+def _shared_dashboard_copy(api_client: Any, dashboard_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    """Read the shared copy (``GET /api/v1/dashboards/{id}?sharedMode=true``): ``(status, document or None)``."""
+    response = api_client.get(f"/api/v1/dashboards/{dashboard_id}?sharedMode=true")
+    if response is None:
+        return None, None
+    if response.status_code != 200:
+        return response.status_code, None
+    try:
+        body = response.json()
+    except Exception:
+        return response.status_code, None
+    return 200, body if isinstance(body, dict) else None
+
+
+def _shared_dashboard_widgets(api_client: Any, dashboard_id: str) -> list[dict[str, Any]]:
+    """The widgets of the shared copy (``GET /api/v1/dashboards/{id}/widgets?sharedMode=true``), or ``[]``."""
+    response = api_client.get(f"/api/v1/dashboards/{dashboard_id}/widgets?sharedMode=true")
+    if response is None or response.status_code != 200:
+        return []
+    try:
+        body = response.json()
+    except Exception:
+        return []
+    return [w for w in body if isinstance(w, dict)] if isinstance(body, list) else []
+
+
+def _read_shared_dashboard(api_client: Any, dashboard_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    """Read the shared copy with its widgets and hierarchies: ``(status, document or None)``.
+
+    Tries ``GET /api/dashboards/{id}?adminAccess=true`` first — an administrator's route, owner or
+    not, which returns the shared copy with ``widgets`` embedded — then the owner's route,
+    ``GET /api/v1/dashboards/{id}?sharedMode=true`` plus the shared widgets endpoint. Both routes
+    carry the shared copy's own ``hierarchies`` (the key is absent when there are none); the
+    document returned always has ``widgets`` and ``hierarchies`` lists.
+    """
+    response = api_client.get(f"/api/dashboards/{dashboard_id}?adminAccess=true")
+    body: dict[str, Any] | None = None
+    if response is not None and response.status_code == 200:
+        try:
+            candidate = response.json()
+        except Exception:
+            candidate = None
+        if isinstance(candidate, dict):
+            body = dict(candidate)
+            if not isinstance(body.get("widgets"), list):
+                widgets = api_client.get(f"/api/dashboards/{dashboard_id}/widgets?adminAccess=true")
+                try:
+                    body["widgets"] = [w for w in widgets.json() if isinstance(w, dict)] if widgets is not None and widgets.status_code == 200 else []
+                except Exception:
+                    body["widgets"] = []
+    if body is None:
+        status, shared = _shared_dashboard_copy(api_client, dashboard_id)
+        if shared is None:
+            return (response.status_code if response is not None else status), None
+        body = dict(shared)
+        body["widgets"] = _shared_dashboard_widgets(api_client, dashboard_id)
+    body["hierarchies"] = [h for h in (body.get("hierarchies") or []) if isinstance(h, dict)]
+    return 200, body
+
+
+def _dashboard_admin_record(api_client: Any, dashboard_id: str) -> dict[str, Any] | None:
+    """The dashboard's row from the admin listing (owner, shares, datasource, title), or ``None``."""
+    response = api_client.get(f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    if isinstance(body, list):
+        body = body[0] if body and isinstance(body[0], dict) else None
+    return body if isinstance(body, dict) and "error" not in body else None
+
+
+def _current_user(api_client: Any) -> dict[str, Any] | None:
+    """The token's user (``GET /api/users/loggedin``), or ``None``."""
+    response = api_client.get("/api/users/loggedin")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) and body.get("_id") else None
+
+
+def _is_admin_user(api_client: Any, user: dict[str, Any] | None) -> bool:
+    """Whether the user's role is an administrator role (``admin`` or ``super``)."""
+    role_id = (user or {}).get("roleId")
+    if not isinstance(role_id, str):
+        return False
+    response = api_client.get("/api/roles")
+    if response is None or response.status_code != 200:
+        return False
+    try:
+        return any(isinstance(r, dict) and r.get("_id") == role_id and str(r.get("name") or "").lower() in _ADMIN_ROLE_NAMES for r in response.json())
+    except Exception:
+        return False
+
+
+def _user_email(api_client: Any, user_id: Any) -> str | None:
+    """Resolve a user id to an email via the user list, or ``None``."""
+    if not isinstance(user_id, str):
+        return None
+    response = api_client.get("/api/v1/users")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        return next((u.get("email") for u in response.json() if isinstance(u, dict) and u.get("_id") == user_id), None)
+    except Exception:
+        return None
+
+
+def _user_id_for_email(api_client: Any, email: str) -> str | None:
+    """Resolve an email to a user id via the user list, or ``None``."""
+    response = api_client.get("/api/v1/users")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        return next((u.get("_id") for u in response.json() if isinstance(u, dict) and str(u.get("email") or "").strip().lower() == email.strip().lower()), None)
+    except Exception:
+        return None
+
+
+def _co_owner_names(api_client: Any, record: dict[str, Any]) -> list[str]:
+    """Emails of users and ``group:<name>`` of groups holding an edit share on the dashboard."""
+    entries = [s for s in (record.get("shares") or []) if isinstance(s, dict) and str(s.get("rule") or "").lower() in ("edit", "owner")]
+    names: list[str] = []
+    if any(s.get("type") == "user" for s in entries):
+        users = api_client.get("/api/v1/users")
+        emails: dict[str, str] = {}
+        if users is not None and users.status_code == 200:
+            try:
+                emails = {u["_id"]: u.get("email") for u in users.json() if isinstance(u, dict) and u.get("_id")}
+            except Exception:
+                emails = {}
+        names += [emails.get(s.get("shareId")) or str(s.get("shareId")) for s in entries if s.get("type") == "user"]
+    if any(s.get("type") == "group" for s in entries):
+        groups = api_client.get("/api/v1/groups")
+        group_names: dict[str, str] = {}
+        if groups is not None and groups.status_code == 200:
+            try:
+                group_names = {g["_id"]: g.get("name") for g in groups.json() if isinstance(g, dict) and g.get("_id")}
+            except Exception:
+                group_names = {}
+        names += [f"group:{group_names.get(s.get('shareId')) or s.get('shareId')}" for s in entries if s.get("type") == "group"]
+    return names
+
+
+def _dashboard_copies(api_client: Any, dashboard_id: str, co_authoring: bool) -> tuple[bool, list[tuple[str, str]]]:
+    """Which copies a write must reach: ``(has_shared_copy, [(copy, query), ...])``.
+
+    Under co-authoring a published dashboard has a shared copy (viewers) and the owner's
+    private copy, written shared first; a never-published dashboard, or an instance with
+    the feature off, has a single copy.
+    """
+    if co_authoring:
+        _status, shared = _shared_dashboard_copy(api_client, dashboard_id)
+        if shared is not None and shared.get("lastPublish"):
+            return True, [("shared", "sharedMode=true"), ("private", "")]
+    return False, [("private", "")]
+
+
+def _borrow_ownership(api_client: Any, logger: Any, dashboard_id: str, title: Any, record: dict[str, Any], borrower_id: str) -> dict[str, Any]:
+    """Take ownership of a dashboard temporarily (``POST .../change_owner?adminAccess=true``).
+
+    Returns what ``_return_ownership`` needs, or the standard error dict.
+    """
+    owner_id = record.get("owner")
+    shares = [
+        {"shareId": s.get("shareId"), "type": s.get("type"), "rule": s.get("rule"), "subscribe": bool(s.get("subscribe"))}
+        for s in (record.get("shares") or [])
+        if isinstance(s, dict) and s.get("shareId") and s.get("rule")  # the owner's own entry carries no rule
+    ]
+    logger.info(f"Taking ownership of dashboard '{title}' ({dashboard_id}) temporarily from {owner_id}")
+    response = api_client.post(f"/api/v1/dashboards/{dashboard_id}/change_owner?adminAccess=true", data={"ownerId": borrower_id, "originalOwnerRule": "edit"})
+    if response is None or response.status_code != 200:
+        failure = _extract_error_message(response, f"Could not take ownership of dashboard '{title}' temporarily", api_client)
+        failure["owner"] = _user_email(api_client, owner_id) or owner_id
+        logger.error(failure["error"])
+        return failure
+    return {"owner_id": owner_id, "owner_email": _user_email(api_client, owner_id), "shares": shares}
+
+
+def _return_ownership(api_client: Any, logger: Any, dashboard_id: str, title: Any, borrowed: dict[str, Any]) -> dict[str, Any]:
+    """Give ownership back and restore the exact share list captured by ``_borrow_ownership``."""
+    owner_id = borrowed.get("owner_id")
+    label = borrowed.get("owner_email") or owner_id
+    response = api_client.post(f"/api/v1/dashboards/{dashboard_id}/change_owner?adminAccess=true", data={"ownerId": owner_id, "originalOwnerRule": "view"})
+    if response is None or response.status_code != 200:
+        failure = _extract_error_message(response, f"Could not return ownership of dashboard '{title}' to {label}", api_client)
+        logger.error(failure["error"])
+        return failure
+    # change_owner leaves the borrower with a view share; posting the original list (the owner as rule
+    # "owner") replaces the whole share list and removes it.
+    body = {"sharesTo": [{"shareId": owner_id, "type": "user", "rule": "owner", "subscribe": False}] + list(borrowed.get("shares") or [])}
+    response = api_client.post(f"/api/shares/dashboard/{dashboard_id}?adminAccess=true", data=body)
+    if response is None or response.status_code != 200:
+        failure = _extract_error_message(
+            response, f"Ownership of dashboard '{title}' was returned to {label}, but its share list could not be restored (the token's user keeps a view share)", api_client
+        )
+        logger.error(failure["error"])
+        return failure
+    logger.info(f"Returned ownership of dashboard '{title}' ({dashboard_id}) to {label} and restored its shares")
+    return {"success": True}
+
+
+def _dashboard_write_access(api_client: Any, logger: Any, dashboard_id: str, act_as_owner: bool, *, borrower: str | None = None, what: str = "change it") -> dict[str, Any]:
+    """Settle who may write a dashboard before anything is written.
+
+    Returns ``{"record", "title", "co_authoring", "borrowed"}`` — ``borrowed`` is ``None`` when the
+    token's user owns the dashboard (or ownership could not be determined) and otherwise what
+    ``_return_ownership`` needs — or the standard error dict when the token's user is not the
+    owner and may not, or may not yet, act as owner. ``borrower`` names the user to transfer
+    ownership to (default: the token's user).
+    """
+    record = _dashboard_admin_record(api_client, dashboard_id) or {}
+    title = record.get("title") or dashboard_id
+    co_authoring = _co_authoring_enabled(api_client, dashboard_id)
+    me = _current_user(api_client)
+    my_id = me.get("_id") if isinstance(me, dict) else None
+    owner_id = record.get("owner") if isinstance(record.get("owner"), str) else None
+    borrower_id = borrower or my_id
+    context: dict[str, Any] = {"record": record, "title": title, "co_authoring": co_authoring, "borrowed": None}
+    if not owner_id or not borrower_id or borrower_id == owner_id:
+        return context
+    owner_label = _user_email(api_client, owner_id) or owner_id
+    co_owners = _co_owner_names(api_client, record)
+    if not act_as_owner:
+        failure: dict[str, Any] = {
+            "ok": False,
+            "error": f"Dashboard '{title}' is owned by {owner_label}; only the owner can {what}. Pass act_as_owner=True with an administrator token to take ownership temporarily.",
+            "owner": owner_label,
+            "co_owners": co_owners,
+        }
+        logger.error(failure["error"])
+        return failure
+    if borrower is None and not _is_admin_user(api_client, me):
+        failure = {"ok": False, "error": f"Dashboard '{title}' is owned by {owner_label}; act_as_owner requires an administrator token.", "owner": owner_label, "co_owners": co_owners}
+        logger.error(failure["error"])
+        return failure
+    borrowed = _borrow_ownership(api_client, logger, dashboard_id, title, record, borrower_id)
+    if borrowed.get("ok") is False:
+        return borrowed
+    context["borrowed"] = borrowed
+    context["record"] = _dashboard_admin_record(api_client, dashboard_id) or record
+    return context
+
+
+def _finish_ownership(api_client: Any, logger: Any, dashboard_id: str, title: Any, borrowed: dict[str, Any] | None, result: dict[str, Any]) -> dict[str, Any]:
+    """Return borrowed ownership and stamp the outcome on ``result``."""
+    if borrowed is None:
+        return result
+    restored = _return_ownership(api_client, logger, dashboard_id, title, borrowed)
+    if isinstance(result, dict):
+        result["ownership_transferred_temporarily"] = True
+        result["original_owner"] = borrowed.get("owner_email") or borrowed.get("owner_id")
+        if restored.get("ok") is False:
+            result["ownership_restore_error"] = restored.get("error")
+    return result
+
+
+def _write_dashboard_copies(
+    api_client: Any, logger: Any, dashboard_id: str, title: Any, co_authoring: bool, write: Any, *, label: str, publish: Literal["never", "if_shared", "always"] = "if_shared"
+) -> dict[str, Any]:
+    """Apply one write to every copy of a dashboard, shared first, then publish when a shared copy was written.
+
+    ``write(query)`` performs the request for one copy (``query`` is ``"sharedMode=true"`` or
+    ``""``) and returns the response. ``publish`` is ``"if_shared"`` (publish only when a shared
+    copy was written), ``"always"`` (publish regardless — with ``force=true`` only when
+    co-authoring is off, since a forced publish empties the owner's private copy under it) or
+    ``"never"``. Returns ``{"success": True, "copies_updated": [...], "response": <last response>,
+    "published": bool | None}`` or, on the first failed write, the standard error dict with
+    ``copies_updated`` (copies written before the failure).
+    """
+    has_shared_copy, copies = _dashboard_copies(api_client, dashboard_id, co_authoring)
+    updated: list[str] = []
+    response = None
+    for copy, query in copies:
+        response = write(query)
+        if response is None or response.status_code not in (200, 201, 204):
+            failure = _extract_error_message(response, f"Failed to {label} on the {copy} copy of dashboard '{title}'" if has_shared_copy else f"Failed to {label} on dashboard '{title}'", api_client)
+            failure["copies_updated"] = updated
+            logger.error(failure["error"])
+            return failure
+        updated.append(copy)
+    result: dict[str, Any] = {"success": True, "copies_updated": updated, "response": response, "published": None}
+    if publish == "always" or (publish == "if_shared" and has_shared_copy):
+        # force=true on a co-authored dashboard wipes the owner's private copy's widgets (live-observed);
+        # it is only ever sent when the feature is off, where it is the long-standing behaviour.
+        force = publish == "always" and not co_authoring
+        published = api_client.post(f"/api/v1/dashboards/{dashboard_id}/publish" + ("?force=true" if force else ""))
+        result["published"] = published is not None and published.status_code in (200, 204)
+        if not result["published"]:
+            result["publish_error"] = _extract_error_message(published, f"Failed to publish dashboard '{title}' after the change", api_client)["error"]
+            logger.warning(result["publish_error"])
+    logger.info(f"{label} on dashboard '{title}' ({dashboard_id}): copies={updated}, published={result['published']}")
+    return result
+
+
+def _dashboard_for_reading(api_client: Any, logger: Any, export_doc: dict[str, Any], co_authoring: bool) -> tuple[dict[str, Any] | None, str, int | None]:
+    """The dashboard as viewers see it: ``(document, copy, status)``.
+
+    With Dashboard Co-Authoring off, or for a dashboard that was never published, the export is
+    the single copy (``copy`` is ``"private"``). Otherwise the shared copy is the dashboard and is
+    read on its own — datasource, filters, widgets and hierarchies are all per copy — as
+    administrator (``GET /api/dashboards/{id}?adminAccess=true``) or as owner (``sharedMode=true``);
+    ``copy`` is ``"shared"``. When the shared copy exists but neither route can read it, the
+    document is ``None`` with ``copy`` ``"unreadable"`` and the HTTP status: the owner's private
+    copy is never substituted, since it may differ from what viewers see.
+    """
+    dashboard_id = export_doc.get("oid")
+    if not co_authoring or not isinstance(dashboard_id, str):
+        return export_doc, "private", None
+    status, shared = _read_shared_dashboard(api_client, dashboard_id)
+    if shared is None:
+        if not export_doc.get("lastPublish"):
+            return export_doc, "private", None  # never published: a single copy
+        if logger:
+            logger.error(f"Dashboard {dashboard_id}: the shared copy could not be read (HTTP {status})")
+        return None, "unreadable", status
+    if not shared.get("lastPublish"):
+        return export_doc, "private", None
+    shared.setdefault("oid", dashboard_id)
+    if logger:
+        logger.debug(f"Dashboard {dashboard_id}: reading the shared copy ({len(shared.get('widgets') or [])} widgets, {len(shared.get('hierarchies') or [])} hierarchies)")
+    return shared, "shared", None
+
+
 def _compute_dependency_closure(
     index: dict[str, Any],
     used: set[_ColumnKey],

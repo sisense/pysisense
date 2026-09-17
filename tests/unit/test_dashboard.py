@@ -282,7 +282,7 @@ class TestAddDashboardScript:
         script = '{"script": "console.log(1);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
         result = dash.add_dashboard_script("dash123", script)
-        assert "executing_user" in result["error"]
+        assert "act_as_owner" in result["error"]
 
     def test_does_not_return_ownership_hint_on_403_when_no_executing_user(self):
         # Contrast case: unlike add_widget_script, a 403 here currently falls
@@ -290,7 +290,7 @@ class TestAddDashboardScript:
         script = '{"script": "console.log(1);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
         result = dash.add_dashboard_script("dash123", script)
-        assert "executing_user" not in result["error"]
+        assert "act_as_owner" not in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ class TestAddWidgetScript:
         script = '{"script": "console.log(widget);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(403, {"error": "forbidden"})})
         result = dash.add_widget_script("dash123", "widget456", script)
-        assert "executing_user" in result["error"]
+        assert "act_as_owner" in result["error"]
 
     def test_does_not_return_ownership_hint_on_404_when_no_executing_user(self):
         # Contrast case: unlike add_dashboard_script, a 404 here currently falls
@@ -331,7 +331,7 @@ class TestAddWidgetScript:
         script = '{"script": "console.log(widget);"}'
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
         result = dash.add_widget_script("dash123", "widget456", script)
-        assert "executing_user" not in result["error"]
+        assert "act_as_owner" not in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1474,6 +1474,7 @@ def _make_coauth_swapper(
         },
         post_responses={
             "/api/v1/dashboards/live/": FakeResponse(200, None),
+            "/api/v1/dashboards/LocalHost/": FakeResponse(200, None),
             f"/api/v1/dashboards/{did}/publish": FakeResponse(publish_status, None),
             f"/api/v1/dashboards/{did}/change_owner": FakeResponse(change_owner_status, {"oid": did} if change_owner_status == 200 else {"message": "no"}),
             f"/api/shares/dashboard/{did}": FakeResponse(restore_status, {"success": True} if restore_status == 200 else {"message": "no"}),
@@ -1502,9 +1503,18 @@ class TestReplaceDatasourceCoAuthoring:
         assert result["success"] is True and result["published"] is True and result["co_authoring"] is True
         assert result["shared_copy_updated"] is True and result["private_copy_updated"] is True and result["ownership_transferred_temporarily"] is False
         assert result["previous_datasource"] == _LIVE_DS and result["previous_datasource_title"] == "fes_assistant"  # read from the SHARED copy
-        assert _swaps(client) == [self._SWAP + "&sharedMode=true", self._SWAP]  # shared first, then private
+        assert _swaps(client) == [self._SWAP + "&sharedMode=true"]  # the private copy already shows the new datasource: verified, not written again
         assert [u for u, _ in client.posted][-1].endswith("/publish")
         assert result["widgets_updated"] == 1 and result["widgets_unchanged"] == ["Sample ECommerce"]
+
+    def test_each_copy_is_replaced_from_the_datasource_it_shows(self):
+        # Shared copy on fes_assistant, private copy still on an older model (lagging after a borrowed change): two different swap URLs.
+        older = {"title": "old_live_model", "id": "live:old_live_model", "fullname": "live:old_live_model", "live": True}
+        dash, client = _make_coauth_swapper(private_ds=older, shared_ds=_LIVE_DS)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["shared_copy_updated"] is True and result["private_copy_updated"] is True
+        assert _swaps(client) == [self._SWAP + "&sharedMode=true", "/api/v1/dashboards/live/old_live_model/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3"]
+        assert result["previous_datasource_title"] == "fes_assistant"  # the shared copy's, what viewers saw
 
     def test_never_published_dashboard_has_a_single_copy(self):
         dash, client = _make_coauth_swapper(published=False)
@@ -1597,6 +1607,182 @@ class TestReplaceDatasourceCoAuthoring:
         dash, client = _make_coauth_swapper(settings=FakeResponse(500, {}))
         result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
         assert result["success"] is True and result["co_authoring"] is True and _swaps(client)[0].endswith("&sharedMode=true")
+
+
+def _make_coauth_mutator(*, me="u9", published=True, put_status=200, patch_status=404):
+    """A co-authoring dashboard for rename / script / widget writes: owner u9, viewer group g1."""
+    did = "dash123"
+    record = {"oid": did, "title": "Board", "owner": "u9", "shares": [{"shareId": "u9", "type": "user"}, {"shareId": "g1", "type": "group", "rule": "view", "subscribe": False}]}
+    shared = {"oid": did, "title": "Board", "lastPublish": _SHARED_PUBLISHED if published else None}
+    client = _RecordingDashClient(
+        get_responses={
+            "/api/v1/dashboards/admin": FakeResponse(200, [record]),
+            f"/api/v1/dashboards/{did}?sharedMode=true": FakeResponse(200, shared),
+            "/api/v1/settings/system": FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}}),
+            "/api/users/loggedin": FakeResponse(200, {"_id": me, "roleId": "r-admin", "email": "me@example.com"}),
+            "/api/roles": FakeResponse(200, [{"_id": "r-admin", "name": "admin"}]),
+            "/api/v1/users": FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}, {"_id": "u1", "email": "admin@example.com"}]),
+            "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Viewers"}]),
+            "/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, {"oid": "widget456", "type": "chart/column", "title": "W"}),
+        },
+        patch_responses={f"/api/dashboards/{did}": FakeResponse(patch_status, {"message": "Cannot PATCH"} if patch_status != 200 else {"title": "New"})},
+        put_responses={f"/api/dashboards/{did}": FakeResponse(put_status, {"oid": did, "title": "New"} if put_status == 200 else {"message": "no"})},
+        post_responses={
+            f"/api/v1/dashboards/{did}/publish": FakeResponse(204, None),
+            f"/api/v1/dashboards/{did}/change_owner": FakeResponse(200, {}),
+            f"/api/shares/dashboard/{did}": FakeResponse(200, {"success": True}),
+        },
+        logger=FakeLogger(),
+    )
+    client.put_calls: list[tuple[str, object]] = []
+    original_put = client.put
+    client.put = lambda url, data=None, **kw: (client.put_calls.append((url, data)), original_put(url, data=data, **kw))[1]
+    return Dashboard(api_client=client), client
+
+
+class TestCoAuthoringMutations:
+    def test_rename_writes_shared_then_private_and_publishes(self):
+        dash, client = _make_coauth_mutator()
+        result = dash.rename_dashboard("dash123", "New")
+        assert result["title"] == "New" and result["published"] is True
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123?sharedMode=true", "/api/dashboards/dash123"]  # PATCH 404 -> PUT for the private copy
+        assert client.patched == [("/api/dashboards/dash123", {"title": "New"})]
+        assert [u for u, _ in client.posted] == ["/api/v1/dashboards/dash123/publish"]
+
+    def test_rename_of_a_never_published_dashboard_writes_once_and_does_not_publish(self):
+        dash, client = _make_coauth_mutator(published=False)
+        result = dash.rename_dashboard("dash123", "New")
+        assert result["title"] == "New" and "published" not in result
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123"] and client.posted == []
+
+    def test_move_writes_once_since_the_folder_is_shared_by_both_copies(self):
+        dash, client = _make_coauth_mutator()
+        result = dash.move_dashboard_to_folder("dash123", "folder1")
+        assert result["title"] == "New" and "published" not in result
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123"] and client.posted == []
+        assert client.put_calls[0][1] == {"parentFolder": "folder1"}
+
+    def test_non_owner_rename_is_refused_before_any_write(self):
+        dash, client = _make_coauth_mutator(me="u1")
+        result = dash.rename_dashboard("dash123", "New")
+        assert result["ok"] is False and result["owner"] == "owner@example.com" and "only the owner can rename it" in result["error"]
+        assert client.put_calls == [] and client.patched == [] and client.posted == []
+
+    def test_admin_renames_as_owner_and_hands_back(self):
+        dash, client = _make_coauth_mutator(me="u1")
+        result = dash.rename_dashboard("dash123", "New", act_as_owner=True)
+        assert result["title"] == "New" and result["ownership_transferred_temporarily"] is True and result["original_owner"] == "owner@example.com"
+        urls = [u for u, _ in client.posted]
+        assert urls == [
+            "/api/v1/dashboards/dash123/change_owner?adminAccess=true",
+            "/api/v1/dashboards/dash123/publish",
+            "/api/v1/dashboards/dash123/change_owner?adminAccess=true",
+            "/api/shares/dashboard/dash123?adminAccess=true",
+        ]
+        assert client.posted[-1][1] == {"sharesTo": [{"shareId": "u9", "type": "user", "rule": "owner", "subscribe": False}, {"shareId": "g1", "type": "group", "rule": "view", "subscribe": False}]}
+
+    def test_failed_shared_write_stops_and_still_hands_back(self):
+        dash, client = _make_coauth_mutator(me="u1", put_status=500)
+        result = dash.rename_dashboard("dash123", "New", act_as_owner=True)
+        assert result["ok"] is False and "shared copy of dashboard 'Board'" in result["error"] and result["copies_updated"] == []
+        assert result["ownership_transferred_temporarily"] is True
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123?sharedMode=true"]
+        assert [u for u, _ in client.posted][-1].startswith("/api/shares/dashboard/")
+
+    def test_dashboard_script_writes_both_copies(self):
+        dash, client = _make_coauth_mutator()
+        result = dash.add_dashboard_script("dash123", "console.log(1);")
+        assert result["success"] is True and result["copies_updated"] == ["shared", "private"] and result["published"] is True
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123?sharedMode=true", "/api/dashboards/dash123"]
+        assert all(d == {"script": "console.log(1);"} for _, d in client.put_calls)
+
+    def test_widget_script_writes_both_copies_and_publishes_without_force(self):
+        # force=true wipes the owner's private copy under co-authoring (live-observed): never sent when the feature is on.
+        dash, client = _make_coauth_mutator()
+        client._put["/api/dashboards/dash123/widgets/widget456"] = FakeResponse(200, {})
+        result = dash.add_widget_script("dash123", "widget456", '{"script": "x"}')
+        assert result["success"] is True and result["copies_updated"] == ["shared", "private"] and result["published"] is True
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123/widgets/widget456?sharedMode=true", "/api/dashboards/dash123/widgets/widget456"]
+        assert [u for u, _ in client.posted] == ["/api/v1/dashboards/dash123/publish"]
+
+    def test_widget_script_force_publishes_only_when_co_authoring_is_off(self):
+        dash = _make_dash(put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, {})}, post_responses={"/api/v1/dashboards/dash123/publish": FakeResponse(204, None)})
+        posted: list[str] = []
+        original_post = dash.api_client.post
+        dash.api_client.post = lambda url, data=None, **kw: (posted.append(url), original_post(url, data=data, **kw))[1]
+        result = dash.add_widget_script("dash123", "widget456", '{"script": "x"}')
+        assert result["success"] is True and result["published"] is True and posted == ["/api/v1/dashboards/dash123/publish?force=true"]
+
+    def test_executing_user_email_still_borrows_ownership_for_that_user(self):
+        dash, client = _make_coauth_mutator(me="u1")
+        result = dash.add_dashboard_script("dash123", "console.log(1);", executing_user="admin@example.com")
+        assert result["success"] is True and result["ownership_transferred_temporarily"] is True
+        assert client.posted[0] == ("/api/v1/dashboards/dash123/change_owner?adminAccess=true", {"ownerId": "u1", "originalOwnerRule": "edit"})
+
+    def test_update_widget_writes_both_copies(self):
+        dash, client = _make_coauth_mutator()
+        client._put["/api/dashboards/dash123/widgets/widget456"] = FakeResponse(200, {"oid": "widget456", "title": "W2"})
+        result = dash.update_widget("dash123", "widget456", {"oid": "widget456", "title": "W2", "owner": "u9"})
+        assert result["title"] == "W2" and result["published"] is True
+        assert [u for u, _ in client.put_calls] == ["/api/dashboards/dash123/widgets/widget456?sharedMode=true", "/api/dashboards/dash123/widgets/widget456"]
+        assert all("owner" not in d for _, d in client.put_calls)
+
+
+class TestDeleteUnderCoAuthoring:
+    def test_shared_copy_title_is_accepted(self):
+        did = "6a99ada4ea52ffb5c87c5ba3"
+        dash, client = _make_coauth_mutator()
+        client._get["/api/v1/dashboards/admin"] = FakeResponse(200, [{"oid": did, "title": "Board", "owner": "u9"}])
+        client._get[f"/api/v1/dashboards/{did}?sharedMode=true"] = FakeResponse(200, {"oid": did, "title": "Board (shared)", "lastPublish": _SHARED_PUBLISHED})
+        client._delete[f"/api/v1/dashboards/{did}"] = FakeResponse(204, None)
+        assert dash.delete_dashboard(did, "Board (shared)")["success"] is True
+        refused = dash.delete_dashboard(did, "Something else")
+        assert refused["ok"] is False and "its title is 'Board' (shared copy: 'Board (shared)'), not 'Something else'" in refused["error"]
+
+
+class TestReadSideUnderCoAuthoring:
+    def test_validate_reads_the_shared_copy_when_it_exists(self):
+        dash, client = _make_validator()
+        client._get["/api/v1/settings/system"] = FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}})
+        shared_doc = {"oid": _V_ID, "title": "Board (shared)", "datasource": _V_LIVE, "lastPublish": _SHARED_PUBLISHED, "filters": []}
+        client._get[f"/api/v1/dashboards/{_V_ID}?sharedMode=true"] = FakeResponse(200, shared_doc)
+        client._get[f"/api/v1/dashboards/{_V_ID}/widgets?sharedMode=true"] = FakeResponse(200, [_V_EXPORT["widgets"][0]])  # only the indicator on the shared copy
+        result = dash.validate_dashboard_queries(_V_ID)
+        assert result["dashboard_copy"] == "shared" and result["title"] == "Board (shared)"
+        assert [w["widget_id"] for w in result["widgets"]] == ["w-ind"]
+        ind = next(body for url, body in client.posted if "/jaql" in url)
+        assert [m["panel"] for m in ind["metadata"]] == ["measures", "scope"]  # shared copy has no dashboard filters; the widget's own filter stays
+
+    def test_validate_reads_the_shared_copy_through_the_admin_route_when_not_the_owner(self):
+        dash, client = _make_validator()
+        client._get["/api/v1/settings/system"] = FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}})
+        client._get[f"/api/v1/dashboards/{_V_ID}?sharedMode=true"] = FakeResponse(403, {})  # not the owner
+        shared_doc = {"oid": _V_ID, "title": "Board (shared)", "datasource": _V_LIVE, "lastPublish": _SHARED_PUBLISHED, "filters": [], "widgets": [_V_EXPORT["widgets"][0]]}
+        client._get[f"/api/dashboards/{_V_ID}?adminAccess=true"] = FakeResponse(200, shared_doc)
+        result = dash.validate_dashboard_queries(_V_ID)
+        assert result["dashboard_copy"] == "shared" and result["title"] == "Board (shared)" and [w["widget_id"] for w in result["widgets"]] == ["w-ind"]
+
+    def test_validate_fails_when_the_shared_copy_cannot_be_read_by_any_route(self):
+        dash, client = _make_validator()
+        client._get["/api/v1/settings/system"] = FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}})
+        client._get["/api/v1/dashboards/export"] = FakeResponse(200, [dict(_V_EXPORT, lastPublish=_SHARED_PUBLISHED)])  # published: a shared copy exists
+        client._get[f"/api/v1/dashboards/{_V_ID}?sharedMode=true"] = FakeResponse(403, {})
+        client._get[f"/api/dashboards/{_V_ID}?adminAccess=true"] = FakeResponse(403, {})
+        result = dash.validate_dashboard_queries(_V_ID)
+        assert result["ok"] is False and "shared copy" in result["error"] and result["status_code"] == 403
+        assert not any("/jaql" in u for u, _ in client.posted)  # the private copy is never queried in its place
+
+    def test_never_published_dashboard_is_its_single_copy(self):
+        dash, client = _make_validator()
+        client._get["/api/v1/settings/system"] = FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}})
+        client._get[f"/api/v1/dashboards/{_V_ID}?sharedMode=true"] = FakeResponse(403, {})
+        client._get[f"/api/dashboards/{_V_ID}?adminAccess=true"] = FakeResponse(403, {})
+        result = dash.validate_dashboard_queries(_V_ID)  # _V_EXPORT has no lastPublish
+        assert result["dashboard_copy"] == "private" and result["counts"]["ok"] == 4
+
+    def test_compare_reports_which_copy_it_read(self):
+        dash, client = _make_validator(plan={"fes_assistant": FakeResponse(200, _ROWS_ONE), "fes_persp": FakeResponse(200, _ROWS_ONE)})
+        assert dash.compare_dashboard_values(_V_ID, "fes_assistant", "fes_persp")["dashboard_copy"] == "private"  # feature off in this fixture
 
 
 # ---------------------------------------------------------------------------
