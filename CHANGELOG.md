@@ -6,6 +6,26 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`replace_datasource` now reaches viewers under Dashboard Co-Authoring.** With the system
+  setting `dashboardCoAuthoring` on, a published dashboard is a shared copy (what viewers see)
+  plus a private copy per owner, and publishing flows shared → private. The method wrote the
+  private copy and published, so the owner saw the new datasource and nobody else did — and its
+  "already uses" pre-check read that same private copy. It now compares against the shared copy,
+  writes it first with `sharedMode=true`, verifies the shared dashboard and every widget, writes
+  the owner's private copy, publishes, and verifies the shared copy again; a never-published
+  dashboard (single copy) and instances with the feature off behave as before. The silent
+  `adminAccess=true` retry is gone: a non-owner is refused before any write, with `owner` and
+  `co_owners` named, because an administrator who is not the owner cannot read or publish the
+  shared copy on this version. New `act_as_owner=False` parameter: with an administrator token it
+  transfers ownership to the token's user for the duration of the change and restores ownership
+  and the exact share list afterwards, even when the change or the publish fails. Result gains
+  `previous_datasource_title` (the revert value), `co_authoring`, `shared_copy_updated`,
+  `private_copy_updated`, `ownership_transferred_temporarily` and, when borrowed,
+  `original_owner` / `ownership_restore_error`; `published` now means the shared copy was read
+  back with the change.
+
 ### Added
 
 - **`Dashboard.compare_dashboard_values(dashboard, datasource_a, datasource_b)`** — run every
@@ -55,6 +75,10 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### For downstream tool generators
 
+- `replace_datasource`: additive param `act_as_owner: bool`; additive result keys
+  `previous_datasource_title`, `co_authoring`, `shared_copy_updated`, `private_copy_updated`,
+  `ownership_transferred_temporarily`, `original_owner`, `ownership_restore_error`; failure dicts
+  may carry `owner`, `co_owners`, `shared_copy_updated`, `private_copy_updated`.
 - New method `Dashboard.compare_dashboard_values(dashboard: str, datasource_a: str, datasource_b: str)`.
 - `analyze_perspective_requirements`: additive result keys `perspective_tables_all_paths` (list,
   always present) and `join_path_choices` (list, always present); additive `summary` keys

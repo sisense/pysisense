@@ -482,20 +482,30 @@ dashboard.rename_dashboard(copy["dashboard_id"], "Sales Overview (test)")
 
 ```python
 # Point a dashboard at a perspective; widgets and filters on the old datasource follow,
-# widgets on other datasources are untouched.
+# widgets on other datasources are untouched. Under Dashboard Co-Authoring the shared copy
+# (what viewers see) is written first and verified, then the owner's private copy, then published.
 result = dashboard.replace_datasource("Sales Overview_perspective_stage", "sales_perspective")
 # {"success": True, "dashboard_id": "...", "title": "Sales Overview_perspective_stage",
 #  "previous_datasource": {"title": "Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", ...},
-#  "new_datasource": {"title": "sales_perspective", ...}, "widgets_updated": 6, "widgets_unchanged": ["Other Model"], "published": True}
+#  "previous_datasource_title": "Sample ECommerce", "new_datasource": {"title": "sales_perspective", ...},
+#  "widgets_updated": 6, "widgets_unchanged": ["Other Model"], "published": True,
+#  "co_authoring": True, "shared_copy_updated": True, "private_copy_updated": True, "ownership_transferred_temporarily": False}
 
 # Revert: the previous datasource's title is all that is needed
-dashboard.replace_datasource(result["dashboard_id"], result["previous_datasource"]["title"])
+dashboard.replace_datasource(result["dashboard_id"], result["previous_datasource_title"])
 
 # Only some widgets are on the model being replaced? Name it.
 dashboard.replace_datasource("Mixed Board", "sales_perspective", from_datasource="Sample ECommerce")
 
-# Not the owner and not an admin? Sisense accepts the call but changes nothing; the failure dict says who can.
-# {"ok": False, "error": "Sisense accepted the request but dashboard 'Mixed Board' still shows datasource 'Sample ECommerce'; ...", "owner": "jane@example.com"}
+# Not the owner? Refused before anything is written, naming who can do it.
+dashboard.replace_datasource("Mixed Board", "sales_perspective")
+# {"ok": False, "error": "Dashboard 'Mixed Board' is owned by jane@example.com; only the owner can change its datasource. Pass act_as_owner=True ...",
+#  "owner": "jane@example.com", "co_owners": ["group:Designers"]}
+
+# An administrator can take ownership for the duration of the change; ownership and the share list are
+# handed back afterwards, even if the change or the publish fails.
+result = dashboard.replace_datasource("Mixed Board", "sales_perspective", act_as_owner=True)
+# {..., "ownership_transferred_temporarily": True, "original_owner": "jane@example.com"}
 ```
 
 ## Example 26: Delete a Dashboard Safely

@@ -1213,18 +1213,18 @@ _PERSPECTIVE_LIST = [
 def _make_swapper(dashboard_ds, widgets, post_statuses=(200, 200), after_ds=None, after_widgets=None, owner="u9", applies_on="owner", widget_lookup_first=False, publish_status=204):
     """Dashboard whose reads flip to the 'after' state at the stage where Sisense applies the change.
 
-    Reads of the dashboard document happen in this order: resolver, method, owner-stage poll,
-    admin-stage poll. ``applies_on`` is "owner", "admin" or None (never applies).
+    Reads of the dashboard document happen in this order: resolver, method, poll.
+    ``applies_on`` is "owner" (the change applies) or None (it never applies).
     """
     doc_before = {"oid": "6a99ada4ea52ffb5c87c5ba3", "title": "Board", "owner": owner, "datasource": dashboard_ds, "filters": []}
     doc_after = dict(doc_before, datasource=after_ds if after_ds is not None else dashboard_ds)
     after_w = after_widgets if after_widgets is not None else widgets
     b, a = FakeResponse(200, [doc_before]), FakeResponse(200, [doc_after])
-    docs = {"owner": [b, b, a], "admin": [b, b, b, a], None: [b]}[applies_on]
+    docs = {"owner": [b, b, a], None: [b]}[applies_on]
     # Widget exports are read once per poll (plus once up front when from_datasource is used);
-    # they flip to 'after' at the stage where the change applies.
+    # they flip to 'after' when the change applies.
     before_w, after_w_resp = FakeResponse(200, [dict(doc_before, widgets=widgets)]), FakeResponse(200, [dict(doc_after, widgets=after_w)])
-    exports = ([before_w] if widget_lookup_first else []) + {"owner": [after_w_resp], "admin": [before_w, after_w_resp], None: [before_w]}[applies_on]
+    exports = ([before_w] if widget_lookup_first else []) + {"owner": [after_w_resp], None: [before_w]}[applies_on]
     client = _RecordingDashClient(
         get_responses={
             "/api/v1/dashboards/admin": docs,
@@ -1234,6 +1234,9 @@ def _make_swapper(dashboard_ds, widgets, post_statuses=(200, 200), after_ds=None
             "/api/v2/datamodels/dm-live/schema": FakeResponse(200, {"oid": "dm-live", "title": "fes_assistant"}),
             "/api/v2/datamodels/dm-ext/schema": FakeResponse(200, {"oid": "dm-ext", "title": "Sample ECommerce"}),
             "/api/v1/users": FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}]),
+            "/api/v1/settings/system": FakeResponse(200, {"dashboardCoAuthoring": {"enabled": False}}),
+            "/api/users/loggedin": FakeResponse(200, {"_id": "u9", "roleId": "r-admin", "email": "owner@example.com"}),
+            "/api/roles": FakeResponse(200, [{"_id": "r-admin", "name": "admin"}]),
         },
         post_responses={
             "/api/v1/dashboards/": [FakeResponse(s, None if s in (200, 204) else {"message": "no"}) for s in post_statuses],
@@ -1319,27 +1322,51 @@ class TestReplaceDatasource:
             "title": "Listed Perspective",
         }
 
-    def test_silent_no_op_as_owner_is_retried_with_admin_access(self):
-        # Live-observed: Sisense answers 200 to a non-owner and changes nothing; adminAccess=true applies it.
-        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE, applies_on="admin")
-        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
-        assert [u for u, _ in client.posted if "replace_datasource" in u] == [
-            "/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3",
-            "/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3&adminAccess=true",
-        ]
-        assert result["success"] is True
-
-    def test_owner_call_that_applies_is_not_repeated(self):
+    def test_co_authoring_off_writes_the_single_copy_once(self):
         dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE, applies_on="owner")
-        assert dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")["success"] is True
-        assert len([u for u, _ in client.posted if "replace_datasource" in u]) == 1
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["co_authoring"] is False
+        assert result["shared_copy_updated"] is None and result["private_copy_updated"] is True and result["ownership_transferred_temporarily"] is False
+        assert result["previous_datasource_title"] == "fes_assistant"
+        swaps = [u for u, _ in client.posted if "replace_datasource" in u]
+        assert swaps == ["/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3"]  # no sharedMode, no adminAccess
 
-    def test_no_change_after_both_attempts_fails_and_names_the_owner(self):
+    def test_no_change_fails_and_names_the_owner(self):
         dash, client = _make_swapper(_LIVE_DS, [], applies_on=None)
         result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
         assert result["ok"] is False and result["owner"] == "owner@example.com"
-        assert "still shows datasource 'fes_assistant'" in result["error"]
-        assert len(client.posted) == 2
+        assert "private copy of dashboard 'Board' still shows datasource 'fes_assistant'" in result["error"]
+        assert result["private_copy_updated"] is False and result["shared_copy_updated"] is None
+        assert len(client.posted) == 1  # one write, no admin retry, no publish
+
+    def test_a_non_owner_is_refused_before_any_write(self):
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE)
+        client._get["/api/users/loggedin"] = FakeResponse(200, {"_id": "u1", "roleId": "r-admin", "email": "admin@example.com"})
+        client._get["/api/v1/users"] = FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}, {"_id": "u2", "email": "editor@example.com"}])
+        client._get["/api/v1/dashboards/admin"] = FakeResponse(
+            200,
+            [
+                {
+                    "oid": "6a99ada4ea52ffb5c87c5ba3",
+                    "title": "Board",
+                    "owner": "u9",
+                    "datasource": _LIVE_DS,
+                    "shares": [{"shareId": "u9", "type": "user"}, {"shareId": "u2", "type": "user", "rule": "edit"}, {"shareId": "g1", "type": "group", "rule": "view"}],
+                }
+            ],
+        )
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and result["owner"] == "owner@example.com" and result["co_owners"] == ["editor@example.com"]
+        assert "only the owner can change its datasource" in result["error"] and "act_as_owner=True" in result["error"]
+        assert client.posted == []
+
+    def test_a_non_admin_cannot_act_as_owner(self):
+        dash, client = _make_swapper(_LIVE_DS, [], after_ds=_FRESH_LIVE)
+        client._get["/api/users/loggedin"] = FakeResponse(200, {"_id": "u1", "roleId": "r-designer", "email": "designer@example.com"})
+        client._get["/api/roles"] = FakeResponse(200, [{"_id": "r-admin", "name": "admin"}, {"_id": "r-designer", "name": "contributor"}])
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", act_as_owner=True)
+        assert result["ok"] is False and "requires an administrator token" in result["error"] and result["owner"] == "owner@example.com"
+        assert client.posted == []
 
     def test_a_real_403_names_the_owner_with_sisense_text(self):
         dash, _ = _make_swapper(_LIVE_DS, [], post_statuses=(403,))
@@ -1383,6 +1410,193 @@ class TestReplaceDatasource:
     def test_unknown_dashboard(self):
         dash = _make_dash(get_responses={"/api/v1/dashboards/nope": FakeResponse(404, {}), "/api/v1/dashboards/admin": FakeResponse(200, [])})
         assert dash.replace_datasource("nope", "x")["ok"] is False
+
+
+_SHARED_PUBLISHED = "2026-09-16T20:48:16.794Z"
+
+
+def _make_coauth_swapper(
+    *,
+    private_ds=_LIVE_DS,
+    shared_ds=_LIVE_DS,
+    new_ds=_FRESH_LIVE,
+    published=True,
+    shared_applies=True,
+    private_applies=True,
+    shared_after_publish=None,
+    me="u9",
+    role="admin",
+    publish_status=204,
+    change_owner_status=200,
+    restore_status=200,
+    settings=None,
+    probe_status=200,
+):
+    """A co-authoring dashboard: admin listing / export = private copy, ?sharedMode=true = shared copy.
+
+    Shared dashboard reads happen in order: pre-check, poll after the shared write, poll after publish;
+    shared widget reads only at the two polls.
+    """
+    did = "6a99ada4ea52ffb5c87c5ba3"
+    widgets_on = lambda ds: [{"oid": "w1", "datasource": ds}, {"oid": "w2", "datasource": _ECOM_DS}]  # noqa: E731
+    private_before = {
+        "oid": did,
+        "title": "Board",
+        "owner": "u9",
+        "datasource": private_ds,
+        "filters": [],
+        "shares": [{"shareId": "u9", "type": "user"}, {"shareId": "g1", "type": "group", "rule": "view", "subscribe": False}],
+    }
+    private_after = dict(private_before, datasource=new_ds if private_applies else private_ds)
+    shared_before = {"oid": did, "title": "Board", "owner": "u9", "datasource": shared_ds, "lastPublish": _SHARED_PUBLISHED if published else None}
+    shared_after = dict(shared_before, datasource=new_ds if shared_applies else shared_ds)
+    shared_final = dict(shared_before, datasource=shared_after_publish) if shared_after_publish is not None else shared_after
+    shared_widgets = [FakeResponse(200, widgets_on(new_ds if shared_applies else shared_ds)), FakeResponse(200, widgets_on(shared_final["datasource"]))]  # read at each poll, not at the pre-check
+    settings_response = FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}}) if settings is None else settings
+    client = _RecordingDashClient(
+        get_responses={
+            # private-copy document reads: resolver, method, (re-read after borrowing ownership), poll after the private write
+            "/api/v1/dashboards/admin": [FakeResponse(200, [private_before])] * (3 if me not in (None, "u9") else 2) + [FakeResponse(200, [private_after])],
+            # private-copy widget reads happen only at the poll
+            "/api/v1/dashboards/export": FakeResponse(200, [dict(private_after, widgets=widgets_on(new_ds if private_applies else private_ds))]),
+            # shared-copy reads: (probe when the setting is unreadable), pre-check, poll after the shared write, poll after publish
+            f"/api/v1/dashboards/{did}?sharedMode=true": ([FakeResponse(probe_status, shared_before)] if settings is not None else [])
+            + [FakeResponse(200, shared_before), FakeResponse(200, shared_after), FakeResponse(200, shared_final)],
+            f"/api/v1/dashboards/{did}/widgets?sharedMode=true": shared_widgets,
+            "/api/datasources": FakeResponse(200, _CATALOGUE),
+            "/api/v2/perspectives": FakeResponse(200, _PERSPECTIVE_LIST),
+            "/api/v2/datamodels/dm-live/schema": FakeResponse(200, {"oid": "dm-live", "title": "fes_assistant"}),
+            "/api/v1/users": FakeResponse(200, [{"_id": "u9", "email": "owner@example.com"}, {"_id": "u1", "email": "admin@example.com"}]),
+            "/api/v1/groups": FakeResponse(200, [{"_id": "g1", "name": "Viewers"}]),
+            "/api/v1/settings/system": settings_response,
+            "/api/users/loggedin": FakeResponse(200, {"_id": me, "roleId": "r-" + role, "email": "me@example.com"}) if me else FakeResponse(404, {}),
+            "/api/roles": FakeResponse(200, [{"_id": "r-admin", "name": "admin"}, {"_id": "r-contributor", "name": "contributor"}]),
+        },
+        post_responses={
+            "/api/v1/dashboards/live/": FakeResponse(200, None),
+            f"/api/v1/dashboards/{did}/publish": FakeResponse(publish_status, None),
+            f"/api/v1/dashboards/{did}/change_owner": FakeResponse(change_owner_status, {"oid": did} if change_owner_status == 200 else {"message": "no"}),
+            f"/api/shares/dashboard/{did}": FakeResponse(restore_status, {"success": True} if restore_status == 200 else {"message": "no"}),
+        },
+        logger=FakeLogger(),
+    )
+    return Dashboard(api_client=client), client
+
+
+def _swaps(client):
+    return [u for u, _ in client.posted if "replace_datasource" in u]
+
+
+class TestReplaceDatasourceCoAuthoring:
+    @pytest.fixture(autouse=True)
+    def _fast_polling(self, monkeypatch):
+        monkeypatch.setattr("pysisense.dashboard.core.time.sleep", lambda seconds: None)
+        monkeypatch.setattr(Dashboard, "_SWAP_POLL_ATTEMPTS", 1)
+
+    _SWAP = "/api/v1/dashboards/live/fes_assistant/replace_datasource?dashboardId=6a99ada4ea52ffb5c87c5ba3"
+
+    def test_owner_writes_shared_then_private_publishes_and_verifies_the_shared_copy(self):
+        # The private copy already sits on the new datasource (an earlier private-only run); the shared copy does not.
+        dash, client = _make_coauth_swapper(private_ds=_FRESH_LIVE, shared_ds=_LIVE_DS)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["published"] is True and result["co_authoring"] is True
+        assert result["shared_copy_updated"] is True and result["private_copy_updated"] is True and result["ownership_transferred_temporarily"] is False
+        assert result["previous_datasource"] == _LIVE_DS and result["previous_datasource_title"] == "fes_assistant"  # read from the SHARED copy
+        assert _swaps(client) == [self._SWAP + "&sharedMode=true", self._SWAP]  # shared first, then private
+        assert [u for u, _ in client.posted][-1].endswith("/publish")
+        assert result["widgets_updated"] == 1 and result["widgets_unchanged"] == ["Sample ECommerce"]
+
+    def test_never_published_dashboard_has_a_single_copy(self):
+        dash, client = _make_coauth_swapper(published=False)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["published"] is True
+        assert result["shared_copy_updated"] is None and result["private_copy_updated"] is True
+        assert _swaps(client) == [self._SWAP]
+
+    def test_shared_write_that_does_not_apply_stops_before_the_private_copy(self):
+        dash, client = _make_coauth_swapper(shared_applies=False)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and "shared copy of dashboard 'Board' still shows datasource 'fes_assistant'" in result["error"]
+        assert result["shared_copy_updated"] is False and result["private_copy_updated"] is None
+        assert _swaps(client) == [self._SWAP + "&sharedMode=true"] and not any(u.endswith("/publish") for u, _ in client.posted)
+
+    def test_shared_copy_losing_the_change_after_publish_is_a_failure(self):
+        dash, client = _make_coauth_swapper(shared_after_publish=_LIVE_DS)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and "was published, but its shared copy no longer shows datasource 'Fresh Live Persp'" in result["error"]
+        assert result["shared_copy_updated"] is False and result["private_copy_updated"] is True
+
+    def test_already_on_the_new_datasource_is_judged_by_the_shared_copy(self):
+        # Private copy still on the old datasource, shared copy already switched: nothing to do for viewers.
+        dash, client = _make_coauth_swapper(private_ds=_LIVE_DS, shared_ds=_FRESH_LIVE)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and "already uses datasource 'Fresh Live Persp'" in result["error"] and client.posted == []
+
+    def test_non_owner_is_refused_with_owner_and_co_owners(self):
+        dash, client = _make_coauth_swapper(me="u1")
+        client._get["/api/v1/dashboards/admin"] = FakeResponse(
+            200,
+            [
+                {
+                    "oid": "6a99ada4ea52ffb5c87c5ba3",
+                    "title": "Board",
+                    "owner": "u9",
+                    "datasource": _LIVE_DS,
+                    "shares": [{"shareId": "u9", "type": "user"}, {"shareId": "g1", "type": "group", "rule": "edit"}],
+                }
+            ],
+        )
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["ok"] is False and result["owner"] == "owner@example.com" and result["co_owners"] == ["group:Viewers"]
+        assert client.posted == []
+
+    def test_admin_acting_as_owner_borrows_ownership_and_gives_it_back(self):
+        dash, client = _make_coauth_swapper(me="u1")
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", act_as_owner=True)
+        assert result["success"] is True and result["published"] is True
+        assert result["ownership_transferred_temporarily"] is True and result["original_owner"] == "owner@example.com" and "ownership_restore_error" not in result
+        urls = [u for u, _ in client.posted]
+        assert urls[0] == "/api/v1/dashboards/6a99ada4ea52ffb5c87c5ba3/change_owner?adminAccess=true"
+        assert client.posted[0][1] == {"ownerId": "u1", "originalOwnerRule": "edit"}
+        assert _swaps(client) == [self._SWAP + "&sharedMode=true", self._SWAP]
+        assert urls[-2] == "/api/v1/dashboards/6a99ada4ea52ffb5c87c5ba3/change_owner?adminAccess=true" and client.posted[-2][1] == {"ownerId": "u9", "originalOwnerRule": "view"}
+        assert urls[-1] == "/api/shares/dashboard/6a99ada4ea52ffb5c87c5ba3?adminAccess=true"
+        assert client.posted[-1][1] == {"sharesTo": [{"shareId": "u9", "type": "user", "rule": "owner", "subscribe": False}, {"shareId": "g1", "type": "group", "rule": "view", "subscribe": False}]}
+
+    def test_ownership_is_returned_even_when_the_publish_fails(self):
+        dash, client = _make_coauth_swapper(me="u1", publish_status=500)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", act_as_owner=True)
+        assert result["success"] is True and result["published"] is False and "publish" in result["publish_error"].lower()
+        assert result["ownership_transferred_temporarily"] is True
+        urls = [u for u, _ in client.posted]
+        assert urls[-2].endswith("/change_owner?adminAccess=true") and urls[-1].startswith("/api/shares/dashboard/")
+
+    def test_ownership_is_returned_even_when_the_change_fails(self):
+        dash, client = _make_coauth_swapper(me="u1", shared_applies=False)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", act_as_owner=True)
+        assert result["ok"] is False and result["ownership_transferred_temporarily"] is True and result["original_owner"] == "owner@example.com"
+        assert [u for u, _ in client.posted][-2].endswith("/change_owner?adminAccess=true")
+
+    def test_failed_hand_back_is_reported(self):
+        dash, client = _make_coauth_swapper(me="u1", restore_status=500)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", act_as_owner=True)
+        assert result["success"] is True and "share list could not be restored" in result["ownership_restore_error"]
+
+    def test_borrow_refused_stops_before_any_write(self):
+        dash, client = _make_coauth_swapper(me="u1", change_owner_status=403)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp", act_as_owner=True)
+        assert result["ok"] is False and "Could not take ownership" in result["error"] and _swaps(client) == []
+
+    def test_unreadable_setting_and_a_rejected_probe_mean_the_feature_is_off(self):
+        dash, client = _make_coauth_swapper(settings=FakeResponse(500, {}), probe_status=422)
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["co_authoring"] is False and result["shared_copy_updated"] is None
+        assert _swaps(client) == [self._SWAP]  # sharedMode never sent on a write
+
+    def test_unreadable_setting_and_a_readable_shared_copy_mean_the_feature_is_on(self):
+        dash, client = _make_coauth_swapper(settings=FakeResponse(500, {}))
+        result = dash.replace_datasource("6a99ada4ea52ffb5c87c5ba3", "Fresh Live Persp")
+        assert result["success"] is True and result["co_authoring"] is True and _swaps(client)[0].endswith("&sharedMode=true")
 
 
 # ---------------------------------------------------------------------------
