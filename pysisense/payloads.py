@@ -243,3 +243,21 @@ class PerspectiveTableSpec(_PerspectiveTableSpecRequired, total=False):
     """
 
     columns: list[str] | Literal["all"]
+
+
+class _GitHttpsCredentialsRequired(TypedDict):
+    username: str
+    password: str
+
+
+class GitHttpsCredentialsPayload(_GitHttpsCredentialsRequired, total=False):
+    """HTTP(S) remote credentials for ``Git.git_fetch``, ``Git.git_pull``, and
+    ``Git.git_push``.
+
+    Required: ``username``, ``password`` (or a personal access token used as
+    the password). Optional: ``save`` — when ``True``, the credentials are
+    saved server-side for the current user and project, and reused
+    automatically on later remote Git operations against that project.
+    """
+
+    save: bool

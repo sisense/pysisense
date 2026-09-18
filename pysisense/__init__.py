@@ -8,6 +8,7 @@ from .dashboard import Dashboard
 from .datamodel import DataModel
 from .encryption import Encryption
 from .folder import Folder
+from .git import Git
 from .mergetool import MergeTool
 from .metadata import Metadata
 from .migration import Migration
@@ -21,6 +22,7 @@ from .payloads import (
     CreateUserPayload,
     DataBricksConnectionParams,
     DatasourceRef,
+    GitHttpsCredentialsPayload,
     MeasurePayload,
     NotebookCreatePayload,
     NotebookUpdatePayload,
@@ -52,6 +54,7 @@ FACADES: tuple[type, ...] = (
     DataModel,
     Encryption,
     Folder,
+    Git,
     MergeTool,
     Metadata,
     Migration,
@@ -72,6 +75,7 @@ __all__ = [
     "Encryption",
     "Dashboard",
     "Folder",
+    "Git",
     "Metadata",
     "MergeTool",
     "Migration",
@@ -90,6 +94,7 @@ __all__ = [
     "CreateUserPayload",
     "DataBricksConnectionParams",
     "DatasourceRef",
+    "GitHttpsCredentialsPayload",
     "MeasurePayload",
     "NotebookCreatePayload",
     "NotebookUpdatePayload",

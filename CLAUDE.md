@@ -87,6 +87,7 @@ Rules that follow from this:
 | `custom_code/` | `CustomCode` | Custom-code notebooks: CRUD, export, folder/file rename |
 | `dashboard/` | `Dashboard` | Dashboard CRUD, admin export, shares, change owner, dashboard/widget scripts, widget read/write, widget type search |
 | `folder/` | `Folder` | Folder CRUD and folder tree retrieval |
+| `git/` | `Git` | Sisense Git Integration (optional feature): projects, branches, commits, remote fetch/pull/push |
 | `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
@@ -122,6 +123,10 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
 | | `widgets.py` | `get_widget_by_id`, `update_widget`, `find_widgets_by_type` |
 | `folder/` | `core.py` | `create_folder`, `update_folder`, `get_folder_id`, `get_folders` (structure param, default `"flat"`), `get_folder_ancestors`, `get_navver`, `get_all_folders` (tree shortcut), `delete_folder` |
+| `git/` | `core.py` | `get_git_projects`, `get_git_project`, `resolve_git_project_reference`, `get_git_project_status`, `unlock_git_project`, `sync_git_project`, `discard_git_project_changes` |
+| | `branches.py` | `get_git_branches`, `get_git_branch`, `create_git_branch`, `checkout_git_branch` |
+| | `commits.py` | `get_git_commits`, `get_git_commit`, `create_git_commit`, `checkout_git_commit` |
+| | `remote.py` | `git_fetch`, `git_pull`, `git_push` |
 | `metadata/` | `core.py` | `get_datasource_measures`, `get_datasource_dimensions`, `get_datasources`, `add_datasource_measure`, `post_metadata_query` |
 | `encryption/` | `core.py` | `encrypt`, `decrypt` |
 | `datamodel/` | `core.py` | `get_datamodel`, `get_all_datamodel`, `describe_datamodel_raw`, `describe_datamodel`, `get_model_schema`, `resolve_datamodel_reference`, `get_elasticubes`, `load_datamodel`, `delete_datamodel`, `export_datamodel_schema`, `import_datamodel_schema` |
@@ -209,7 +214,7 @@ The SDK works with **any Sisense user's API token** — Sisense enforces permiss
 
 ```python
 import os
-from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, MergeTool, Metadata, Plugins, Queries, ReportManager, WellCheck
+from pysisense import SisenseClient, AccessManagement, Blox, CustomCode, Dashboard, DataModel, Encryption, Folder, Git, MergeTool, Metadata, Plugins, Queries, ReportManager, WellCheck
 
 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
 api_client = SisenseClient(config_file=config_path, debug=True)
@@ -219,6 +224,7 @@ blox = Blox(api_client=api_client)
 dashboard = Dashboard(api_client=api_client)
 datamodel = DataModel(api_client=api_client)
 folder = Folder(api_client=api_client)
+git = Git(api_client=api_client)
 plugins = Plugins(api_client=api_client)
 report_manager = ReportManager(api_client=api_client)
 wellcheck = WellCheck(api_client=api_client)

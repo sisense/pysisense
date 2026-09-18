@@ -26,6 +26,10 @@ The documentation is organized by feature/module. Click on any section to learn 
   Create, read, update, and delete Sisense dashboard folders.
   [Folder Examples](../examples/folder_example.md)
 
+- [Git](git.md)  
+  Sisense Git Integration (optional feature): projects, branches, commits, and remote fetch/pull/push.
+  [Git Examples](../examples/git_example.md)
+
 - [Data Model](datamodel.md)  
   Inspect datasets, tables, columns, and schema definitions; list, create, delete, and analyze perspectives.
   [Data Model Examples](../examples/datamodel_example.md)
