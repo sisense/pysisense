@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..utils import _extract_error_message
+from ..utils import _dashboard_write_access, _extract_error_message, _finish_ownership, _with_query, _write_dashboard_copies
 
 # Fields that Sisense manages server-side and must be stripped before a PUT write.
 _SERVER_MANAGED_FIELDS = frozenset({"oid", "_id", "owner", "userId", "created", "lastUpdated", "instanceType", "dashboardid"})
@@ -53,20 +53,21 @@ class DashboardWidgetsMixin:
         self.logger.info(f"Widget {widget_id} retrieved from dashboard {dashboard_id}.")
         return response.json()
 
-    def update_widget(self, dashboard_id: str, widget_id: str, widget_data: dict[str, Any]) -> dict[str, Any]:
+    def update_widget(self, dashboard_id: str, widget_id: str, widget_data: dict[str, Any], act_as_owner: bool = False) -> dict[str, Any]:
         """Write updated widget data back to Sisense.
 
-        Sends ``PUT /api/dashboards/{dashboard_id}/widgets/{widget_id}``.
-        Server-managed fields (``oid``, ``_id``, ``owner``, ``userId``,
-        ``created``, ``lastUpdated``, ``instanceType``, ``dashboardid``) are
-        stripped from ``widget_data`` before the request is sent.
+        Sends ``PUT /api/dashboards/{dashboard_id}/widgets/{widget_id}``. Server-managed
+        fields (``oid``, ``_id``, ``owner``, ``userId``, ``created``, ``lastUpdated``,
+        ``instanceType``, ``dashboardid``) are stripped from ``widget_data`` before the
+        request is sent. With Dashboard Co-Authoring on, a published dashboard's widget
+        lives on its shared copy (what viewers see) and on the owner's private copy; both
+        are written, shared first with ``sharedMode=true``, and the dashboard is
+        republished. Only the owner may write; a non-owner is refused with the owner
+        named, unless ``act_as_owner`` is true and the token belongs to an administrator,
+        in which case ownership is borrowed for the change and returned afterwards.
 
         The caller is responsible for obtaining the current widget via
-        :meth:`get_widget_by_id`, modifying the desired fields, and passing
-        the result here.
-
-        Only the dashboard owner can write widgets. Pair with
-        :meth:`change_dashboard_owner` if the API token user is not the owner.
+        ``get_widget_by_id``, modifying the desired fields, and passing the result here.
 
         Parameters
         ----------
@@ -77,26 +78,55 @@ class DashboardWidgetsMixin:
         widget_data : dict[str, Any]
             The full widget payload with the desired changes applied. Server-managed
             fields are removed automatically before the PUT request.
+        act_as_owner : bool, optional
+            Take ownership temporarily when the token's user is an administrator but not
+            the owner. Default ``False``: refuse instead.
 
         Returns
         -------
         dict[str, Any]
-            The API response body on success, or ``{"error": "..."}`` on failure.
+            The API response body on success (or ``{"success": True}`` when it is empty);
+            ``published`` (and ``publish_error``) when a shared copy was written, and
+            ``ownership_transferred_temporarily`` / ``original_owner`` when ownership was
+            borrowed. On failure the standard ``{"ok": False, "error": "...", ...}`` dict, with
+            ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
         stripped = _SERVER_MANAGED_FIELDS & widget_data.keys()
         clean_payload = {k: v for k, v in widget_data.items() if k not in _SERVER_MANAGED_FIELDS}
         self.logger.debug(f"Updating widget {widget_id} on dashboard {dashboard_id} — stripped server-managed fields: {stripped}")
 
-        endpoint = f"/api/dashboards/{dashboard_id}/widgets/{widget_id}"
-        response = self.api_client.put(endpoint, data=clean_payload)
-
-        if response is None or response.status_code != 200:
-            failure = _extract_error_message(response, f"Failed to update widget '{widget_id}'", self.api_client)
-            self.logger.error(failure["error"])
-            return failure
-
-        self.logger.info(f"Widget {widget_id} on dashboard {dashboard_id} updated successfully.")
-        return response.json() if response.content else {"success": True}
+        access = _dashboard_write_access(self.api_client, self.logger, dashboard_id, act_as_owner, what="modify its widgets")
+        if access.get("ok") is False:
+            return access
+        title, co_authoring, borrowed = access["title"], access["co_authoring"], access["borrowed"]
+        result: dict[str, Any] = {"ok": False, "error": f"Updating widget '{widget_id}' failed unexpectedly."}
+        try:
+            outcome = _write_dashboard_copies(
+                self.api_client,
+                self.logger,
+                dashboard_id,
+                title,
+                co_authoring,
+                lambda query: self.api_client.put(_with_query(f"/api/dashboards/{dashboard_id}/widgets/{widget_id}", query), data=clean_payload),
+                label=f"update widget '{widget_id}'",
+            )
+            if outcome.get("ok") is False:
+                result = outcome
+            else:
+                response = outcome["response"]
+                try:
+                    body = response.json() if response is not None and response.content else {"success": True}
+                except Exception:
+                    body = {"success": True}
+                result = body if isinstance(body, dict) else {"success": True}
+                if outcome.get("published") is not None:
+                    result["published"] = outcome["published"]
+                    if outcome.get("publish_error"):
+                        result["publish_error"] = outcome["publish_error"]
+                self.logger.info(f"Widget {widget_id} on dashboard {dashboard_id} updated successfully.")
+        finally:
+            result = _finish_ownership(self.api_client, self.logger, dashboard_id, title, borrowed, result)
+        return result
 
     def find_widgets_by_type(
         self,

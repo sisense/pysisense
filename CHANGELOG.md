@@ -6,6 +6,55 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`replace_datasource` now reaches viewers under Dashboard Co-Authoring.** With the system
+  setting `dashboardCoAuthoring` on, a published dashboard is a shared copy (what viewers see)
+  plus a private copy per owner, and publishing flows shared → private. The method wrote the
+  private copy and published, so the owner saw the new datasource and nobody else did — and its
+  "already uses" pre-check read that same private copy. It now compares against the shared copy,
+  writes it first with `sharedMode=true`, verifies the shared dashboard and every widget, writes
+  the owner's private copy, publishes, and verifies the shared copy again; a never-published
+  dashboard (single copy) and instances with the feature off behave as before. The silent
+  `adminAccess=true` retry is gone: a non-owner is refused before any write, with `owner` and
+  `co_owners` named, because an administrator who is not the owner cannot read or publish the
+  shared copy on this version. New `act_as_owner=False` parameter: with an administrator token it
+  transfers ownership to the token's user for the duration of the change and restores ownership
+  and the exact share list afterwards, even when the change or the publish fails. Result gains
+  `previous_datasource_title` (the revert value), `co_authoring`, `shared_copy_updated`,
+  `private_copy_updated`, `ownership_transferred_temporarily` and, when borrowed,
+  `original_owner` / `ownership_restore_error`; `published` now means the shared copy was read
+  back with the change.
+- **Every other dashboard write follows the same rules.** `rename_dashboard`,
+  `move_dashboard_to_folder`, `add_dashboard_script`, `add_widget_script`, `update_widget` and
+  `Blox.update_blox_widget_style` settle ownership first (non-owners are refused with `owner` and
+  `co_owners`; `act_as_owner=True` borrows and returns ownership), write the shared copy first
+  with `sharedMode=true` and then the private copy where the property is per copy (title, script,
+  widgets — the folder is one shared property and is written once), and republish when a shared
+  copy was written. `rename_dashboard` and `move_dashboard_to_folder` fall back from `PATCH` to
+  `PUT /api/dashboards/{id}` on versions without the PATCH route (this one returns 404, so both
+  methods were broken there). `add_widget_script` no longer republishes with `force=true` under
+  co-authoring: a forced publish empties the owner's private copy's widgets (live-observed); the
+  flag is still sent when the feature is off. `executing_user` / `executing_user_id` remain as
+  the older form of `act_as_owner` and are deprecated in its favour.
+- **Each copy is replaced from the datasource it currently shows.** After a change made under
+  borrowed ownership the owner's private copy can lag behind the shared copy; `replace_datasource`
+  now names each copy's own current datasource in the swap request (a swap named after the wrong
+  old datasource is silently a no-op) and skips a copy that already shows the target.
+  `delete_dashboard` accepts the title of either copy.
+- **The read side sees what viewers see.** `analyze_perspective_requirements`,
+  `validate_dashboard_queries` and `compare_dashboard_values` read the export, which under
+  co-authoring is the owner's private copy. They now read the published shared copy on its own — as
+  administrator via `GET /api/dashboards/{id}?adminAccess=true`, which returns the shared copy with
+  its widgets, or as owner via `sharedMode=true`. Filters, hierarchies and widgets are all per copy
+  (a hierarchy added on one copy never appears on the other), so nothing is taken from the export
+  for a co-authored dashboard. A shared copy neither route can read is reported, not replaced by
+  the private copy: the analysis lists that dashboard under `dashboards.failed` with a
+  `shared_copy_unreadable` error, and the dashboard methods return the standard error dict.
+  `get_unused_columns_bulk` and `get_dashboard_columns` read the same way. `validate_dashboard_queries` and
+  `compare_dashboard_values` report `dashboard_copy` (`"shared"` / `"private"`); the analysis
+  reports `copy` per analysed dashboard.
+
 ### Added
 
 - **`Dashboard.compare_dashboard_values(dashboard, datasource_a, datasource_b)`** — run every
@@ -55,6 +104,22 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### For downstream tool generators
 
+- `replace_datasource`: additive param `act_as_owner: bool`; additive result keys
+  `previous_datasource_title`, `co_authoring`, `shared_copy_updated`, `private_copy_updated`,
+  `ownership_transferred_temporarily`, `original_owner`, `ownership_restore_error`; failure dicts
+  may carry `owner`, `co_owners`, `shared_copy_updated`, `private_copy_updated`.
+- `rename_dashboard`, `move_dashboard_to_folder`, `add_dashboard_script`, `add_widget_script`,
+  `update_widget`, `Blox.update_blox_widget_style`: additive param `act_as_owner: bool`; success
+  results may gain `published`, `publish_error`, `ownership_transferred_temporarily`,
+  `original_owner`, `ownership_restore_error`; the script methods gain `copies_updated`; failure
+  dicts may carry `owner`, `co_owners`, `copies_updated`. `executing_user` / `executing_user_id`
+  are deprecated in favour of `act_as_owner` (still accepted).
+- `validate_dashboard_queries`, `compare_dashboard_values`: additive result key `dashboard_copy`.
+  `get_unused_columns_bulk`: a model whose dashboards' shared copies cannot be read now fails under
+  `"errors"` instead of being analysed from the private copy; `get_dashboard_columns` returns the
+  standard error dict in that case.
+  `analyze_perspective_requirements`: additive `dashboards.analyzed[].copy`; new error kind
+  `shared_copy_unreadable`.
 - New method `Dashboard.compare_dashboard_values(dashboard: str, datasource_a: str, datasource_b: str)`.
 - `analyze_perspective_requirements`: additive result keys `perspective_tables_all_paths` (list,
   always present) and `join_path_choices` (list, always present); additive `summary` keys

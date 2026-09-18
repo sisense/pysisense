@@ -8,15 +8,28 @@ from urllib.parse import quote
 
 from ..queries import Queries
 from ..utils import (
+    _borrow_ownership,
     _build_schema_index,
+    _co_authoring_enabled,
+    _co_owner_names,
     _column_name_variants,
+    _current_user,
+    _dashboard_for_reading,
+    _dashboard_write_access,
     _datasource_title,
     _discover_dashboards_on_datasource,
     _extract_error_message,
+    _finish_ownership,
+    _is_admin_user,
     _iter_dim_nodes,
     _jaql_panel,
     _reference_from_jaql,
+    _return_ownership,
+    _shared_dashboard_copy,
+    _shared_dashboard_widgets,
     _widget_query_metadata,
+    _with_query,
+    _write_dashboard_copies,
 )
 
 
@@ -427,51 +440,61 @@ class DashboardCoreMixin:
         self.logger.error(failure["error"])
         return failure
 
-    def _patch_dashboard_field(self, dashboard_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Send a partial dashboard update and normalize the response.
+    def _write_dashboard_fields(self, dashboard_id: str, payload: dict[str, Any], act_as_owner: bool, *, per_copy: bool, label: str, what: str) -> dict[str, Any]:
+        """Update dashboard fields on every copy that holds them, settling ownership first.
 
-        Shared by ``rename_dashboard`` and ``move_dashboard_to_folder``,
-        which differ only in the field(s) being patched.
-
-        Parameters
-        ----------
-        dashboard_id : str
-            The ``oid`` of the dashboard to update.
-        payload : dict[str, Any]
-            The fields to patch, e.g. ``{"title": "..."}``.
-
-        Returns
-        -------
-        dict[str, Any]
-            The updated dashboard object on success, or ``{"success": True}``
-            when the API responds 200 with an empty body. ``{"error": "..."}``
-            on failure.
+        Shared by ``rename_dashboard`` and ``move_dashboard_to_folder``. Sends
+        ``PATCH /api/dashboards/{id}`` and, where this version has no PATCH route for
+        it (404/405), ``PUT /api/dashboards/{id}`` with the same body; the shared copy
+        is written with ``sharedMode=true`` when ``per_copy`` is true.
         """
-        endpoint = f"/api/dashboards/{dashboard_id}"
-        self.logger.debug(f"Patching dashboard {dashboard_id} — fields: {list(payload.keys())}")
-        response = self.api_client.patch(endpoint, data=payload)
+        access = _dashboard_write_access(self.api_client, self.logger, dashboard_id, act_as_owner, what=what)
+        if access.get("ok") is False:
+            return access
+        title, co_authoring, borrowed = access["title"], access["co_authoring"], access["borrowed"]
 
-        if response is None:
-            self.logger.error(f"PATCH request to update dashboard {dashboard_id} failed: No response received.")
-            return {"ok": False, "error": f"No response received while updating dashboard ID '{dashboard_id}'"}
+        def write(query: str):
+            url = _with_query(f"/api/dashboards/{dashboard_id}", query)
+            if not query:
+                response = self.api_client.patch(url, data=payload)
+                if response is not None and response.status_code not in (404, 405):
+                    return response
+                self.logger.debug(f"PATCH {url} is not available on this version (status={getattr(response, 'status_code', None)}); using PUT")
+            return self.api_client.put(url, data=payload)
 
-        if response.status_code != 200:
-            try:
-                error_message = response.json()
-            except Exception:
-                error_message = response.text or "No response text available."
-            self.logger.error(f"Failed to update dashboard {dashboard_id}. Error: {error_message}")
-            return {"ok": False, "error": f"Failed to update dashboard '{dashboard_id}'. {error_message}"}
+        self.logger.debug(f"Updating dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        result: dict[str, Any] = {"ok": False, "error": f"Updating dashboard '{title}' failed unexpectedly."}
+        try:
+            outcome = _write_dashboard_copies(self.api_client, self.logger, dashboard_id, title, co_authoring if per_copy else False, write, label=label, publish="if_shared" if per_copy else "never")
+            if outcome.get("ok") is False:
+                result = outcome
+            else:
+                response = outcome["response"]
+                try:
+                    body = response.json() if response is not None and response.content else {"success": True}
+                except Exception:
+                    body = {"success": True}
+                result = body if isinstance(body, dict) else {"success": True}
+                if outcome.get("published") is not None:
+                    result["published"] = outcome["published"]
+                    if outcome.get("publish_error"):
+                        result["publish_error"] = outcome["publish_error"]
+                self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
+        finally:
+            result = _finish_ownership(self.api_client, self.logger, dashboard_id, title, borrowed, result)
+        return result
 
-        updated = response.json() if response.content else {"success": True}
-        self.logger.info(f"Successfully updated dashboard {dashboard_id} — fields: {list(payload.keys())}")
-        return updated
-
-    def rename_dashboard(self, dashboard_id: str, title: str) -> dict[str, Any]:
+    def rename_dashboard(self, dashboard_id: str, title: str, act_as_owner: bool = False) -> dict[str, Any]:
         """Rename a dashboard.
 
-        Sends ``PATCH /api/dashboards/{dashboard_id}`` with only ``title`` in
-        the request body. Other dashboard fields are not modified.
+        Sends ``PATCH /api/dashboards/{dashboard_id}`` — or ``PUT`` on versions without the
+        PATCH route — with only ``title`` in the body. Other dashboard fields are not
+        modified. With Dashboard Co-Authoring on, a published dashboard's title lives on its
+        shared copy (what viewers see) and on the owner's private copy; both are written,
+        shared first with ``sharedMode=true``, and the dashboard is republished. Only the
+        owner may write; a non-owner is refused with the owner named, unless
+        ``act_as_owner`` is true and the token belongs to an administrator, in which case
+        ownership is borrowed for the change and returned afterwards.
 
         Parameters
         ----------
@@ -479,21 +502,31 @@ class DashboardCoreMixin:
             The ``oid`` of the dashboard to rename.
         title : str
             The new dashboard title.
+        act_as_owner : bool, optional
+            Take ownership temporarily when the token's user is an administrator but not
+            the owner. Default ``False``: refuse instead.
 
         Returns
         -------
         dict[str, Any]
-            The updated dashboard object on success, or ``{"success": True}``
-            when the API responds 200 with an empty body. ``{"error": "..."}``
-            on failure.
+            The updated dashboard object on success, or ``{"success": True}`` when the API
+            responds with an empty body; ``published`` (and ``publish_error``) when a shared
+            copy was written, and ``ownership_transferred_temporarily`` / ``original_owner``
+            when ownership was borrowed. On failure the standard ``{"ok": False, "error": "...",
+            ...}`` dict, with ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
-        return self._patch_dashboard_field(dashboard_id, {"title": title})
+        return self._write_dashboard_fields(dashboard_id, {"title": title}, act_as_owner, per_copy=True, label="rename", what="rename it")
 
-    def move_dashboard_to_folder(self, dashboard_id: str, folder_id: str) -> dict[str, Any]:
+    def move_dashboard_to_folder(self, dashboard_id: str, folder_id: str, act_as_owner: bool = False) -> dict[str, Any]:
         """Move a dashboard into a folder.
 
-        Sends ``PATCH /api/dashboards/{dashboard_id}`` with only ``parentFolder``
-        in the request body. Other dashboard fields are not modified.
+        Sends ``PATCH /api/dashboards/{dashboard_id}`` — or ``PUT`` on versions without the
+        PATCH route — with only ``parentFolder`` in the body. Other dashboard fields are
+        not modified. The folder is one property of the dashboard, shared by its copies
+        under Dashboard Co-Authoring, so a single write moves it for everyone. Only the
+        owner may write; a non-owner is refused with the owner named, unless
+        ``act_as_owner`` is true and the token belongs to an administrator, in which case
+        ownership is borrowed for the change and returned afterwards.
 
         Parameters
         ----------
@@ -501,15 +534,19 @@ class DashboardCoreMixin:
             The dashboard ``oid`` to move.
         folder_id : str
             The target folder ``oid`` (``parentFolder`` value).
+        act_as_owner : bool, optional
+            Take ownership temporarily when the token's user is an administrator but not
+            the owner. Default ``False``: refuse instead.
 
         Returns
         -------
         dict[str, Any]
-            The updated dashboard object from the API, or ``{"success": True}``
-            when the API responds 200 with an empty body. ``{"error": "..."}``
-            on failure.
+            The updated dashboard object on success, or ``{"success": True}`` when the API
+            responds with an empty body; ``ownership_transferred_temporarily`` / ``original_owner``
+            when ownership was borrowed. On failure the standard ``{"ok": False, "error": "...",
+            ...}`` dict, with ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
-        return self._patch_dashboard_field(dashboard_id, {"parentFolder": folder_id})
+        return self._write_dashboard_fields(dashboard_id, {"parentFolder": folder_id}, act_as_owner, per_copy=False, label="move", what="move it")
 
     def can_be_owned(self, dashboard_id: str) -> dict[str, Any]:
         """Check whether a dashboard can be owned by the current user.
@@ -754,7 +791,8 @@ class DashboardCoreMixin:
         dashboard_id : str
             The dashboard's 24-character ``oid``.
         title : str
-            The dashboard's exact current title.
+            The dashboard's exact current title — under Dashboard Co-Authoring, that of either
+            its private copy or its shared copy.
 
         Returns
         -------
@@ -773,7 +811,14 @@ class DashboardCoreMixin:
             return self._fail(f"Dashboard '{dashboard_id}' not found.", status_code=404)
         stored = doc.get("title") if isinstance(doc.get("title"), str) else ""
         if stored.strip() != title.strip():
-            return self._fail(f"Refusing to delete dashboard '{dashboard_id}': its title is '{stored}', not '{title}'.")
+            # Under Dashboard Co-Authoring the shared copy (what viewers see) may carry a different title than the
+            # owner's private copy; either is accepted.
+            _status, shared = _shared_dashboard_copy(self.api_client, dashboard_id)
+            shared_title = shared.get("title") if isinstance(shared, dict) and isinstance(shared.get("title"), str) else None
+            if shared_title is None or shared_title.strip() != title.strip():
+                known = f"'{stored}'" + (f" (shared copy: '{shared_title}')" if shared_title and shared_title != stored else "")
+                return self._fail(f"Refusing to delete dashboard '{dashboard_id}': its title is {known}, not '{title}'.")
+            stored = shared_title
 
         self.logger.debug(f"Deleting dashboard '{stored}' ({dashboard_id})")
         response = self.api_client.delete(f"/api/v1/dashboards/{dashboard_id}")
@@ -909,6 +954,11 @@ class DashboardCoreMixin:
         exported = self.export_dashboard(dashboard_id)
         if not isinstance(exported, dict) or exported.get("ok") is False or ("error" in exported and "title" not in exported):
             return exported if isinstance(exported, dict) else {"ok": False, "error": f"Unexpected export result for dashboard '{dashboard_id}'."}
+        exported, copy_read, shared_status = _dashboard_for_reading(self.api_client, self.logger, exported, _co_authoring_enabled(self.api_client, dashboard_id))
+        if exported is None:
+            return self._fail(
+                f"The shared copy of dashboard '{dashboard_id}' — what viewers see — could not be read (HTTP {shared_status}); an owner or administrator token is required.", status_code=shared_status
+            )
         title = exported.get("title")
         own_ds = exported.get("datasource") if isinstance(exported.get("datasource"), dict) else {}
         target: dict[str, Any] | None = None
@@ -969,7 +1019,15 @@ class DashboardCoreMixin:
         counts = {status: sum(1 for r in results if r["status"] == status) for status in ("ok", "failed", "unreachable", "skipped")}
         all_passed = counts["failed"] == 0 and counts["unreachable"] == 0
         self.logger.info(f"Validated dashboard '{title}' ({dashboard_id}) against '{(target or own_ds).get('title')}': {counts}")
-        return {"dashboard_id": dashboard_id, "title": title, "datasource": (target or own_ds).get("title"), "all_passed": all_passed, "counts": counts, "widgets": results}
+        return {
+            "dashboard_id": dashboard_id,
+            "title": title,
+            "datasource": (target or own_ds).get("title"),
+            "dashboard_copy": copy_read,
+            "all_passed": all_passed,
+            "counts": counts,
+            "widgets": results,
+        }
 
     _COMPARE_ROW_LIMIT = 1000
 
@@ -1020,6 +1078,11 @@ class DashboardCoreMixin:
         exported = self.export_dashboard(dashboard_id)
         if not isinstance(exported, dict) or exported.get("ok") is False or ("error" in exported and "title" not in exported):
             return exported if isinstance(exported, dict) else {"ok": False, "error": f"Unexpected export result for dashboard '{dashboard_id}'."}
+        exported, copy_read, shared_status = _dashboard_for_reading(self.api_client, self.logger, exported, _co_authoring_enabled(self.api_client, dashboard_id))
+        if exported is None:
+            return self._fail(
+                f"The shared copy of dashboard '{dashboard_id}' — what viewers see — could not be read (HTTP {shared_status}); an owner or administrator token is required.", status_code=shared_status
+            )
         title = exported.get("title")
         own_ds = exported.get("datasource") if isinstance(exported.get("datasource"), dict) else {}
         own_title = _datasource_title(own_ds)
@@ -1105,6 +1168,7 @@ class DashboardCoreMixin:
         return {
             "dashboard_id": dashboard_id,
             "title": title,
+            "dashboard_copy": copy_read,
             "datasource_a": sides[0][1].get("title"),
             "datasource_b": sides[1][1].get("title"),
             "all_match": all_match,
@@ -1161,22 +1225,38 @@ class DashboardCoreMixin:
             doc = doc[0] if doc and isinstance(doc[0], dict) else None
         return doc if isinstance(doc, dict) and "error" not in doc else None
 
-    def replace_datasource(self, dashboard: str, datasource: str, from_datasource: str | None = None, publish: bool = True) -> dict[str, Any]:
+    def replace_datasource(self, dashboard: str, datasource: str, from_datasource: str | None = None, publish: bool = True, act_as_owner: bool = False) -> dict[str, Any]:
         """Change the datasource a dashboard queries — for example from a data model to a perspective built over it.
 
         Sends ``POST /api/v1/dashboards/{server}/{old title}/replace_datasource?dashboardId=...``
-        with the new datasource object. Sisense then rewrites the dashboard and
-        every widget and filter that used the old datasource; widgets on other
-        datasources are left alone. The old datasource defaults to the dashboard's
-        own; pass ``from_datasource`` to change a datasource that only some widgets
-        use. Sisense accepts the call from a non-owner but silently changes nothing,
-        so the call is sent as the owner first and the dashboard read back; if it
-        did not change, the call is repeated with admin access (which lets an admin
-        token change dashboards it does not own) and read back again. If it still
-        did not change, the failure dict carries the dashboard's ``owner``. Once the
-        change has applied the dashboard is republished (``POST /api/v1/dashboards/{id}/publish``)
-        so viewers see it; a failed publish is reported, not treated as a failed change — on
-        Sisense versions where only the owner may publish, the result carries ``owner`` instead.
+        with the new datasource object; Sisense rewrites the dashboard and every widget
+        and filter that used the old datasource, leaving widgets on other datasources
+        alone. The old datasource defaults to the dashboard's own; pass ``from_datasource``
+        to change one that only some widgets use.
+
+        With Dashboard Co-Authoring enabled (system setting ``dashboardCoAuthoring``), a
+        published dashboard exists as a shared copy — what viewers see, read with
+        ``sharedMode=true`` — and a private copy per owner, and publishing flows from the
+        shared copy to the private ones. The method therefore compares against and writes
+        the shared copy first (``sharedMode=true``), verifies that the shared dashboard and
+        every widget carry the new datasource, then writes the owner's private copy so the
+        owner's own view matches, publishes, and verifies the shared copy again. A dashboard
+        that was never published has a single copy and is written once. With the feature
+        off, the single copy is written and published as before.
+
+        Only the dashboard's owner can read or write the shared copy and publish. When the
+        token's user is not the owner the method refuses before writing anything and names
+        the owner and co-owners — unless ``act_as_owner`` is true and the token belongs to an
+        administrator, in which case ownership is transferred to the token's user for the
+        duration of the change (``POST /api/v1/dashboards/{id}/change_owner``), the change is
+        made as owner, and ownership and the exact share list are restored afterwards, even
+        when the change or the publish fails. The private copy written in that case is the
+        token user's; the original owner's private copy keeps the old datasource until they
+        open or restore the dashboard, while the shared copy viewers see carries the change.
+        A temporary co-owner share was tried first and is not available to a non-owner: the
+        share endpoint refuses it without ``adminAccess=true``, and with it a share of rule
+        ``"owner"`` makes that user the owner outright and drops the previous owner, which is
+        why the transfer-and-restore route is used instead.
 
         Parameters
         ----------
@@ -1188,19 +1268,28 @@ class DashboardCoreMixin:
             Title of the datasource being replaced. Default: the dashboard's own datasource.
         publish : bool, optional
             Republish the dashboard after the change so shared viewers see it. Default ``True``.
+        act_as_owner : bool, optional
+            When the token's user is an administrator but not the owner, take ownership
+            temporarily to make the change, then hand it back. Default ``False``: refuse instead.
 
         Returns
         -------
         dict[str, Any]
-            ``{"success": True, "dashboard_id", "title", "previous_datasource", "new_datasource",
-            "widgets_updated", "widgets_unchanged", "published"}`` — returned only once the read-back
-            shows the new datasource; ``published`` is ``False`` (with ``publish_error``, and ``owner``
-            when only the owner may publish) when the republish failed or was not requested. ``previous_datasource`` is the full old object, so the change can be
-            reverted with another ``replace_datasource`` call; ``widgets_unchanged`` lists the
-            datasource titles of widgets that were on something else. On failure (unknown
-            dashboard or datasource, a change that did not apply as owner or admin, or an API
-            error), the standard ``{"ok": False, "error": "...", ...}`` dict; when the change did
-            not apply, ``owner`` (email, or id) says who owns the dashboard.
+            ``{"success": True, "dashboard_id", "title", "previous_datasource",
+            "previous_datasource_title", "new_datasource", "widgets_updated", "widgets_unchanged",
+            "published", "co_authoring", "shared_copy_updated", "private_copy_updated",
+            "ownership_transferred_temporarily"}`` — returned only once the read-back shows the new
+            datasource on every copy written. ``previous_datasource`` is the full old object and
+            ``previous_datasource_title`` its title, so the change can be reverted with another call.
+            ``shared_copy_updated`` is ``None`` when the dashboard has no shared copy (co-authoring
+            off, or never published). ``published`` is true only when the publish succeeded and, where
+            a shared copy exists, it was read back with the new datasource; otherwise ``False`` with
+            ``publish_error``. When ownership was borrowed, ``original_owner`` (email, or id) is set
+            and ``ownership_restore_error`` reports a failed hand-back. On failure — unknown
+            dashboard or datasource, a token that is not the owner (``owner`` and ``co_owners`` name
+            who is), a write that did not apply to a copy, or an API error — the standard
+            ``{"ok": False, "error": "...", ...}`` dict, carrying ``shared_copy_updated`` and
+            ``private_copy_updated`` when any write was attempted.
         """
         ref = self.resolve_dashboard_reference(dashboard)
         if not ref.get("success"):
@@ -1210,11 +1299,80 @@ class DashboardCoreMixin:
         if doc is None:
             return self._fail(f"Dashboard '{dashboard}' ({dashboard_id}) could not be read.")
         title = doc.get("title")
+        target = self._datasource_object(datasource)
+        if target is None:
+            return self._fail(f"Datasource '{datasource}' not found: it is neither a data model nor a perspective on this instance.")
+        co_authoring = self._co_authoring_enabled(dashboard_id)
 
-        # The datasource being replaced: the dashboard's own, or a named one a widget uses.
-        old = doc.get("datasource") if isinstance(doc.get("datasource"), dict) else {}
+        # Only the owner can write the shared copy and publish: settle ownership before touching anything.
+        me = self._current_user()
+        my_id = me.get("_id") if isinstance(me, dict) else None
+        owner_id = doc.get("owner") if isinstance(doc.get("owner"), str) else None
+        borrowed: dict[str, Any] | None = None
+        if my_id and owner_id and my_id != owner_id:
+            owner_label = self._owner_email(owner_id) or owner_id
+            co_owners = self._co_owner_names(doc)
+            if not act_as_owner:
+                return self._fail_with(
+                    f"Dashboard '{title}' is owned by {owner_label}; only the owner can change its datasource. Pass act_as_owner=True with an administrator token to take ownership temporarily.",
+                    owner=owner_label,
+                    co_owners=co_owners,
+                )
+            if not self._is_admin_user(me):
+                return self._fail_with(f"Dashboard '{title}' is owned by {owner_label}; act_as_owner requires an administrator token.", owner=owner_label, co_owners=co_owners)
+            borrowed = self._borrow_ownership(dashboard_id, title, doc, my_id)
+            if borrowed.get("ok") is False:
+                return borrowed
+            doc = self._dashboard_document(dashboard_id) or doc
+
+        restored: dict[str, Any] | None = None
+        try:
+            result = self._replace_datasource_as_owner(dashboard_id, title, doc, datasource, target, from_datasource, publish, co_authoring)
+        finally:
+            if borrowed is not None:
+                restored = self._return_ownership(dashboard_id, title, borrowed)
+        if borrowed is not None:
+            result["ownership_transferred_temporarily"] = True
+            result["original_owner"] = borrowed.get("owner_email") or borrowed.get("owner_id")
+            if restored is not None and restored.get("ok") is False:
+                result["ownership_restore_error"] = restored.get("error")
+        elif result.get("success"):
+            result["ownership_transferred_temporarily"] = False
+        return result
+
+    def _replace_datasource_as_owner(
+        self,
+        dashboard_id: str,
+        title: Any,
+        doc: dict[str, Any],
+        datasource: str,
+        target: dict[str, Any],
+        from_datasource: str | None,
+        publish: bool,
+        co_authoring: bool,
+    ) -> dict[str, Any]:
+        """The datasource change proper, run with owner rights; see ``replace_datasource``."""
+        updated: dict[str, bool | None] = {"shared": None, "private": None}
+
+        def fail(message: str, **extra: Any) -> dict[str, Any]:
+            failure = self._fail(message)
+            failure.update({"co_authoring": co_authoring, "shared_copy_updated": updated["shared"], "private_copy_updated": updated["private"]})
+            failure.update({k: v for k, v in extra.items() if v is not None})
+            return failure
+
+        # Under co-authoring the shared copy is what viewers see: compare against it, not the private copy.
+        shared_doc: dict[str, Any] | None = None
+        if co_authoring:
+            status, shared_doc = self._shared_copy(dashboard_id)
+            if shared_doc is None:
+                owner_label = self._owner_email(doc.get("owner")) or doc.get("owner")
+                return fail(f"The shared copy of dashboard '{title}' could not be read (HTTP {status}); only its owner ({owner_label}) can change it.", owner=owner_label)
+        has_shared_copy = bool(shared_doc and shared_doc.get("lastPublish"))
+        source = shared_doc if has_shared_copy else doc
+
+        old = source.get("datasource") if isinstance(source.get("datasource"), dict) else {}
         if from_datasource is not None and _datasource_title(from_datasource) != _datasource_title(old):
-            widgets = self.get_dashboard_widgets(dashboard_id)
+            widgets = self._shared_widgets(dashboard_id) if has_shared_copy else self.get_dashboard_widgets(dashboard_id)
             old = (
                 next(
                     (
@@ -1227,85 +1385,142 @@ class DashboardCoreMixin:
                 or {}
             )
             if not old:
-                return self._fail(f"Dashboard '{title}' has no widget on datasource '{from_datasource}'.")
+                return fail(f"Dashboard '{title}' has no widget on datasource '{from_datasource}'.")
         old_title = old.get("title") if isinstance(old.get("title"), str) else from_datasource
         if not old_title:
-            return self._fail(f"Dashboard '{title}' has no datasource to replace.")
+            return fail(f"Dashboard '{title}' has no datasource to replace.")
         if _datasource_title(old_title) == _datasource_title(datasource):
-            return self._fail(f"Dashboard '{title}' already uses datasource '{datasource}'.")
+            return fail(f"Dashboard '{title}' already uses datasource '{datasource}'.")
 
-        target = self._datasource_object(datasource)
-        if target is None:
-            return self._fail(f"Datasource '{datasource}' not found: it is neither a data model nor a perspective on this instance.")
-        server = "live" if old.get("live") else (old.get("address") or "LocalHost")
-        endpoint = f"/api/v1/dashboards/{quote(str(server), safe='')}/{quote(old_title, safe='')}/replace_datasource"
-        self.logger.debug(f"Replacing datasource '{old_title}' with '{datasource}' on dashboard '{title}' ({dashboard_id}) via {endpoint}")
+        copies = [("shared", "&sharedMode=true"), ("private", "")] if has_shared_copy else [("private", "")]
+        self.logger.debug(f"Replacing datasource '{old_title}' with '{datasource}' on dashboard '{title}' ({dashboard_id}); copies={[c for c, _ in copies]} co_authoring={co_authoring}")
 
-        # Sisense answers 200 to a non-owner and silently changes nothing (live-observed); only
-        # adminAccess=true makes an admin's call apply. So: send as owner, read back, and if the
-        # dashboard did not change, send again with admin access and read back once more.
-        applied = False
+        def current_of(copy: str) -> dict[str, Any]:
+            # Each copy is replaced from the datasource IT currently shows: after a change made under borrowed
+            # ownership the owner's private copy can lag behind the shared copy, and a dashboard-level swap
+            # named after the wrong old datasource is silently a no-op.
+            if from_datasource is not None:
+                return old
+            source_doc = shared_doc if copy == "shared" and shared_doc else doc
+            current = source_doc.get("datasource") if isinstance(source_doc.get("datasource"), dict) else {}
+            return current or old
+
         widgets: list[dict[str, Any]] = []
-        for attempt, suffix in (("owner", ""), ("admin", "&adminAccess=true")):
-            response = self.api_client.post(f"{endpoint}?dashboardId={dashboard_id}{suffix}", data=target)
+        for copy, suffix in copies:
+            current = current_of(copy)
+            current_title = current.get("title") if isinstance(current.get("title"), str) else old_title
+            if _datasource_title(current_title) == _datasource_title(datasource):
+                # This copy already shows the new datasource (e.g. written earlier under borrowed ownership): nothing to send.
+                applied, widgets = self._wait_for_datasource(dashboard_id, datasource, old_title, from_datasource is not None, shared=(copy == "shared"))
+                updated[copy] = applied
+                if not applied:
+                    return fail(f"The {copy} copy of dashboard '{title}' shows datasource '{datasource}' but some widgets are still on '{old_title}'.")
+                continue
+            server = "live" if current.get("live") else (current.get("address") or "LocalHost")
+            endpoint = f"/api/v1/dashboards/{quote(str(server), safe='')}/{quote(current_title, safe='')}/replace_datasource?dashboardId={dashboard_id}"
+            response = self.api_client.post(endpoint + suffix, data=target)
             if response is None or response.status_code not in (200, 201, 204):
-                failure = _extract_error_message(response, f"Failed to replace datasource on dashboard '{title}'", self.api_client)
+                failure = _extract_error_message(response, f"Failed to replace datasource on the {copy} copy of dashboard '{title}'", self.api_client)
+                failure.update({"co_authoring": co_authoring, "shared_copy_updated": updated["shared"], "private_copy_updated": updated["private"]})
                 if response is not None and response.status_code == 403:
                     failure["owner"] = self._owner_email(doc.get("owner")) or doc.get("owner")
                 self.logger.error(failure["error"])
                 return failure
-            applied, widgets = self._wait_for_datasource(dashboard_id, datasource, from_datasource is not None)
-            if applied:
-                break
-            self.logger.debug(f"Datasource replacement sent as {attempt} was accepted but did not apply.")
-        if not applied:
-            owner = self._owner_email(doc.get("owner")) or doc.get("owner")
-            failure = {
-                "ok": False,
-                "error": f"Sisense accepted the request but dashboard '{title}' still shows datasource '{old_title}'; the token's user is not its owner and admin access did not apply either.",
-                "owner": owner,
-            }
-            self.logger.error(failure["error"])
-            return failure
+            applied, widgets = self._wait_for_datasource(dashboard_id, datasource, current_title, from_datasource is not None, shared=(copy == "shared"))
+            updated[copy] = applied
+            if not applied:
+                return fail(
+                    f"Sisense accepted the request but the {copy} copy of dashboard '{title}' still shows datasource '{current_title}'.", owner=self._owner_email(doc.get("owner")) or doc.get("owner")
+                )
 
         widgets_updated = sum(1 for w in widgets if _datasource_title(w.get("datasource")) == _datasource_title(datasource))
         unchanged = sorted(
             {(w.get("datasource") or {}).get("title") for w in widgets if isinstance(w.get("datasource"), dict) and _datasource_title(w.get("datasource")) != _datasource_title(datasource)}
         )
-        self.logger.info(f"Dashboard '{title}' ({dashboard_id}) now uses '{datasource}' instead of '{old_title}' ({widgets_updated} widgets)")
+        self.logger.info(f"Dashboard '{title}' ({dashboard_id}) now uses '{datasource}' instead of '{old_title}' ({widgets_updated} widgets; copies={[c for c, _ in copies]})")
         result: dict[str, Any] = {
             "success": True,
             "dashboard_id": dashboard_id,
             "title": title,
             "previous_datasource": old,
+            "previous_datasource_title": old_title,
             "new_datasource": target,
             "widgets_updated": widgets_updated,
             "widgets_unchanged": [u for u in unchanged if u],
             "published": False,
+            "co_authoring": co_authoring,
+            "shared_copy_updated": updated["shared"],
+            "private_copy_updated": updated["private"],
         }
         if publish:
             published = self.publish_dashboard(dashboard_id, admin_access=True)
             if isinstance(published, dict) and published.get("ok") is False:
                 result["publish_error"] = published.get("error")
                 if published.get("status_code") == 403:
-                    # Only the owner can publish on this version: report who that is.
                     result["owner"] = self._owner_email(doc.get("owner")) or doc.get("owner")
                 self.logger.warning(f"Dashboard '{title}' was switched to '{datasource}' but could not be republished: {published.get('error')}")
+            elif has_shared_copy:
+                still_applied, _ = self._wait_for_datasource(dashboard_id, datasource, old_title, from_datasource is not None, shared=True)
+                if not still_applied:
+                    updated["shared"] = False
+                    return fail(f"Dashboard '{title}' was published, but its shared copy no longer shows datasource '{datasource}'.")
+                result["published"] = True
             else:
                 result["published"] = True
         return result
 
-    def _wait_for_datasource(self, dashboard_id: str, datasource: str, widget_level: bool) -> tuple[bool, list[dict[str, Any]]]:
-        """Poll the dashboard until it (or, for a widget-level change, a widget) shows ``datasource``."""
+    # ------------------------------------------------------------------ co-authoring and ownership helpers (see utils)
+
+    def _fail_with(self, message: str, **extra: Any) -> dict[str, Any]:
+        failure = self._fail(message)
+        failure.update({k: v for k, v in extra.items() if v is not None})
+        return failure
+
+    def _co_authoring_enabled(self, dashboard_id: str | None = None) -> bool:
+        return _co_authoring_enabled(self.api_client, dashboard_id)
+
+    def _shared_copy(self, dashboard_id: str) -> tuple[int | None, dict[str, Any] | None]:
+        return _shared_dashboard_copy(self.api_client, dashboard_id)
+
+    def _shared_widgets(self, dashboard_id: str) -> list[dict[str, Any]]:
+        return _shared_dashboard_widgets(self.api_client, dashboard_id)
+
+    def _current_user(self) -> dict[str, Any] | None:
+        return _current_user(self.api_client)
+
+    def _is_admin_user(self, user: dict[str, Any] | None) -> bool:
+        return _is_admin_user(self.api_client, user)
+
+    def _co_owner_names(self, doc: dict[str, Any]) -> list[str]:
+        return _co_owner_names(self.api_client, doc)
+
+    def _borrow_ownership(self, dashboard_id: str, title: Any, doc: dict[str, Any], my_id: str) -> dict[str, Any]:
+        return _borrow_ownership(self.api_client, self.logger, dashboard_id, title, doc, my_id)
+
+    def _return_ownership(self, dashboard_id: str, title: Any, borrowed: dict[str, Any]) -> dict[str, Any]:
+        return _return_ownership(self.api_client, self.logger, dashboard_id, title, borrowed)
+
+    def _wait_for_datasource(self, dashboard_id: str, datasource: str, old_title: str, widget_level: bool, shared: bool = False) -> tuple[bool, list[dict[str, Any]]]:
+        """Poll one copy of the dashboard until it shows ``datasource`` and no widget is left on ``old_title``.
+
+        For a dashboard-level change the dashboard's own datasource must have changed; for a
+        widget-level change (``widget_level``) some widget must. Either way every widget that
+        used ``old_title`` must have moved. ``shared`` reads the shared copy (``sharedMode=true``).
+        """
         widgets: list[dict[str, Any]] = []
         for _ in range(self._SWAP_POLL_ATTEMPTS):
             time.sleep(self._SWAP_POLL_DELAY)
-            after = self._dashboard_document(dashboard_id)
-            fetched = self.get_dashboard_widgets(dashboard_id)
-            widgets = [w for w in (fetched if isinstance(fetched, list) else []) if isinstance(w, dict)]
+            if shared:
+                _status, after = self._shared_copy(dashboard_id)
+                widgets = self._shared_widgets(dashboard_id)
+            else:
+                after = self._dashboard_document(dashboard_id)
+                fetched = self.get_dashboard_widgets(dashboard_id)
+                widgets = [w for w in (fetched if isinstance(fetched, list) else []) if isinstance(w, dict)]
             on_widget = any(_datasource_title(w.get("datasource")) == _datasource_title(datasource) for w in widgets)
             on_dashboard = after is not None and _datasource_title(after.get("datasource")) == _datasource_title(datasource)
-            if on_widget if widget_level else on_dashboard:
+            left_behind = any(_datasource_title(w.get("datasource")) == _datasource_title(old_title) for w in widgets)
+            if (on_widget if widget_level else on_dashboard) and not left_behind:
                 return True, widgets
         return False, widgets
 

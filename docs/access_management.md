@@ -377,6 +377,8 @@ It accepts data model references (IDs or titles), resolves each one via
 every successfully resolved model, and returns all rows plus per-reference
 failures in a single dict.
 
+Under Dashboard Co-Authoring the export returns the owner's private copy, while viewers see the shared copy; for a published dashboard the shared copy is read instead — its own filters, hierarchies and widgets, as administrator via `GET /api/dashboards/{id}?adminAccess=true` or as owner via `sharedMode=true`. A shared copy neither route can read fails that model's analysis, reported under `"errors"`, rather than the private copy being analysed in its place.
+
 **Parameters:**
 
 - `datamodels` (str or list of str, **required**):  

@@ -1756,6 +1756,53 @@ _SQL_VIA_FACT_A = """SELECT `t`.`name` FROM (SELECT `datamodel_id`, `name` FROM 
  INNER JOIN (SELECT `dashboard_id`, `owner` FROM `dw`.`dim_dashboard`) AS `t1` ON `t0`.`dashboard_id` = `t1`.`dashboard_id`"""
 
 
+class TestAnalyzeUnderCoAuthoring:
+    def _dm(self, shared_status, admin_status, shared_doc=None):
+        listing = [{"oid": "db1", "title": "Governance", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]}]
+        export = dict(_b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))]), lastPublish="2026-09-16T20:48:16.794Z")
+        shared = shared_doc if shared_doc is not None else dict(export, title="Governance (shared)", widgets=[_b_widget("w1", ("dim_dashboard", "owner"))])  # viewers see a different widget set
+        return _make_dm(
+            get_responses={
+                "/api/v2/datamodels/dm-b/schema": FakeResponse(200, _B_SCHEMA),
+                "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-b", "title": "Model B"}]),
+                "/api/v2/perspectives": FakeResponse(200, []),
+                "/api/v1/dashboards/admin": FakeResponse(200, listing),
+                "/api/v1/dashboards/export": FakeResponse(200, [export]),
+                "/api/v1/users": FakeResponse(200, []),
+                "/api/v1/settings/system": FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}}),
+                "/api/v1/dashboards/db1?sharedMode=true": FakeResponse(shared_status, {k: v for k, v in shared.items() if k != "widgets"}),
+                "/api/v1/dashboards/db1/widgets?sharedMode=true": FakeResponse(200, shared["widgets"]),
+                "/api/dashboards/db1?adminAccess=true": FakeResponse(admin_status, shared),
+            }
+        )
+
+    def test_owner_reads_the_shared_copy(self):
+        a = self._dm(200, 403).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["dashboards"]["analyzed"][0]["copy"] == "shared" and a["dashboards"]["analyzed"][0]["title"] == "Governance (shared)"
+        assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["owner"]}]  # the shared copy's widget, not the private copy's two
+
+    def test_hierarchies_come_from_the_shared_copy_not_the_export(self):
+        private_h = {"title": "private", "elasticubeTitle": "Model B", "levels": [{"dim": "[dim_users.email]", "table": "dim_users", "column": "email"}]}
+        shared_h = {"title": "shared", "elasticubeTitle": "Model B", "levels": [{"dim": "[dim_datamodels.type]", "table": "dim_datamodels", "column": "type"}]}
+        export = dict(_b_export([_b_widget("w1", ("dim_dashboard", "title"))]), lastPublish="2026-09-16T20:48:16.794Z", hierarchies=[private_h])
+        shared = dict(export, hierarchies=[shared_h])
+        dm = self._dm(403, 200, shared_doc=shared)
+        dm.api_client._get["/api/v1/dashboards/export"] = FakeResponse(200, [export])
+        a = dm.analyze_perspective_requirements("dm-b", detailed=True)
+        columns = {(c["table"], c["column"]) for c in a["required"]["columns"]}
+        assert ("dim_datamodels", "type") in columns and ("dim_users", "email") not in columns
+
+    def test_administrator_reads_the_shared_copy_through_the_admin_route(self):
+        a = self._dm(403, 200).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["dashboards"]["analyzed"][0]["copy"] == "shared" and a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["owner"]}]
+
+    def test_unreadable_shared_copy_fails_the_dashboard_instead_of_using_the_private_copy(self):
+        a = self._dm(403, 403).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["dashboards"]["analyzed"] == [] and a["dashboards"]["failed"] == [{"dashboard_id": "db1", "title": "Governance", "error": "the shared copy could not be read (HTTP 403)"}]
+        assert a["errors"] == ["dashboard 'Governance': the shared copy viewers see could not be read (HTTP 403); an owner or administrator token is required"]
+        assert a["perspective_tables"] == [] and a["summary"]["dashboards_failed"] == 1
+
+
 class TestAnalyzePerspectiveJoins:
     def test_separate_widgets_on_separate_tables_need_no_join(self):
         export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))])

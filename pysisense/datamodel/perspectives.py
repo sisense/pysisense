@@ -6,8 +6,10 @@ from typing import Any
 from ..payloads import PerspectiveTableSpec
 from ..utils import (
     _build_schema_index,
+    _co_authoring_enabled,
     _column_name_variants,
     _compute_dependency_closure,
+    _dashboard_for_reading,
     _discover_dashboards_on_datasource,
     _extract_dashboard_references,
     _extract_error_message,
@@ -406,7 +408,10 @@ class PerspectivesMixin:
         Read-only. Finds every dashboard that uses the model — directly, through a
         single widget, or through a perspective already built over it — reads each one's fields
         (filters, hierarchies, widget panels, nested formulas, drill history) from the
-        dashboard export, keeping only references that belong to this model, and resolves
+        dashboard export — under Dashboard Co-Authoring, from the shared copy viewers see — its own filters,
+        hierarchies and widgets, read as administrator or as owner; a shared copy neither can read fails that dashboard with a
+        ``shared_copy_unreadable`` error rather than analysing the owner's private copy in its
+        place — keeping only references that belong to this model, and resolves
         them against the model's schema. It then adds what the joins need: for every pair
         of tables that meet in one query — a widget's own tables together with the tables
         of the dashboard's filters and hierarchies, which apply to every widget, including
@@ -468,7 +473,8 @@ class PerspectivesMixin:
             paths in ``perspective_tables``; ``tables_all_paths`` the same for every path; ``join_paths``);
             ``not_required`` (``tables``, ``columns`` — relative to ``perspective_tables``); ``dashboards``
             (``analyzed``: ``dashboard_id``, ``title``, ``match``, ``datasource`` — the model or the
-            perspective the dashboard sits on — ``owner``, ``owner_email``, ``tables_used``,
+            perspective the dashboard sits on — ``copy`` — ``"shared"`` under Dashboard Co-Authoring
+            for a published dashboard, else ``"private"`` (the single copy) — ``owner``, ``owner_email``, ``tables_used``,
             ``columns_used``, ``columns`` as ``"Table.Column"``, ``widgets_on_other_datasources``;
             ``failed``); and ``issues`` (``severity``, ``kind``, ``dashboard``, ``widget_id``, ``detail``).
             On failure to resolve the model, read its schema or list dashboards, the standard
@@ -546,6 +552,27 @@ class PerspectivesMixin:
                 if oid not in exports:
                     failed.append({"dashboard_id": oid, "title": (listing.get(oid) or {}).get("title"), "error": "not present in the export response"})
                     issue("error", "dashboard_export_failed", oid, None, f"dashboard '{(listing.get(oid) or {}).get('title')}' was not present in the export response")
+
+        # Under Dashboard Co-Authoring the export returns the owner's private copy; viewers see the shared copy,
+        # which is read as owner or as administrator. A shared copy neither can read fails that dashboard: the
+        # private copy may differ from what viewers see and is never analysed in its place.
+        copies_read: dict[str, str] = {}
+        co_authoring = _co_authoring_enabled(self.api_client, next(iter(exports), None))
+        for oid, dashboard in list(exports.items()):
+            document, copy_read, shared_status = _dashboard_for_reading(self.api_client, self.logger, dashboard, co_authoring)
+            if document is None:
+                del exports[oid]
+                failed.append({"dashboard_id": oid, "title": dashboard.get("title"), "error": f"the shared copy could not be read (HTTP {shared_status})"})
+                issue(
+                    "error",
+                    "shared_copy_unreadable",
+                    oid,
+                    None,
+                    f"dashboard '{dashboard.get('title')}': the shared copy viewers see could not be read (HTTP {shared_status}); an owner or administrator token is required",
+                )
+                continue
+            exports[oid] = document
+            copies_read[oid] = copy_read
 
         owner_emails: dict[str, str] = {}
         users = self.api_client.get("/api/v1/users")
@@ -824,6 +851,7 @@ class PerspectivesMixin:
                     "title": titles.get(oid),
                     "match": matches[oid],
                     "datasource": sources.get(oid, model_title),
+                    "copy": copies_read.get(oid, "private"),
                     "owner": owner_id,
                     "owner_email": owner_emails.get(owner_id),
                     "tables_used": len({key[0] for key, ds in used.items() if oid in ds}),
