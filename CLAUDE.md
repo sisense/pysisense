@@ -720,16 +720,17 @@ m._emit = my_progress_callback  # defaults to print
 |---|---|
 | `check_dashboard_structure` | `pivot_count`, `tabber_count`, `jtd_count`, `accordion_count` |
 | `check_dashboard_widget_counts` | `widget_count` |
-| `check_pivot_widget_fields` | `field_count`, `has_more_fields` |
+| `check_pivot_widget_fields` | every pivot widget: `field_count`, `has_more_fields` (bool), `status`, `error` |
 | `check_datamodel_custom_tables` | `has_union` (`"yes"` / `"no"`) |
-| `check_datamodel_island_tables` | `relation` (`"no"` = island), `type` (`fact`/`dim`/`custom`) |
+| `check_datamodel_island_tables` | every table: `relation` (`"no"` = island, `"yes"` otherwise), `type` (`fact`/`dim`/`custom`), `status`, `error` |
 | `check_datamodel_rls_datatypes` | `datatype` |
 | `check_datamodel_import_queries` | `has_import_query` (`"yes"` / `"no"`) |
 | `check_datamodel_m2m_relationships` | `is_m2m` (bool, `None` when not checked), `left_columns`/`right_columns` (composite keys tested together), `left_duplicate_keys`/`right_duplicate_keys`, `status`, `error` — runs one `count(*)` SQL query per side |
 
 ### Thresholds and edge cases
 
-- `check_pivot_widget_fields(max_fields=20)` — triggers on `field_count > max_fields` (strictly greater, not ≥)
+- `check_pivot_widget_fields(max_fields=20)` — flags on `field_count > max_fields` (strictly greater, not ≥); every pivot is returned, so an empty list means no pivot widgets
+- WellCheck checks never return `[]` to mean "clean": every inspected item is a row with a flag, an unreadable input is a `status: "error"` row, missing input is the error dict
 - `check_datamodel_m2m_relationships` executes aggregate SQL — can be slow; a failed query is a `status: "error"` row, never `is_m2m: False`
 - `unused_columns` requires `access_mgmt` to be configured on the `WellCheck` instance
 

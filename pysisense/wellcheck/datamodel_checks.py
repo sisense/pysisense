@@ -200,54 +200,46 @@ class DatamodelChecksMixin:
     def check_datamodel_island_tables(
         self,
         datamodels: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        """
-        Identify island tables (tables with no relationships) in one or more data models.
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        """List every table of one or more data models and flag the islands, tables with no relationship.
 
-        This method retrieves the schema for each specified data model, inspects
-        its relations and tables, and returns information about tables that do
-        not participate in any relationship (often called "island tables").
+        Reads each model's schema (``GET /api/v2/datamodels/{id}/schema``), collects the
+        tables that appear in any relation, and returns one row per table with
+        ``relation`` ``"yes"`` or ``"no"``. Every table is returned, so an empty list means
+        the models have no tables, not that none of them is an island.
 
         Parameters
         ----------
-        datamodels : list of str, optional
-            One or more data model references to analyze. Each reference can be:
-              - a Sisense data model ID, or
-              - a data model title (name).
-            At least one data model reference is required. At runtime this
-            method is tolerant of a single string being passed instead of a
-            list, and will normalize it to a one-element list.
+        datamodels : list[str] | None, optional
+            One or more data model references, each an ID or a title. A single string is
+            accepted in place of a one-element list.
 
         Returns
         -------
-        list of dict
-            A list with one entry per island table. Each entry contains:
-              - datamodel (str): Data model title.
-              - datamodel_oid (str): Data model ID.
-              - table (str): Table name.
-              - table_oid (str): Table ID.
-              - type (str): Table type (e.g., 'live', 'custom').
-              - relation (str): Always "no" for island tables.
-
-            If no data models are successfully processed, an empty list is
-            returned and details are available in the logs.
+        list[dict[str, Any]] | dict[str, Any]
+            One row per table: ``datamodel``, ``datamodel_oid``, ``table``, ``table_oid``,
+            ``type`` (``fact``, ``dim``, ``custom``, ...), ``relation`` (``"no"`` for an island
+            table, ``"yes"`` otherwise), ``status`` (``"checked"``) and ``error`` (``None``).
+            A data model that cannot be resolved or read contributes one row with ``status``
+            ``"error"``, the message in ``error`` and ``None`` for the other fields. When
+            ``datamodels`` is missing or holds no reference, the standard
+            ``{"ok": False, "error": "..."}`` dict.
         """
         self.logger.info("Starting datamodel island tables check.")
         self.logger.debug(f"Input datamodels parameter: {datamodels}")
 
-        # Validate input
         if datamodels is None:
-            error_msg = "At least one datamodel reference (ID or name) is required."
-            self.logger.error(error_msg)
-            return []
-
-        # Normalize to list of strings
+            failure = {"ok": False, "error": "At least one datamodel reference (ID or name) is required."}
+            self.logger.error(failure["error"])
+            return failure
         datamodel_refs = [datamodels] if isinstance(datamodels, str) else [ref for ref in datamodels if isinstance(ref, str)]
-
         if not datamodel_refs:
-            error_msg = "No valid datamodel references provided."
-            self.logger.error(error_msg)
-            return []
+            failure = {"ok": False, "error": "No valid datamodel references provided."}
+            self.logger.error(failure["error"])
+            return failure
+
+        def error_row(ref: str, message: str, datamodel_id: str | None = None) -> dict[str, Any]:
+            return {"datamodel": ref, "datamodel_oid": datamodel_id, "table": None, "table_oid": None, "type": None, "relation": None, "status": "error", "error": message}
 
         results: list[dict[str, Any]] = []
         total_datamodels = 0
@@ -256,72 +248,46 @@ class DatamodelChecksMixin:
 
         for ref in datamodel_refs:
             self.logger.info(f"Processing datamodel reference: {ref}")
-
-            # Resolve ID and title using the Datamodel helper
             resolved = self.datamodel.resolve_datamodel_reference(ref)
-            if not resolved.get("success"):
-                self.logger.warning(f"Skipping datamodel reference '{ref}': {resolved.get('error')}")
+            if not resolved.get("success") or not resolved.get("datamodel_id"):
+                message = f"Data model '{ref}' could not be resolved: {resolved.get('error') or 'not found'}"
+                self.logger.warning(message)
+                results.append(error_row(ref, message))
                 continue
-
-            datamodel_id = resolved.get("datamodel_id")
+            datamodel_id = resolved["datamodel_id"]
             datamodel_title = resolved.get("datamodel_title") or ref
-
-            if not datamodel_id:
-                self.logger.warning(f"Resolved datamodel reference '{ref}' has no datamodel_id. Skipping.")
-                continue
 
             schema_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema"
             self.logger.debug(f"Fetching datamodel schema from: {schema_endpoint}")
-
             response = self.api_client.get(schema_endpoint)
-            if response is None:
-                self.logger.warning(f"schema_data is None or no relations exist for the datamodel '{datamodel_title}'")
-                self.logger.warning(f"schema_data is None or does not contain datasets for datamodel '{datamodel_title}'")
+            if response is None or response.status_code != 200:
+                message = f"Schema of data model '{datamodel_title}' ({datamodel_id}) could not be read" + (f" (HTTP {response.status_code})" if response is not None else " (no response)")
+                self.logger.warning(message)
+                results.append(error_row(datamodel_title, message, datamodel_id))
                 continue
-
-            if response.status_code != 200:
-                try:
-                    error_body = response.json()
-                except Exception:
-                    error_body = getattr(response, "text", "No response text")
-                self.logger.warning(f"Failed to retrieve schema for datamodel '{datamodel_title}' ({datamodel_id}). Status: {response.status_code}, Error: {error_body}")
-                continue
-
             try:
                 schema_data = response.json()
             except Exception as exc:
-                self.logger.exception(f"Failed to parse schema JSON for datamodel '{datamodel_title}' ({datamodel_id}): {exc}")
+                message = f"Schema of data model '{datamodel_title}' ({datamodel_id}) returned unreadable JSON: {exc}"
+                self.logger.warning(message)
+                results.append(error_row(datamodel_title, message, datamodel_id))
                 continue
 
-            self.logger.info(f"\nStarting to process datamodel '{datamodel_title}'")
-
-            (
-                dm_results,
-                dm_total_tables,
-                dm_tables_without_relations,
-            ) = self._compute_island_tables_for_datamodel(
+            self.logger.info(f"Starting to process datamodel '{datamodel_title}'")
+            dm_results, dm_total_tables, dm_tables_without_relations = self._compute_island_tables_for_datamodel(
                 schema_data=schema_data,
                 datamodel_id=datamodel_id,
                 datamodel_title=datamodel_title,
             )
-
-            if dm_results:
-                results.extend(dm_results)
-
+            results.extend(dm_results)
             total_datamodels += 1
             total_tables += dm_total_tables
             tables_without_relations += dm_tables_without_relations
 
-        if total_datamodels == 0:
-            self.logger.warning("No datamodels were successfully processed for island tables check.")
-            return []
-
-        # Summary statistics
         self.logger.info(f"Processed {total_datamodels} data models.")
         self.logger.info(f"Processed {total_tables} tables.")
         self.logger.info(f"Found {tables_without_relations} Island tables.")
         self.logger.info("Completed datamodel island tables check.")
-
         return results
 
     def _compute_island_tables_for_datamodel(
@@ -380,16 +346,14 @@ class DatamodelChecksMixin:
                             "table": table_name,
                             "table_oid": table_oid,
                             "type": table_type,
-                            "relation": "no",  # Default it to "no"
+                            "relation": "yes" if table_oid in relation_tables else "no",
+                            "status": "checked",
+                            "error": None,
                         }
-
-                        if table_oid in relation_tables:
-                            new_dict["relation"] = "yes"
-                        else:
+                        if new_dict["relation"] == "no":
                             tables_without_relations += 1
                             island_tables.append(new_dict)
-                            results.append(new_dict)
-
+                        results.append(new_dict)  # every table is returned; the flag says which ones are islands
                         datamodel_tables.append(new_dict)
                 else:
                     self.logger.warning(f"schema or tables keys are missing in the dataset for datamodel '{datamodel_title}'")

@@ -502,63 +502,50 @@ class DashboardChecksMixin:
         self,
         dashboards: list[str] | None = None,
         max_fields: int = 20,
-    ) -> list[dict[str, Any]]:
-        """
-        Analyze pivot widgets on one or more dashboards and report those with many fields.
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        """Count the fields of every pivot widget on one or more dashboards and flag the wide ones.
 
-        This method retrieves each specified dashboard, scans all pivot widgets
-        (types containing ``"pivot"`` or ``"pivot2"``), counts how many fields
-        (items) are attached to those widgets, and returns a per-widget summary
-        for any pivot with more than ``max_fields`` fields.
+        Reads each dashboard (``GET /api/dashboards/{id}?adminAccess=true``), finds its pivot
+        widgets (types containing ``"pivot"``), counts the items across their panels and
+        returns one row per pivot widget, flagged when the count is above ``max_fields``.
+        Every pivot is returned, so an empty list means the dashboards have no pivot
+        widgets, not that all of them are within the limit.
 
         Parameters
         ----------
-        dashboards : list of str, optional
-            One or more dashboard references to analyze. Each reference can be:
-              - a Sisense dashboard ID, or
-              - a dashboard title (name).
-            At least one dashboard reference is required. At runtime this
-            method is tolerant of a single string being passed instead of a
-            list, and will normalize it to a one-element list.
+        dashboards : list[str] | None, optional
+            One or more dashboard references, each an ID or a title. A single string is
+            accepted in place of a one-element list.
         max_fields : int, optional
-            Threshold for the number of fields on a pivot widget. Only pivot
-            widgets with more than this number of fields are included in the
-            returned data. Defaults to 20.
+            Field count above which a pivot widget is flagged (strictly greater). Default ``20``.
 
         Returns
         -------
-        list of dict
-            A list of dictionaries, each describing a pivot widget that exceeds
-            the configured field threshold. Each entry contains:
-              - dashboard_id (str): Resolved dashboard ID.
-              - dashboard_title (str): Resolved dashboard title.
-              - widget_id (str): Pivot widget ID.
-              - has_more_fields (bool): Always True for returned rows, since
-                only widgets above the threshold are included.
-              - field_count (int): Total number of fields (items) in the widget.
-
-            If no dashboards are successfully processed, or no pivot widgets
-            exceed the threshold, an empty list is returned and details are
-            available in the logs.
+        list[dict[str, Any]] | dict[str, Any]
+            One row per pivot widget: ``dashboard_id``, ``dashboard_title``, ``widget_id``,
+            ``field_count`` (items across the widget's panels), ``has_more_fields``
+            (``field_count > max_fields``), ``status`` (``"checked"``) and ``error`` (``None``).
+            A dashboard that cannot be resolved or read contributes one row with ``status``
+            ``"error"``, the message in ``error`` and ``None`` for the other fields. When
+            ``dashboards`` is missing or holds no reference, the standard
+            ``{"ok": False, "error": "..."}`` dict.
         """
         self.logger.info("Starting widget field check for dashboards.")
         self.logger.debug("Input dashboards parameter for widget field check: %s", dashboards)
 
-        # Validate input
         if dashboards is None:
-            error_msg = "At least one dashboard reference (ID or name) is required for widget field analysis."
-            self.logger.error(error_msg)
-            return []
-
-        # Normalize to list of strings
+            failure = {"ok": False, "error": "At least one dashboard reference (ID or name) is required for widget field analysis."}
+            self.logger.error(failure["error"])
+            return failure
         dashboard_refs = [dashboards] if isinstance(dashboards, str) else [ref for ref in dashboards if isinstance(ref, str)]
-
         if not dashboard_refs:
-            error_msg = "No valid dashboard references provided for widget field analysis."
-            self.logger.error(error_msg)
-            return []
-
+            failure = {"ok": False, "error": "No valid dashboard references provided for widget field analysis."}
+            self.logger.error(failure["error"])
+            return failure
         self.logger.info("Processing specified dashboards for widget fields: %s", dashboard_refs)
+
+        def error_row(ref: str, message: str, dashboard_id: str | None = None, title: str | None = None) -> dict[str, Any]:
+            return {"dashboard_id": dashboard_id or ref, "dashboard_title": title, "widget_id": None, "field_count": None, "has_more_fields": None, "status": "error", "error": message}
 
         results: list[dict[str, Any]] = []
         total_dashboards = 0
@@ -567,102 +554,47 @@ class DashboardChecksMixin:
 
         for ref in dashboard_refs:
             self.logger.info("Processing dashboard reference for widget fields: %s", ref)
-
-            # Resolve ID and title using the Dashboard helper
             resolved = self.dashboard.resolve_dashboard_reference(ref)
-            if not resolved.get("success"):
-                self.logger.warning(
-                    "Skipping dashboard reference '%s' for widget fields: %s",
-                    ref,
-                    resolved.get("error"),
-                )
+            if not resolved.get("success") or not resolved.get("dashboard_id"):
+                message = f"Dashboard '{ref}' could not be resolved: {resolved.get('error') or 'not found'}"
+                self.logger.warning(message)
+                results.append(error_row(ref, message))
                 continue
-
-            dashboard_id = resolved.get("dashboard_id")
+            dashboard_id = resolved["dashboard_id"]
             dashboard_title = resolved.get("dashboard_title") or ref
 
-            if not dashboard_id:
-                self.logger.warning(
-                    "Resolved dashboard reference '%s' has no dashboard_id. Skipping widget field analysis.",
-                    ref,
-                )
-                continue
-
-            # Fetch full dashboard definition (widgets, scripts, etc.)
             endpoint = f"/api/dashboards/{dashboard_id}?adminAccess=true"
-            self.logger.debug(
-                "Fetching full dashboard definition for widget fields from: %s",
-                endpoint,
-            )
-
+            self.logger.debug("Fetching full dashboard definition for widget fields from: %s", endpoint)
             response = self.api_client.get(endpoint)
-            if response is None:
-                self.logger.warning(
-                    "Failed to retrieve dashboard data for widget fields. Dashboard OID: %s (Title: %s)",
-                    dashboard_id,
-                    dashboard_title,
-                )
+            if response is None or response.status_code != 200:
+                message = f"Dashboard '{dashboard_title}' ({dashboard_id}) could not be read" + (f" (HTTP {response.status_code})" if response is not None else " (no response)")
+                self.logger.warning(message)
+                results.append(error_row(ref, message, dashboard_id, dashboard_title))
                 continue
-
-            if response.status_code != 200:
-                try:
-                    error_body = response.json()
-                except Exception:
-                    error_body = getattr(response, "text", "No response text")
-                self.logger.warning(
-                    "Failed to retrieve dashboard data for widget fields. Dashboard OID: %s (Title: %s). Status: %s, Error: %s",
-                    dashboard_id,
-                    dashboard_title,
-                    response.status_code,
-                    error_body,
-                )
-                continue
-
             try:
                 dashboard_data = response.json()
             except Exception as exc:
-                self.logger.exception(
-                    "Failed to parse dashboard JSON for widget fields '%s': %s",
-                    dashboard_id,
-                    exc,
-                )
+                message = f"Dashboard '{dashboard_title}' ({dashboard_id}) returned unreadable JSON: {exc}"
+                self.logger.warning(message)
+                results.append(error_row(ref, message, dashboard_id, dashboard_title))
                 continue
 
-            (
-                rows_for_dashboard,
-                pivot_widget_found,
-                pivot_widgets_over_threshold,
-                pivot_widget_count,
-            ) = self._compute_pivot_widget_field_details(
+            rows_for_dashboard, pivot_widget_found, over_threshold, pivot_widget_count = self._compute_pivot_widget_field_details(
                 dashboard_data=dashboard_data,
                 resolved_title=dashboard_title,
                 max_fields=max_fields,
             )
-
-            if rows_for_dashboard:
-                results.extend(rows_for_dashboard)
-
+            results.extend(rows_for_dashboard)
             total_dashboards += 1
             total_pivot_widgets += pivot_widget_count
-            total_pivot_widgets_over_threshold += pivot_widgets_over_threshold
-
+            total_pivot_widgets_over_threshold += over_threshold
             if not pivot_widget_found:
                 self.logger.info("Dashboard:%s has no pivot widgets", dashboard_title)
 
-        if total_dashboards == 0:
-            self.logger.warning("No dashboards were successfully processed for widget field check.")
-            return []
-
-        # Summary logs
         self.logger.info("Total dashboards processed for widget fields: %d", total_dashboards)
         self.logger.info("Total pivot widgets inspected across dashboards: %d", total_pivot_widgets)
-        self.logger.info(
-            "Total pivot widgets above field threshold (%d): %d",
-            max_fields,
-            total_pivot_widgets_over_threshold,
-        )
+        self.logger.info("Total pivot widgets above field threshold (%d): %d", max_fields, total_pivot_widgets_over_threshold)
         self.logger.info("Completed widget field check for dashboards.")
-
         return results
 
     def _compute_pivot_widget_field_details(
@@ -749,30 +681,15 @@ class DashboardChecksMixin:
             items = panel.get("items", [])
             panel_count += len(items)
 
-        # Log field counts for pivot widgets
-
-        if panel_count > max_fields:
-            self.logger.info(
-                "Dashboard:%s Pivot Widget: %s has %d fields",
-                dashboard_title,
-                widget_id,
-                panel_count,
-            )
-            row: dict[str, Any] = {
-                "dashboard_id": dashboard_oid,
-                "dashboard_title": dashboard_title,
-                "widget_id": widget_id,
-                "has_more_fields": True,
-                "field_count": panel_count,
-            }
-            return row, True, 1
-
-        # Below or equal to threshold: log but do not include in output rows
-        self.logger.info(
-            "Dashboard:%s Pivot Widget: %s has no more than %d fields",
-            dashboard_title,
-            widget_id,
-            max_fields,
-        )
-
-        return None, True, 0
+        over = panel_count > max_fields
+        self.logger.info("Dashboard:%s Pivot Widget: %s has %d fields (limit %d)", dashboard_title, widget_id, panel_count, max_fields)
+        row: dict[str, Any] = {
+            "dashboard_id": dashboard_oid,
+            "dashboard_title": dashboard_title,
+            "widget_id": widget_id,
+            "field_count": panel_count,
+            "has_more_fields": over,
+            "status": "checked",
+            "error": None,
+        }
+        return row, True, 1 if over else 0
