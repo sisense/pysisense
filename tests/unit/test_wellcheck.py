@@ -361,9 +361,8 @@ def test_check_pivot_widget_fields_returns_empty_when_no_dashboards() -> None:
 
     result = wellcheck.check_pivot_widget_fields(dashboards=None)
 
-    # No dashboards -> empty result
-    assert result == []
-    # Ensure an error was logged about missing dashboard references
+    # No dashboards -> the standard error dict, never an empty list that looks like "all clean"
+    assert result == {"ok": False, "error": "At least one dashboard reference (ID or name) is required for widget field analysis."}
     assert any(m["level"] == "error" and "At least one dashboard reference" in m["msg"] for m in logger.messages)
 
 
@@ -377,10 +376,10 @@ def test_check_pivot_widget_fields_skips_unresolved_references() -> None:
 
     result = wellcheck.check_pivot_widget_fields(dashboards=["missing_dashboard"])
 
-    # Nothing resolved or processed
-    assert result == []
-
-    # At least one warning should be present
+    # An unresolvable dashboard is an error row, so the caller can tell it from "no pivot widgets"
+    assert len(result) == 1
+    assert result[0]["dashboard_id"] == "missing_dashboard" and result[0]["status"] == "error" and result[0]["has_more_fields"] is None
+    assert "could not be resolved" in result[0]["error"]
     assert any(m["level"] == "warning" for m in logger.messages)
 
 
@@ -418,6 +417,11 @@ def test_check_pivot_widget_fields_counts_pivot_widgets_and_fields() -> None:
                 "type": "indicator",
                 "metadata": {"panels": [{"items": [{"field": "X"}]}]},
             },
+            {
+                "oid": "W3",
+                "type": "pivot2",
+                "metadata": {"panels": [{"items": [{"field": "A"}, {"field": "B"}]}]},
+            },
         ],
     }
 
@@ -444,15 +448,10 @@ def test_check_pivot_widget_fields_counts_pivot_widgets_and_fields() -> None:
     # Use default threshold from implementation (> 20)
     result = wellcheck.check_pivot_widget_fields(dashboards=[dashboard_id])
 
-    # Exactly one pivot widget above threshold
-    assert len(result) == 1
+    # Every pivot widget is returned, flagged or not; the indicator is not
+    assert [(r["widget_id"], r["field_count"], r["has_more_fields"], r["status"]) for r in result] == [("W1", 21, True, "checked"), ("W3", 2, False, "checked")]
     row = result[0]
-
-    assert row["dashboard_id"] == dashboard_id
-    assert row["dashboard_title"] == "Pivot Field Dashboard"
-    assert row["widget_id"] == "W1"
-    assert row["has_more_fields"] is True
-    assert row["field_count"] == 21
+    assert row["dashboard_id"] == dashboard_id and row["dashboard_title"] == "Pivot Field Dashboard" and row["error"] is None
 
     # At least one info-level log should exist (exact text not enforced)
     assert any(m["level"] == "info" for m in logger.messages)
@@ -637,8 +636,7 @@ def test_check_datamodel_island_tables_returns_empty_when_no_datamodels() -> Non
 
     result = wellcheck.check_datamodel_island_tables(datamodels=None)
 
-    assert result == []
-    # An error about missing datamodel references should be logged
+    assert result == {"ok": False, "error": "At least one datamodel reference (ID or name) is required."}
     assert any(m["level"] == "error" and "datamodel reference" in m["msg"] for m in logger.messages)
 
 
@@ -658,10 +656,9 @@ def test_check_datamodel_island_tables_skips_unresolved_references() -> None:
 
     result = wellcheck.check_datamodel_island_tables(datamodels=["missing_datamodel"])
 
-    # Nothing resolved or processed
-    assert result == []
-    # There should be a warning about skipping the reference
-    assert any(m["level"] == "warning" and "Skipping datamodel reference 'missing_datamodel'" in m["msg"] for m in logger.messages)
+    # An unresolvable model is an error row, so the caller can tell it from "no tables"
+    assert len(result) == 1 and result[0]["datamodel"] == "missing_datamodel" and result[0]["status"] == "error" and result[0]["relation"] is None
+    assert any(m["level"] == "warning" and "could not be resolved" in m["msg"] for m in logger.messages)
 
 
 def test_check_datamodel_island_tables_finds_island_tables() -> None:
@@ -744,16 +741,10 @@ def test_check_datamodel_island_tables_finds_island_tables() -> None:
 
     result = wellcheck.check_datamodel_island_tables(datamodels=[datamodel_id])
 
-    # Exactly one island table (T3) should be returned
-    assert len(result) == 1
-    row = result[0]
-
-    assert row["datamodel"] == datamodel_title
-    assert row["datamodel_oid"] == datamodel_id
-    assert row["table"] == "IslandTable"
-    assert row["table_oid"] == "T3"
-    assert row["type"] == "dim"
-    assert row["relation"] == "no"
+    # Every table is returned with its flag; T3 is the island
+    assert [(r["table"], r["relation"], r["status"]) for r in result] == [("FactTable", "yes", "checked"), ("DimTable", "yes", "checked"), ("IslandTable", "no", "checked")]
+    row = result[2]
+    assert row["datamodel"] == datamodel_title and row["datamodel_oid"] == datamodel_id and row["table_oid"] == "T3" and row["type"] == "dim" and row["error"] is None
 
     # Summary logs should mention processed datamodels and island tables
     assert any(m["level"] == "info" and "Processed 1 data models" in m["msg"] for m in logger.messages)

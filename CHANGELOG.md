@@ -8,6 +8,15 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **`check_pivot_widget_fields` and `check_datamodel_island_tables` no longer answer "clean" with an
+  empty list.** Both returned only the offending items, so a caller could not tell "all pivots are
+  within the limit" from "no pivot widgets found" from "the dashboard could not be read", and an
+  exported CSV was simply empty. Like the other WellCheck checks they now return every inspected
+  item with its flag: one row per pivot widget with `has_more_fields` true or false, one row per
+  table with `relation` yes or no. A dashboard or model that cannot be resolved or read is a row
+  with `status: "error"` and the message in `error`; a missing or empty reference list returns the
+  standard error dict instead of `[]`. Rows gain `status` and `error`.
+
 - **`check_datamodel_m2m_relationships` no longer misses or misreports many-to-many joins.** It
   required two or more duplicated key values per side (a side with exactly one repeating key was
   treated as unique), tested each column of a composite key on its own (a unique Year+Region key
@@ -130,6 +139,11 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### For downstream tool generators
 
+- `check_pivot_widget_fields`, `check_datamodel_island_tables`: every inspected item is now a row
+  (`has_more_fields` / `relation` may be false / `"yes"`), so consumers must filter on the flag
+  instead of on presence; additive row keys `status`, `error`; a missing or empty reference list
+  returns the error dict (was `[]`), so the return type is `list[dict] | dict`; an unresolvable
+  reference is an error row (was silently skipped).
 - `analyze_perspective_requirements`: `warnings.many_to_many_in_perspective` is always present; new
   warning kind `many_to_many_unchecked`; additive detailed key `many_to_many`.
 - `check_datamodel_m2m_relationships`: additive row keys `left_columns`, `right_columns`,
