@@ -8,6 +8,24 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **`check_datamodel_m2m_relationships` no longer misses or misreports many-to-many joins.** It
+  required two or more duplicated key values per side (a side with exactly one repeating key was
+  treated as unique), tested each column of a composite key on its own (a unique Year+Region key
+  looked many-to-many because each column repeats), and reported any failed query — an unbuilt
+  cube, a live source rejecting the SQL, the engine's HTTP-200 error body — as `is_m2m: False`.
+  It now flags a pair when any key value repeats on both sides, groups the relations between the
+  same two tables into one composite key tested with a single `group by` over all its columns,
+  runs one `select count(*)` per side instead of pulling every duplicated key over the wire,
+  quotes identifiers for the model's dialect (square brackets for cubes, double quotes for live
+  models) and URL-encodes the model title, and reports failures as `status: "error"` rows with
+  the engine's message and `is_m2m: None`. A missing or empty `datamodels` argument returns the
+  standard error dict instead of `[]`; an unresolvable model contributes an error row. Rows gain
+  `left_columns`/`right_columns`, `left_duplicate_keys`/`right_duplicate_keys`, `status` and
+  `error`; `left_column`/`right_column` now hold the joined column names for a composite key.
+- **The WellCheck unit tests run in CI.** `tests/unit/unit_test_wellcheck.py` did not match
+  pytest's default file pattern and was never collected; it is now `test_wellcheck.py`, and the
+  orchestrator test's misnamed RLS override it hid is fixed.
+
 - **`replace_datasource` now reaches viewers under Dashboard Co-Authoring.** With the system
   setting `dashboardCoAuthoring` on, a published dashboard is a shared copy (what viewers see)
   plus a private copy per owner, and publishing flows shared → private. The method wrote the
@@ -104,6 +122,11 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### For downstream tool generators
 
+- `check_datamodel_m2m_relationships`: additive row keys `left_columns`, `right_columns`,
+  `left_duplicate_keys`, `right_duplicate_keys`, `status`, `error`; `is_m2m` may now be `None`;
+  `left_column`/`right_column` hold `", "`-joined names for composite keys; a missing or empty
+  `datamodels` argument returns the error dict (was `[]`), so the return type is
+  `list[dict] | dict`; an unresolvable model is an error row (was silently skipped).
 - `replace_datasource`: additive param `act_as_owner: bool`; additive result keys
   `previous_datasource_title`, `co_authoring`, `shared_copy_updated`, `private_copy_updated`,
   `ownership_transferred_temporarily`, `original_owner`, `ownership_restore_error`; failure dicts

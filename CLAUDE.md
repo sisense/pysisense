@@ -12,10 +12,10 @@ uv sync --dev
 uv run pytest -m "not integration"
 
 # Run a single test file
-uv run pytest tests/unit/unit_test_wellcheck.py
+uv run pytest tests/unit/test_wellcheck.py
 
 # Run a single test by name
-uv run pytest tests/unit/unit_test_wellcheck.py -k "test_name"
+uv run pytest tests/unit/test_wellcheck.py -k "test_name"
 
 # Run integration tests (requires live Sisense instance)
 uv run pytest -m integration
@@ -725,12 +725,12 @@ m._emit = my_progress_callback  # defaults to print
 | `check_datamodel_island_tables` | `relation` (`"no"` = island), `type` (`fact`/`dim`/`custom`) |
 | `check_datamodel_rls_datatypes` | `datatype` |
 | `check_datamodel_import_queries` | `has_import_query` (`"yes"` / `"no"`) |
-| `check_datamodel_m2m_relationships` | `is_m2m` (bool) — runs real SQL queries |
+| `check_datamodel_m2m_relationships` | `is_m2m` (bool, `None` when not checked), `left_columns`/`right_columns` (composite keys tested together), `left_duplicate_keys`/`right_duplicate_keys`, `status`, `error` — runs one `count(*)` SQL query per side |
 
 ### Thresholds and edge cases
 
 - `check_pivot_widget_fields(max_fields=20)` — triggers on `field_count > max_fields` (strictly greater, not ≥)
-- `check_datamodel_m2m_relationships` executes aggregate SQL — can be slow
+- `check_datamodel_m2m_relationships` executes aggregate SQL — can be slow; a failed query is a `status: "error"` row, never `is_m2m: False`
 - `unused_columns` requires `access_mgmt` to be configured on the `WellCheck` instance
 
 ### Inputs accept IDs or titles

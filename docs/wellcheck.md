@@ -202,32 +202,33 @@ The method logs how many tables were processed across all data models and how ma
 
 ### `check_datamodel_m2m_relationships(datamodels=None)`
 
-Check for potential many-to-many (M2M) relationships between tables in one or more data models.
+Checks every relation of one or more data models for a many-to-many (M2M) join. A relation is many-to-many when its join key is not unique on either side, which is how Sisense itself classifies a relationship.
 
-For each relation, it builds table/column pairs and runs aggregate SQL queries against the data source to detect duplicate keys on both sides.
+For each pair of tables connected by relations, one aggregate SQL query per side runs through `GET /api/datasources/{title}/sql`, counting the key values that occur more than once:
+
+```sql
+select count(*) from (select <key columns> from <table> group by <key columns> having count(*) > 1) t
+```
+
+Both counts above zero means many-to-many. Tables joined on several columns (several relations between the same two tables) are checked on the column tuple together, since that is the key the engine joins on; a relation spanning more than two tables is checked pairwise. Identifiers are quoted in square brackets for ElastiCubes and in double quotes for live models, whose SQL is passed to the source. A query the engine rejects — an unbuilt cube, a live source that does not accept the SQL — is reported on the row, never as "not M2M".
 
 **Parameters:**
 
-- `datamodels` (list of str or str, optional):  
-  Data model references (ID or title). If `None`, logs an error and returns `[]`.
+- `datamodels` (list of str or str, optional): Data model references (ID or title). A single string is accepted.
 
 **Returns:**
 
-- `list` of `dict`: One row per relation field pair checked, with keys:
-  - `data_model` (str): Data model title.  
-  - `left_table` (str): Name of the left table.  
-  - `left_column` (str): Name of the left column.  
-  - `right_table` (str): Name of the right table.  
-  - `right_column` (str): Name of the right column.  
-  - `is_m2m` (bool):  
-    - `True` if **both** sides have more than one occurrence of their key (detected via SQL).  
-    - `False` otherwise.
+- `list` of `dict`: One row per pair of tables checked:
+  - `data_model` (str): Data model title.
+  - `left_table`, `right_table` (str): The two tables.
+  - `left_columns`, `right_columns` (list of str): The joined columns on each side, one for a simple key, several for a composite key.
+  - `left_column`, `right_column` (str): The same names joined with `", "`.
+  - `left_duplicate_keys`, `right_duplicate_keys` (int or None): How many key values occur more than once on each side; `None` when the side was not counted.
+  - `is_m2m` (bool or None): `True` when both sides have duplicated keys, `False` when at least one side is unique, `None` when the pair could not be checked.
+  - `status` (str): `"checked"` or `"error"`.
+  - `error` (str or None): The engine's message when a query failed.
 
-The method logs:
-
-- How many data models were processed.  
-- How many relation column pairs were checked.  
-- How many pairs were flagged as many-to-many.
+  A data model that cannot be resolved contributes one row with `status: "error"` and no tables. When `datamodels` is missing or holds no reference, the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 
