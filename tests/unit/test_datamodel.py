@@ -1595,8 +1595,12 @@ def _make_analyzer(export=_A_EXPORT, listing_extra=None, export_status=200):
             "/api/v1/dashboards/admin": FakeResponse(200, listing),
             "/api/v1/dashboards/export": FakeResponse(export_status, [export] if export_status == 200 else {"message": "boom"}),
             "/api/v1/users": FakeResponse(200, [{"_id": "u1", "email": "owner@example.com"}]),
+            "/api/datasources/Model%20A/sql": FakeResponse(200, {"headers": ["dup_keys"], "values": [[0]]}),  # no duplicated keys: no many-to-many
         }
     )
+
+
+_NO_DUPS = FakeResponse(200, {"headers": ["dup_keys"], "values": [[0]]})
 
 
 class TestAnalyzePerspectiveRequirements:
@@ -1674,7 +1678,7 @@ class TestAnalyzePerspectiveRequirements:
         a = _make_analyzer().analyze_perspective_requirements("dm-a")
         assert set(a) == {"datamodel", "summary", "perspective_tables", "perspective_tables_all_paths", "join_path_choices", "errors", "warnings"}
         assert a["errors"] == ["Sales: 'Orders'.'Ghost' is used but does not exist in data model 'Model A'"]
-        assert a["warnings"] == {"renamed_reference": 1}
+        assert a["warnings"] == {"renamed_reference": 1, "many_to_many_in_perspective": 0}
         assert a["perspective_tables"] == _make_analyzer().analyze_perspective_requirements("dm-a", detailed=True)["perspective_tables"]
 
     def test_unknown_model(self):
@@ -1734,7 +1738,7 @@ def _b_export(widgets, filters=()):
     }
 
 
-def _make_analyzer_b(export, sql=None, sql_status=200):
+def _make_analyzer_b(export, sql=None, sql_status=200, sql_dups=None):
     listing = [{"oid": "db1", "title": "Governance", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]}]
     post = {"/api/datasources/Model B/jaql/sql": FakeResponse(sql_status, None, text=sql)} if sql is not None else None
     return _make_dm(
@@ -1745,6 +1749,7 @@ def _make_analyzer_b(export, sql=None, sql_status=200):
             "/api/v1/dashboards/admin": FakeResponse(200, listing),
             "/api/v1/dashboards/export": FakeResponse(200, [export]),
             "/api/v1/users": FakeResponse(200, []),
+            "/api/datasources/Model%20B/sql": sql_dups if sql_dups is not None else _NO_DUPS,
         },
         post_responses=post,
     )
@@ -1754,6 +1759,58 @@ def _make_analyzer_b(export, sql=None, sql_status=200):
 _SQL_VIA_FACT_A = """SELECT `t`.`name` FROM (SELECT `datamodel_id`, `name` FROM `dw`.`dim_datamodels`) AS `t`
  INNER JOIN (SELECT `dashboard_id`, `datamodel_id` FROM `dw`.`fact_a`) AS `t0` ON `t`.`datamodel_id` = `t0`.`datamodel_id`
  INNER JOIN (SELECT `dashboard_id`, `owner` FROM `dw`.`dim_dashboard`) AS `t1` ON `t0`.`dashboard_id` = `t1`.`dashboard_id`"""
+
+
+class TestAnalyzeManyToMany:
+    def test_many_to_many_between_kept_tables_is_a_warning_with_evidence(self):
+        # dim_dashboard and fact_a are both kept (one widget uses both); the SQL says both sides have duplicated keys.
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title"), ("fact_a", "views"))])
+        dups = [FakeResponse(200, {"headers": ["dup_keys"], "values": [[3]]}), FakeResponse(200, {"headers": ["dup_keys"], "values": [[41]]})]
+        a = _make_analyzer_b(export, sql_dups=dups).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["errors"] == [] and a["warnings"] == {"many_to_many_in_perspective": 1}
+        assert a["many_to_many"] == [
+            {
+                "table_a": "dim_dashboard",
+                "columns_a": ["dashboard_id"],
+                "table_b": "fact_a",
+                "columns_b": ["dashboard_id"],
+                "duplicate_keys_a": 3,
+                "duplicate_keys_b": 41,
+                "is_m2m": True,
+                "status": "checked",
+                "error": None,
+                "scope": "perspective",
+            }
+        ]
+        detail = next(i for i in a["issues"] if i["kind"] == "many_to_many_in_perspective")["detail"]
+        assert "3 duplicated keys in 'dim_dashboard', 41 in 'fact_a'" in detail and "may double count" in detail and "drop" not in detail
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "fact_a"]  # nothing removed
+
+    def test_relations_outside_the_kept_tables_are_not_checked(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title"))])  # only dim_dashboard is kept
+        dm = _make_analyzer_b(export, sql_dups=FakeResponse(200, {"headers": ["dup_keys"], "values": [[99]]}))
+        calls: list[str] = []
+        original_get = dm.api_client.get
+        dm.api_client.get = lambda url, params=None, **kw: (calls.append(url), original_get(url, params=params, **kw))[1]
+        a = dm.analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["warnings"] == {"many_to_many_in_perspective": 0} and a["many_to_many"] == []
+        assert not any(u.endswith("/sql") for u in calls)
+
+    def test_a_pair_kept_only_by_the_all_paths_variant_is_scoped(self):
+        # filter on dim_dashboard reaches a widget on dim_datamodels; the engine path (fact_a) is kept, fact_b only in all-paths.
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+        dups = FakeResponse(200, {"headers": ["dup_keys"], "values": [[5]]})
+        a = _make_analyzer_b(export, sql=_SQL_VIA_FACT_A, sql_dups=dups).analyze_perspective_requirements("dm-b", detailed=True)
+        scopes = {(m["table_a"], m["table_b"]): m["scope"] for m in a["many_to_many"]}
+        assert scopes == {("dim_dashboard", "fact_a"): "perspective", ("dim_datamodels", "fact_a"): "perspective", ("dim_dashboard", "fact_b"): "all_paths", ("dim_datamodels", "fact_b"): "all_paths"}
+        assert a["warnings"]["many_to_many_in_perspective"] == 4
+
+    def test_a_failed_check_is_its_own_warning_and_not_an_error(self):
+        export = _b_export([_b_widget("w1", ("dim_dashboard", "title"), ("fact_a", "views"))])
+        failing = FakeResponse(200, {"error": True, "details": "Elasticube is not running"})
+        a = _make_analyzer_b(export, sql_dups=failing).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["errors"] == [] and a["warnings"] == {"many_to_many_unchecked": 1, "many_to_many_in_perspective": 0}
+        assert a["many_to_many"][0]["status"] == "error" and a["many_to_many"][0]["is_m2m"] is None and "Elasticube is not running" in a["many_to_many"][0]["error"]
 
 
 class TestAnalyzeUnderCoAuthoring:
@@ -1811,7 +1868,7 @@ class TestAnalyzePerspectiveJoins:
         assert a["join_path_choices"] == [] and a["dependencies"] == {"columns": [], "tables": [], "tables_all_paths": [], "join_paths": []}
         assert a["perspective_tables_all_paths"] == a["perspective_tables"]
         assert a["summary"]["tables_required_in_perspective"] == 2 and a["summary"]["columns_required_in_perspective"] == 2
-        assert a["warnings"] == {} and a["errors"] == []
+        assert a["warnings"] == {"many_to_many_in_perspective": 0} and a["errors"] == []
 
     def test_dashboard_filter_forces_the_join_and_reports_both_paths(self):
         export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
@@ -1832,7 +1889,7 @@ class TestAnalyzePerspectiveJoins:
                 "paths": [{"via": ["fact_a"], "in_use": None}, {"via": ["fact_b"], "in_use": None}],
             }
         ]
-        assert a["warnings"] == {"ambiguous_join_path": 1} and a["errors"] == []
+        assert a["warnings"] == {"ambiguous_join_path": 1, "many_to_many_in_perspective": 0} and a["errors"] == []
         assert "could not be obtained" in a["issues"][-1]["detail"]
         assert a["dependencies"]["tables"] == ["fact_a", "fact_b"] and a["dependencies"]["tables_all_paths"] == ["fact_a", "fact_b"]
         assert a["dependencies"]["join_paths"] == [["dim_dashboard", "fact_a", "fact_b", "dim_datamodels"]]
@@ -1857,7 +1914,7 @@ class TestAnalyzePerspectiveJoins:
                 "paths": [{"via": ["fact_a"], "in_use": True}, {"via": ["fact_b"], "in_use": False}],
             }
         ]
-        assert a["warnings"] == {} and a["errors"] == []
+        assert a["warnings"] == {"many_to_many_in_perspective": 0} and a["errors"] == []
         assert a["dependencies"]["tables"] == ["fact_a"] and a["dependencies"]["tables_all_paths"] == ["fact_a", "fact_b"]
         assert {(d["table"], d["column"]) for d in a["dependencies"]["columns"] if not d["in_use"]} == {("fact_b", "dashboard_id"), ("fact_b", "datamodel_id")}
         assert a["summary"]["tables_required_in_perspective"] == 3 and a["summary"]["tables_required_all_paths"] == 4
@@ -1888,7 +1945,7 @@ class TestAnalyzePerspectiveJoins:
         export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
         a = _make_analyzer_b(export, sql="boom", sql_status=500).analyze_perspective_requirements("dm-b")
         assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
-        assert a["join_path_choices"][0]["resolved"] is False and a["warnings"] == {"ambiguous_join_path": 1}
+        assert a["join_path_choices"][0]["resolved"] is False and a["warnings"] == {"ambiguous_join_path": 1, "many_to_many_in_perspective": 0}
 
     def test_cube_sql_matches_encoded_identifiers(self):
         sql = 'SELECT 1 FROM "aModelIAAaB"."adimXwAadatamodels" WHERE x IN (SELECT y FROM "aModelIAAaB"."afactXwAab")'
@@ -1930,7 +1987,7 @@ class TestAnalyzePerspectiveJoins:
         export = _b_export([_b_widget("w1", ("dim_dashboard", "title"), ("fact_a", "views"))])
         a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b")
         assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["dashboard_id", "title"]}, {"table": "fact_a", "columns": ["dashboard_id", "views"]}]
-        assert a["join_path_choices"] == [] and a["warnings"] == {}
+        assert a["join_path_choices"] == [] and a["warnings"] == {"many_to_many_in_perspective": 0}
 
     def test_custom_table_does_not_pull_in_its_source(self):
         export = _b_export([_b_widget("w1", ("v_active_users", "active"))])

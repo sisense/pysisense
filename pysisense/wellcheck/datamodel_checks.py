@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import quote
+
+from ..utils import _duplicate_key_count, _group_relation_column_pairs, _many_to_many_check, _quote_sql_identifier
 
 
 class DatamodelChecksMixin:
@@ -864,44 +865,25 @@ class DatamodelChecksMixin:
                 total_datamodels_processed += 1
                 continue
 
-            # Several relations between the same two tables form one composite key: group the column
-            # pairs per (unordered) table pair so each side is tested on all of its joined columns together.
-            groups: dict[tuple[str, str], dict[str, list[str]]] = {}
-            for pair in pairs:
-                left, right = pair["left_table"], pair["right_table"]
-                if left <= right:
-                    key, left_col, right_col = (left, right), pair["left_column"], pair["right_column"]
-                else:
-                    key, left_col, right_col = (right, left), pair["right_column"], pair["left_column"]
-                group = groups.setdefault(key, {"left": [], "right": []})
-                if left_col not in group["left"]:
-                    group["left"].append(left_col)
-                if right_col not in group["right"]:
-                    group["right"].append(right_col)
-
-            for (left_table, right_table), columns in groups.items():
-                left_count, left_error = self._duplicate_key_count_for_m2m(datamodel_title, left_table, columns["left"], live)
-                right_count, right_error = (None, None) if left_error else self._duplicate_key_count_for_m2m(datamodel_title, right_table, columns["right"], live)
-                error = left_error or right_error
-                is_m2m = None if error else bool(left_count) and bool(right_count)
+            # Several relations between the same two tables form one composite key: each side is tested on all
+            # of its joined columns together (shared helper, also used by the perspective analysis).
+            for group in _group_relation_column_pairs(pairs):
+                left_table, right_table = group["left_table"], group["right_table"]
+                outcome = _many_to_many_check(self.api_client, datamodel_title, group, live)
                 row = {
                     "data_model": datamodel_title,
                     "left_table": left_table,
-                    "left_columns": list(columns["left"]),
-                    "left_column": ", ".join(columns["left"]),
+                    "left_columns": list(group["left_columns"]),
+                    "left_column": ", ".join(group["left_columns"]),
                     "right_table": right_table,
-                    "right_columns": list(columns["right"]),
-                    "right_column": ", ".join(columns["right"]),
-                    "left_duplicate_keys": left_count,
-                    "right_duplicate_keys": right_count,
-                    "is_m2m": is_m2m,
-                    "status": "error" if error else "checked",
-                    "error": error,
+                    "right_columns": list(group["right_columns"]),
+                    "right_column": ", ".join(group["right_columns"]),
+                    **outcome,
                 }
-                self.logger.info(f"{datamodel_title}, {left_table}, {row['left_column']}, {right_table}, {row['right_column']}, {is_m2m}" + (f" ({error})" if error else ""))
+                self.logger.info(f"{datamodel_title}, {left_table}, {row['left_column']}, {right_table}, {row['right_column']}, {row['is_m2m']}" + (f" ({row['error']})" if row["error"] else ""))
                 results.append(row)
                 total_pairs_checked += 1
-                if is_m2m:
+                if row["is_m2m"]:
                     total_m2m += 1
             total_datamodels_processed += 1
 
@@ -925,35 +907,11 @@ class DatamodelChecksMixin:
     @staticmethod
     def _quote_identifier_for_m2m(name: str, live: bool) -> str:
         """Quote a table or column name for the model's SQL dialect (``[x]`` for cubes, ``"x"`` for live)."""
-        if live:
-            return '"' + name.replace('"', '""') + '"'
-        return "[" + name.replace("]", "]]") + "]"
+        return _quote_sql_identifier(name, live)
 
     def _duplicate_key_count_for_m2m(self, datamodel_title: str, table: str, columns: list[str], live: bool) -> tuple[int | None, str | None]:
-        """Count the key values of ``columns`` that occur more than once in ``table``: ``(count, error)``.
-
-        Runs ``GET /api/datasources/{title}/sql`` with a JSON answer. The endpoint reports query
-        failures with HTTP 200 and a body carrying ``"error": true``, so the body is checked too.
-        """
-        quoted_columns = ", ".join(self._quote_identifier_for_m2m(c, live) for c in columns)
-        query = f"select count(*) as dup_keys from (select {quoted_columns} from {self._quote_identifier_for_m2m(table, live)} group by {quoted_columns} having count(*) > 1) t"  # noqa: S608
-        response = self.api_client.get(f"/api/datasources/{quote(datamodel_title, safe='')}/sql", params={"query": query, "format": "json"})
-        if response is None:
-            return None, f"no response from the SQL endpoint for '{datamodel_title}'"
-        try:
-            body = response.json()
-        except Exception:
-            body = None
-        if getattr(response, "status_code", None) != 200:
-            detail = (body or {}).get("details") if isinstance(body, dict) else None
-            return None, f"SQL query on '{table}' failed (HTTP {response.status_code}): {detail or (getattr(response, 'text', '') or '')[:200] or 'no details'}"
-        if isinstance(body, dict) and body.get("error"):
-            return None, f"SQL query on '{table}' failed: {body.get('details') or body.get('message') or 'unrecognized error body'}"
-        values = body.get("values") if isinstance(body, dict) else None
-        try:
-            return int(values[0][0]), None
-        except (TypeError, ValueError, IndexError, KeyError):
-            return None, f"SQL query on '{table}' returned an unexpected body"
+        """Count the key values of ``columns`` that occur more than once in ``table``: ``(count, error)``."""
+        return _duplicate_key_count(self.api_client, datamodel_title, table, columns, live)
 
     def _collect_datamodel_relation_pairs_for_m2m(
         self,

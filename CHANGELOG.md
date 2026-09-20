@@ -98,6 +98,14 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Changed
 
+- **`analyze_perspective_requirements` warns about many-to-many joins inside the perspective.**
+  Every relation between two kept tables is tested for duplicated keys on both sides (the same
+  detection `check_datamodel_m2m_relationships` uses, shared through `utils`), composite keys
+  as a tuple. A many-to-many pair is a `many_to_many_in_perspective` warning — always present
+  in `warnings`, `0` when none — with the detail listing both tables, their join columns and the
+  duplicate counts, plus a `many_to_many` list in the detailed view (`scope` marks pairs kept only
+  by the all-paths variant). A pair whose SQL check failed is `many_to_many_unchecked`. Nothing is
+  dropped and `errors` is untouched: a many-to-many is a modelling decision for the caller.
 - **`analyze_perspective_requirements` keeps only what a perspective actually needs, and asks the
   engine which join path it uses.** A perspective evaluates custom columns and custom tables through
   its root model, so the columns a custom column reads and the tables a custom table selects from
@@ -122,6 +130,8 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### For downstream tool generators
 
+- `analyze_perspective_requirements`: `warnings.many_to_many_in_perspective` is always present; new
+  warning kind `many_to_many_unchecked`; additive detailed key `many_to_many`.
 - `check_datamodel_m2m_relationships`: additive row keys `left_columns`, `right_columns`,
   `left_duplicate_keys`, `right_duplicate_keys`, `status`, `error`; `is_m2m` may now be `None`;
   `left_column`/`right_column` hold `", "`-joined names for composite keys; a missing or empty

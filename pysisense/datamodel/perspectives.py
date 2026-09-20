@@ -13,6 +13,8 @@ from ..utils import (
     _discover_dashboards_on_datasource,
     _extract_dashboard_references,
     _extract_error_message,
+    _group_relation_column_pairs,
+    _many_to_many_check,
     _sql_names_table,
     _widget_query_metadata,
 )
@@ -431,8 +433,13 @@ class PerspectivesMixin:
         paths; ``perspective_tables_all_paths`` keeps every path; ``join_path_choices`` lists
         the pair, every path and which ones are in use. When the translation cannot be
         obtained, or names none of the candidates, every path is kept in both lists and the
-        pair is reported as ``ambiguous_join_path``. Anything that could not be resolved or
-        verified is reported as an issue rather than dropped.
+        pair is reported as ``ambiguous_join_path``. Every relation between two kept tables is
+        then tested for a many-to-many join with one aggregate SQL query per side
+        (``GET /api/datasources/{model}/sql``): a perspective inherits the root model's
+        relations, so a query spanning two kept tables joined many-to-many can fan out and
+        double count. Such a pair is a warning with its evidence, never an error and never a
+        reason to drop a table. Anything that could not be resolved or verified is reported as
+        an issue rather than dropped.
 
         Parameters
         ----------
@@ -463,7 +470,8 @@ class PerspectivesMixin:
             engine's path is known) and ``paths`` (each ``{"via": [...], "in_use": ...}`` — the
             intermediate tables of one path and whether the engine uses it; ``None`` when not
             resolved); ``errors`` — the distinct error messages; and ``warnings`` — warning counts
-            by kind.
+            by kind, ``many_to_many_in_perspective`` always present (``0`` when none), plus
+            ``many_to_many_unchecked`` when a pair's SQL check failed.
 
             With ``detailed=True`` also: ``required`` (``tables``: ``table``, ``columns_used``,
             ``columns_total``, ``used_by_dashboards``; ``columns``: ``table``, ``column``, ``used_in`` —
@@ -471,7 +479,11 @@ class PerspectivesMixin:
             with ``table``, ``column``, ``reason`` — always ``join_column`` — ``required_by``, ``detail``,
             ``in_use`` — whether the column is in ``perspective_tables``; ``tables`` kept only as join
             paths in ``perspective_tables``; ``tables_all_paths`` the same for every path; ``join_paths``);
-            ``not_required`` (``tables``, ``columns`` — relative to ``perspective_tables``); ``dashboards``
+            ``not_required`` (``tables``, ``columns`` — relative to ``perspective_tables``); ``many_to_many``
+            (one entry per kept table pair joined many-to-many or not checkable: ``table_a``, ``columns_a``,
+            ``table_b``, ``columns_b``, ``duplicate_keys_a``, ``duplicate_keys_b``, ``is_m2m``, ``status``,
+            ``error``, and ``scope`` — ``"perspective"``, or ``"all_paths"`` for a pair kept only by the
+            all-paths variant); ``dashboards``
             (``analyzed``: ``dashboard_id``, ``title``, ``match``, ``datasource`` — the model or the
             perspective the dashboard sits on — ``copy`` — ``"shared"`` under Dashboard Co-Authoring
             for a published dashboard, else ``"private"`` (the single copy) — ``owner``, ``owner_email``, ``tables_used``,
@@ -832,6 +844,65 @@ class PerspectivesMixin:
         tables_spec = spec(kept)
         tables_spec_all = spec(kept_all)
 
+        # Many-to-many joins between tables the perspective keeps. A perspective inherits the root model's
+        # relations, so a query spanning two kept tables joined many-to-many can fan out and double count.
+        # Reported as a warning with the evidence; nothing is dropped or blocked, since a many-to-many is a
+        # modelling decision. Pairs that exist only in the all-paths variant are reported with that scope.
+        def relation_groups_among(kept_map: dict[str, set[str]]) -> list[dict[str, Any]]:
+            pairs: list[dict[str, str]] = []
+            for group in index.get("relations") or []:
+                entries = [(t, c) for t, c in group if t in kept_map]
+                for i, (ta, ca) in enumerate(entries):
+                    for tb, cb in entries[i + 1 :]:
+                        if ta == tb:
+                            continue
+                        na, nca = name_of(ta, ca)
+                        nb, ncb = name_of(tb, cb)
+                        if na and nca and nb and ncb:
+                            pairs.append({"left_table": na, "left_column": nca, "right_table": nb, "right_column": ncb})
+            return _group_relation_column_pairs(pairs)
+
+        live_model = str(model_type or "").lower() == "live"
+        many_to_many: list[dict[str, Any]] = []
+        checked_pairs: set[tuple[Any, ...]] = set()
+        for scope, kept_map in (("perspective", kept), ("all_paths", kept_all)):
+            for group in relation_groups_among(kept_map):
+                pair_key = (group["left_table"], tuple(group["left_columns"]), group["right_table"], tuple(group["right_columns"]))
+                if pair_key in checked_pairs:
+                    continue
+                checked_pairs.add(pair_key)
+                outcome = _many_to_many_check(self.api_client, model_title, group, live_model)
+                a, b = group["left_table"], group["right_table"]
+                key_a, key_b = ", ".join(group["left_columns"]), ", ".join(group["right_columns"])
+                if outcome["status"] == "error":
+                    issue("warning", "many_to_many_unchecked", None, None, f"the join between '{a}' ({key_a}) and '{b}' ({key_b}) could not be checked for many-to-many: {outcome['error']}")
+                elif outcome["is_m2m"]:
+                    where = "the perspective" if scope == "perspective" else "the all-paths variant of the perspective"
+                    issue(
+                        "warning",
+                        "many_to_many_in_perspective",
+                        None,
+                        None,
+                        f"'{a}' ({key_a}) and '{b}' ({key_b}) are joined many-to-many — {outcome['left_duplicate_keys']} duplicated keys in '{a}', "
+                        f"{outcome['right_duplicate_keys']} in '{b}'; both tables are kept in {where}, so queries spanning them may double count",
+                    )
+                else:
+                    continue
+                many_to_many.append(
+                    {
+                        "table_a": a,
+                        "columns_a": list(group["left_columns"]),
+                        "table_b": b,
+                        "columns_b": list(group["right_columns"]),
+                        "duplicate_keys_a": outcome["left_duplicate_keys"],
+                        "duplicate_keys_b": outcome["right_duplicate_keys"],
+                        "is_m2m": outcome["is_m2m"],
+                        "status": outcome["status"],
+                        "error": outcome["error"],
+                        "scope": scope,
+                    }
+                )
+
         excluded_tables = sorted(t["name"] for oid, t in index["tables"].items() if oid not in kept and isinstance(t.get("name"), str))
         excluded_columns = []
         for table_oid, column_oids in kept.items():
@@ -894,6 +965,7 @@ class PerspectivesMixin:
         for i in issues:
             if i["severity"] == "warning":
                 warnings_by_kind[i["kind"]] = warnings_by_kind.get(i["kind"], 0) + 1
+        warnings_by_kind.setdefault("many_to_many_in_perspective", 0)
         result: dict[str, Any] = {
             "datamodel": model_facts,
             "summary": summary,
@@ -914,6 +986,7 @@ class PerspectivesMixin:
                         "join_paths": [[name_of(t)[0] for t in path["tables"]] for path in closure["join_paths"]],
                     },
                     "not_required": {"tables": excluded_tables, "columns": excluded_columns},
+                    "many_to_many": many_to_many,
                     "dashboards": {"analyzed": analyzed, "failed": failed},
                     "issues": issues,
                 }
