@@ -17,10 +17,10 @@ uv sync --dev
 uv run pytest -m "not integration"
 
 # Run a single test file
-uv run pytest tests/unit/unit_test_wellcheck.py
+uv run pytest tests/unit/test_wellcheck.py
 
 # Run a single test by name
-uv run pytest tests/unit/unit_test_wellcheck.py -k "test_name"
+uv run pytest tests/unit/test_wellcheck.py -k "test_name"
 
 # Run integration tests (requires live Sisense instance)
 uv run pytest -m integration

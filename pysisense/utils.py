@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import quote
 
 import pandas as pd
 import yaml
@@ -1022,6 +1023,86 @@ def _sql_names_table(sql: str, table: dict[str, Any]) -> bool:
             spellings.add(value.strip())
             spellings.add(_encode_cube_identifier(value.strip()))
     return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(spelling) + r"(?![A-Za-z0-9])", sql) for spelling in spellings)
+
+
+# --------------------------------------------------------------------------- many-to-many detection
+
+
+def _quote_sql_identifier(name: str, live: bool) -> str:
+    """Quote a table or column name for a model's SQL dialect: ``[x]`` for ElastiCubes, ``"x"`` for live models."""
+    if live:
+        return '"' + name.replace('"', '""') + '"'
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _duplicate_key_count(api_client: Any, datasource_title: str, table: str, columns: list[str], live: bool) -> tuple[int | None, str | None]:
+    """Count the values of ``columns`` (taken together) that occur more than once in ``table``: ``(count, error)``.
+
+    Runs ``select count(*) from (select <columns> from <table> group by <columns> having count(*) > 1) t``
+    through ``GET /api/datasources/{title}/sql`` with a JSON answer. The endpoint reports query
+    failures with HTTP 200 and a body carrying ``"error": true``, so the body is checked too.
+    """
+    quoted_columns = ", ".join(_quote_sql_identifier(c, live) for c in columns)
+    query = f"select count(*) as dup_keys from (select {quoted_columns} from {_quote_sql_identifier(table, live)} group by {quoted_columns} having count(*) > 1) t"  # noqa: S608
+    response = api_client.get(f"/api/datasources/{quote(datasource_title, safe='')}/sql", params={"query": query, "format": "json"})
+    if response is None:
+        return None, f"no response from the SQL endpoint for '{datasource_title}'"
+    try:
+        body = response.json()
+    except Exception:
+        body = None
+    if getattr(response, "status_code", None) != 200:
+        detail = (body or {}).get("details") if isinstance(body, dict) else None
+        return None, f"SQL query on '{table}' failed (HTTP {response.status_code}): {detail or (getattr(response, 'text', '') or '')[:200] or 'no details'}"
+    if isinstance(body, dict) and body.get("error"):
+        return None, f"SQL query on '{table}' failed: {body.get('details') or body.get('message') or 'unrecognized error body'}"
+    values = body.get("values") if isinstance(body, dict) else None
+    try:
+        return int(values[0][0]), None
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None, f"SQL query on '{table}' returned an unexpected body"
+
+
+def _group_relation_column_pairs(pairs: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Group single-column relation pairs by (unordered) table pair into composite keys.
+
+    Several relations between the same two tables form one composite key, so each side is
+    tested on all of its joined columns together. ``pairs`` carry ``left_table``, ``left_column``,
+    ``right_table``, ``right_column`` (names). Returns ``[{"left_table", "left_columns",
+    "right_table", "right_columns"}]`` with the tables in sorted order, in first-seen order.
+    """
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for pair in pairs:
+        left, right = pair["left_table"], pair["right_table"]
+        if left <= right:
+            key, left_col, right_col = (left, right), pair["left_column"], pair["right_column"]
+        else:
+            key, left_col, right_col = (right, left), pair["right_column"], pair["left_column"]
+        group = groups.setdefault(key, {"left_table": key[0], "left_columns": [], "right_table": key[1], "right_columns": []})
+        if left_col not in group["left_columns"]:
+            group["left_columns"].append(left_col)
+        if right_col not in group["right_columns"]:
+            group["right_columns"].append(right_col)
+    return list(groups.values())
+
+
+def _many_to_many_check(api_client: Any, datasource_title: str, group: dict[str, Any], live: bool) -> dict[str, Any]:
+    """Test one table pair for a many-to-many join: duplicated keys on both sides.
+
+    Returns ``{"left_duplicate_keys", "right_duplicate_keys", "is_m2m", "status", "error"}``;
+    ``is_m2m`` is ``None`` and ``status`` ``"error"`` when a query failed (the right side is
+    not queried after the left failed).
+    """
+    left_count, left_error = _duplicate_key_count(api_client, datasource_title, group["left_table"], group["left_columns"], live)
+    right_count, right_error = (None, None) if left_error else _duplicate_key_count(api_client, datasource_title, group["right_table"], group["right_columns"], live)
+    error = left_error or right_error
+    return {
+        "left_duplicate_keys": left_count,
+        "right_duplicate_keys": right_count,
+        "is_m2m": None if error else bool(left_count) and bool(right_count),
+        "status": "error" if error else "checked",
+        "error": error,
+    }
 
 
 # --------------------------------------------------------------------------- Dashboard Co-Authoring and ownership

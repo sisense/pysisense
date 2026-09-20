@@ -187,6 +187,16 @@ datamodels = "MyDataModel_ec"  # Can be ID or name
 results = wellcheck.check_datamodel_m2m_relationships(datamodels=datamodels)
 print("Data Model Many-to-Many Relationships Report:")
 print(json.dumps(results, indent=4))
+# [{"data_model": "MyDataModel_ec", "left_table": "Dim_groups", "left_columns": ["group_id"], "left_column": "group_id",
+#   "right_table": "Fact_users_groups", "right_columns": ["group_id"], "right_column": "group_id",
+#   "left_duplicate_keys": 0, "right_duplicate_keys": 26, "is_m2m": False, "status": "checked", "error": None}, ...]
+# A composite key (two relations between the same tables) is one row with two columns per side, tested together.
+# A pair the engine could not check has status "error", is_m2m None and the engine's message in "error".
+for row in results:
+    if row["is_m2m"]:
+        print("many-to-many:", row["left_table"], row["left_column"], "<->", row["right_table"], row["right_column"])
+    elif row["status"] == "error":
+        print("not checked:", row["left_table"], "<->", row["right_table"], row["error"])
 
 # Convert to DataFrame
 df = api_client.to_dataframe(results)

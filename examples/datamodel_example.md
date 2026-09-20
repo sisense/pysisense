@@ -856,6 +856,13 @@ print(analysis["perspective_tables"])  # [{"table": "Brand", "columns": ["Brand 
 print(analysis["errors"])  # ["Sales by Category: 'DimDates'.'Date' is used but does not exist in data model 'Sample ECommerce'", ...]
 print(analysis["warnings"])  # {"renamed_reference": 73, "script_present": 28, "blox_widget": 17}
 
+# Two kept tables joined many-to-many are a warning, with the evidence in the detailed view:
+print(analysis["warnings"]["many_to_many_in_perspective"])  # 1
+# detailed["many_to_many"] -> [{"table_a": "Dim_Country", "columns_a": ["CountryCode"], "table_b": "Fact_Sale_orders",
+#   "columns_b": ["CountryCode"], "duplicate_keys_a": 2, "duplicate_keys_b": 56, "is_m2m": True, "status": "checked",
+#   "error": None, "scope": "perspective"}]
+# Queries spanning such a pair may double count; the perspective still keeps both tables.
+
 # Join dependencies are added only where two tables meet in one query (a widget, or a dashboard filter
 # reaching a widget). Where more than one equally short relation path connects such a pair through tables
 # no dashboard uses, the method asks the query translator which path the engine takes:

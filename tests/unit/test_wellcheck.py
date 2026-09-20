@@ -1041,169 +1041,179 @@ def test_check_datamodel_import_queries_detects_import_queries() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_check_datamodel_m2m_relationships_returns_empty_when_no_datamodels() -> None:
-    logger = FakeLogger()
-    api_client = FakeApiClient(responses={}, logger=logger)
-
-    # Dashboard is unused here but required by the harness
-    dashboard = FakeDashboard(mapping={})
-    datamodel = FakeDatamodel(mapping={})
-
-    wellcheck = WellCheckTestHarness(
-        api_client=api_client,
-        dashboard=dashboard,
-        datamodel=datamodel,
-    )
-
-    result = wellcheck.check_datamodel_m2m_relationships(datamodels=None)
-
-    assert result == []
-    assert any(m["level"] == "error" and "At least one datamodel reference" in m["msg"] for m in logger.messages)
-
-
-def test_check_datamodel_m2m_relationships_skips_unresolved_references() -> None:
-    logger = FakeLogger()
-    api_client = FakeApiClient(responses={}, logger=logger)
-
-    # No entries in mapping -> all references fail to resolve
-    dashboard = FakeDashboard(mapping={})
-    datamodel = FakeDatamodel(mapping={})
-
-    wellcheck = WellCheckTestHarness(
-        api_client=api_client,
-        dashboard=dashboard,
-        datamodel=datamodel,
-    )
-
-    result = wellcheck.check_datamodel_m2m_relationships(datamodels=["missing_datamodel"])
-
-    assert result == []
-    assert any(m["level"] == "warning" and "Skipping datamodel reference 'missing_datamodel'" in m["msg"] for m in logger.messages)
-
-
-def test_check_datamodel_m2m_relationships_detects_m2m_pairs() -> None:
-    """
-    Single datamodel with one relation between:
-      - LeftTable.LeftKey
-      - RightTable.RightKey
-
-    Both sides return > 1 duplicate key row from the aggregate queries,
-    so the pair should be flagged as many-to-many (is_m2m=True).
-    """
-    logger = FakeLogger()
-
-    datamodel_id = "DM1"
-    datamodel_title = "Sales Model"
-
-    # Endpoints used by the implementation
-    relations_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/relations"
-    left_table_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/datasets/DS1/tables/T1"
-    right_table_endpoint = f"/api/v2/datamodels/{datamodel_id}/schema/datasets/DS2/tables/T2"
-    datasource_endpoint = f"/api/datasources/{datamodel_title}/sql"
-
-    # 1) Relations payload: a single relation with two columns (one left, one right)
-    relations_payload = [
-        {
-            "oid": "REL1",
-            "columns": [
-                {"dataset": "DS1", "table": "T1", "column": "C1"},
-                {"dataset": "DS2", "table": "T2", "column": "C2"},
-            ],
-        }
-    ]
-
-    # 2) Table details payloads for left and right tables
-    left_table_payload = {
-        "name": "LeftTable",
-        "columns": [
-            {"oid": "C1", "name": "LeftKey"},
-        ],
-    }
-    right_table_payload = {
-        "name": "RightTable",
-        "columns": [
-            {"oid": "C2", "name": "RightKey"},
-        ],
-    }
-
-    # 3) CSV responses for the aggregate queries
-    #    Two data rows + header => count = 2 (> 1) for each side.
-    left_query = "select [LeftKey], count([LeftKey]) as key_count1 from [LeftTable] group by [LeftKey] having count([LeftKey]) > 1"
-    right_query = "select [RightKey], count([RightKey]) as key_count2 from [RightTable] group by [RightKey] having count([RightKey]) > 1"
-
-    left_csv_resp = FakeResponse(status_code=200, json_data={})
-    left_csv_resp.text = "LeftKey,key_count1\nA,2\nB,3\n"
-
-    right_csv_resp = FakeResponse(status_code=200, json_data={})
-    right_csv_resp.text = "RightKey,key_count2\nX,2\nY,4\n"
-
-    # We key responses by (endpoint, query) where query is None for non-SQL calls
-    responses = {
-        (relations_endpoint, None): FakeResponse(status_code=200, json_data=relations_payload),
-        (left_table_endpoint, None): FakeResponse(status_code=200, json_data=left_table_payload),
-        (right_table_endpoint, None): FakeResponse(status_code=200, json_data=right_table_payload),
-        (datasource_endpoint, left_query): left_csv_resp,
-        (datasource_endpoint, right_query): right_csv_resp,
-    }
+def _m2m_harness(responses: dict, mapping: dict, logger: FakeLogger, model_type: str = "extract") -> WellCheckTestHarness:
+    """Harness whose api_client answers the SQL endpoint per (endpoint, query) and whose datamodel knows the model type."""
 
     class FakeApiClientWithParams:
-        """
-        Local fake API client that supports the `params` argument used by
-        the M2M check when calling the SQL endpoint.
-        """
-
         def __init__(self, responses, logger) -> None:
             self._responses = responses
             self.logger = logger
+            self.calls: list[tuple[str, str | None]] = []
 
         def get(self, endpoint, params=None):
-            query = None
-            if params and "query" in params:
-                query = params["query"]
+            query = params.get("query") if params else None
+            self.calls.append((endpoint, query))
             return self._responses.get((endpoint, query))
 
-    api_client = FakeApiClientWithParams(responses=responses, logger=logger)
+    class FakeDatamodelWithType(FakeDatamodel):
+        def get_datamodel(self, name):
+            return {"oid": "DM1", "title": name, "type": model_type}
 
-    # Dashboard helper is unused for this test
-    dashboard = FakeDashboard(mapping={})
-    datamodel = FakeDatamodel(
-        mapping={
-            datamodel_id: {
-                "datamodel_id": datamodel_id,
-                "datamodel_title": datamodel_title,
-            },
-            datamodel_title: {
-                "datamodel_id": datamodel_id,
-                "datamodel_title": datamodel_title,
-            },
+    return WellCheckTestHarness(api_client=FakeApiClientWithParams(responses, logger), dashboard=FakeDashboard(mapping={}), datamodel=FakeDatamodelWithType(mapping=mapping))
+
+
+def _sql(count: int) -> FakeResponse:
+    return FakeResponse(status_code=200, json_data={"headers": ["dup_keys"], "values": [[count]]})
+
+
+def _dup_query(table: str, *columns: str, live: bool = False) -> str:
+    q = (lambda n: '"' + n + '"') if live else (lambda n: "[" + n + "]")
+    cols = ", ".join(q(c) for c in columns)
+    return f"select count(*) as dup_keys from (select {cols} from {q(table)} group by {cols} having count(*) > 1) t"  # noqa: S608
+
+
+_M2M_MAPPING = {"DM1": {"datamodel_id": "DM1", "datamodel_title": "Sales Model"}, "Sales Model": {"datamodel_id": "DM1", "datamodel_title": "Sales Model"}}
+_M2M_SQL = "/api/datasources/Sales%20Model/sql"
+
+
+def _m2m_schema_responses(relations: list[dict], tables: dict[str, dict]) -> dict:
+    responses = {("/api/v2/datamodels/DM1/schema/relations", None): FakeResponse(status_code=200, json_data=relations)}
+    for (dataset, table), payload in tables.items():
+        responses[(f"/api/v2/datamodels/DM1/schema/datasets/{dataset}/tables/{table}", None)] = FakeResponse(status_code=200, json_data=payload)
+    return responses
+
+
+def test_check_datamodel_m2m_relationships_missing_input_is_an_error_dict() -> None:
+    logger = FakeLogger()
+    wellcheck = _m2m_harness({}, {}, logger)
+    result = wellcheck.check_datamodel_m2m_relationships(datamodels=None)
+    assert result == {"ok": False, "error": "At least one datamodel reference (ID or name) is required."}
+    assert wellcheck.check_datamodel_m2m_relationships(datamodels=[None, 3])["ok"] is False  # type: ignore[list-item]
+
+
+def test_check_datamodel_m2m_relationships_unresolved_reference_is_an_error_row() -> None:
+    logger = FakeLogger()
+    wellcheck = _m2m_harness({}, {}, logger)
+    result = wellcheck.check_datamodel_m2m_relationships(datamodels=["missing_datamodel"])
+    assert len(result) == 1 and result[0]["status"] == "error" and result[0]["is_m2m"] is None
+    assert result[0]["data_model"] == "missing_datamodel" and result[0]["left_table"] is None and "could not be resolved" in result[0]["error"]
+
+
+def test_check_datamodel_m2m_relationships_flags_duplicates_on_both_sides() -> None:
+    """One duplicated key value on each side is enough: the key is not unique on either table."""
+    logger = FakeLogger()
+    relations = [{"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "C1"}, {"dataset": "DS2", "table": "T2", "column": "C2"}]}]
+    tables = {("DS1", "T1"): {"name": "LeftTable", "columns": [{"oid": "C1", "name": "LeftKey"}]}, ("DS2", "T2"): {"name": "RightTable", "columns": [{"oid": "C2", "name": "RightKey"}]}}
+    responses = _m2m_schema_responses(relations, tables)
+    responses[(_M2M_SQL, _dup_query("LeftTable", "LeftKey"))] = _sql(1)
+    responses[(_M2M_SQL, _dup_query("RightTable", "RightKey"))] = _sql(37)
+    wellcheck = _m2m_harness(responses, _M2M_MAPPING, logger)
+    result = wellcheck.check_datamodel_m2m_relationships(datamodels=["DM1"])
+    assert result == [
+        {
+            "data_model": "Sales Model",
+            "left_table": "LeftTable",
+            "left_columns": ["LeftKey"],
+            "left_column": "LeftKey",
+            "right_table": "RightTable",
+            "right_columns": ["RightKey"],
+            "right_column": "RightKey",
+            "left_duplicate_keys": 1,
+            "right_duplicate_keys": 37,
+            "is_m2m": True,
+            "status": "checked",
+            "error": None,
         }
-    )
-
-    wellcheck = WellCheckTestHarness(
-        api_client=api_client,
-        dashboard=dashboard,
-        datamodel=datamodel,
-    )
-
-    result = wellcheck.check_datamodel_m2m_relationships(datamodels=[datamodel_id])
-
-    # Exactly one relation pair -> one row in the result
-    assert len(result) == 1
-    row = result[0]
-
-    assert row["data_model"] == datamodel_title
-    assert row["left_table"] == "LeftTable"
-    assert row["left_column"] == "LeftKey"
-    assert row["right_table"] == "RightTable"
-    assert row["right_column"] == "RightKey"
-    assert row["is_m2m"] is True
-
-    # Check that the original print-style info log was preserved
-    assert any(m["level"] == "info" and datamodel_title in m["msg"] and "LeftTable" in m["msg"] and "RightTable" in m["msg"] for m in logger.messages)
-
-    # Summary logs should mention processed datamodels and M2M count
+    ]
+    assert any(m["level"] == "info" and "Sales Model" in m["msg"] and "LeftTable" in m["msg"] and "RightTable" in m["msg"] for m in logger.messages)
     assert any(m["level"] == "info" and "Processed 1 data models" in m["msg"] for m in logger.messages)
     assert any(m["level"] == "info" and "Found 1 many-to-many relationships" in m["msg"] for m in logger.messages)
+
+
+def test_check_datamodel_m2m_relationships_one_unique_side_is_one_to_many() -> None:
+    logger = FakeLogger()
+    relations = [{"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "C1"}, {"dataset": "DS2", "table": "T2", "column": "C2"}]}]
+    tables = {("DS1", "T1"): {"name": "Dim", "columns": [{"oid": "C1", "name": "Id"}]}, ("DS2", "T2"): {"name": "Fact", "columns": [{"oid": "C2", "name": "DimId"}]}}
+    responses = _m2m_schema_responses(relations, tables)
+    responses[(_M2M_SQL, _dup_query("Dim", "Id"))] = _sql(0)
+    responses[(_M2M_SQL, _dup_query("Fact", "DimId"))] = _sql(9000)
+    result = _m2m_harness(responses, _M2M_MAPPING, logger).check_datamodel_m2m_relationships(datamodels=["Sales Model"])
+    assert result[0]["is_m2m"] is False and result[0]["status"] == "checked" and result[0]["left_duplicate_keys"] == 0
+
+
+def test_check_datamodel_m2m_relationships_groups_a_composite_key_into_one_query_per_side() -> None:
+    """Two relations between the same tables (Year and Region) are one composite key: grouped together, one row."""
+    logger = FakeLogger()
+    relations = [
+        {"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "Y1"}, {"dataset": "DS2", "table": "T2", "column": "Y2"}]},
+        {"oid": "REL2", "columns": [{"dataset": "DS2", "table": "T2", "column": "R2"}, {"dataset": "DS1", "table": "T1", "column": "R1"}]},  # endpoints listed the other way round
+    ]
+    tables = {
+        ("DS1", "T1"): {"name": "Budget", "columns": [{"oid": "Y1", "name": "Year"}, {"oid": "R1", "name": "Region"}]},
+        ("DS2", "T2"): {"name": "Sales", "columns": [{"oid": "Y2", "name": "Year"}, {"oid": "R2", "name": "Region"}]},
+    }
+    responses = _m2m_schema_responses(relations, tables)
+    responses[(_M2M_SQL, _dup_query("Budget", "Year", "Region"))] = _sql(0)  # unique on the pair, though each column alone repeats
+    responses[(_M2M_SQL, _dup_query("Sales", "Year", "Region"))] = _sql(120)
+    wellcheck = _m2m_harness(responses, _M2M_MAPPING, logger)
+    result = wellcheck.check_datamodel_m2m_relationships(datamodels=["DM1"])
+    assert len(result) == 1
+    row = result[0]
+    assert row["left_table"] == "Budget" and row["left_columns"] == ["Year", "Region"] and row["left_column"] == "Year, Region"
+    assert row["right_table"] == "Sales" and row["right_columns"] == ["Year", "Region"]
+    assert row["is_m2m"] is False and row["left_duplicate_keys"] == 0 and row["right_duplicate_keys"] == 120
+    sql_calls = [q for e, q in wellcheck.api_client.calls if e == _M2M_SQL]
+    assert sql_calls == [_dup_query("Budget", "Year", "Region"), _dup_query("Sales", "Year", "Region")]
+
+
+def test_check_datamodel_m2m_relationships_expands_a_multi_table_relation_pairwise() -> None:
+    logger = FakeLogger()
+    relations = [{"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "C1"}, {"dataset": "DS2", "table": "T2", "column": "C2"}, {"dataset": "DS3", "table": "T3", "column": "C3"}]}]
+    tables = {
+        ("DS1", "T1"): {"name": "A", "columns": [{"oid": "C1", "name": "K"}]},
+        ("DS2", "T2"): {"name": "B", "columns": [{"oid": "C2", "name": "K"}]},
+        ("DS3", "T3"): {"name": "C", "columns": [{"oid": "C3", "name": "K"}]},
+    }
+    responses = _m2m_schema_responses(relations, tables)
+    for t, n in (("A", 0), ("B", 2), ("C", 5)):
+        responses[(_M2M_SQL, _dup_query(t, "K"))] = _sql(n)
+    result = _m2m_harness(responses, _M2M_MAPPING, logger).check_datamodel_m2m_relationships(datamodels=["DM1"])
+    assert [(r["left_table"], r["right_table"], r["is_m2m"]) for r in result] == [("A", "B", False), ("A", "C", False), ("B", "C", True)]
+
+
+def test_check_datamodel_m2m_relationships_reports_query_failures_instead_of_false() -> None:
+    """The SQL endpoint answers HTTP 200 with an error body; the pair is reported as not checked, never as not M2M."""
+    logger = FakeLogger()
+    relations = [{"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "C1"}, {"dataset": "DS2", "table": "T2", "column": "C2"}]}]
+    tables = {("DS1", "T1"): {"name": "L", "columns": [{"oid": "C1", "name": "k"}]}, ("DS2", "T2"): {"name": "R", "columns": [{"oid": "C2", "name": "k"}]}}
+    responses = _m2m_schema_responses(relations, tables)
+    responses[(_M2M_SQL, _dup_query("L", "k"))] = FakeResponse(
+        status_code=200, json_data={"error": True, "details": "Query could not be compiled.\nColumn 'k' not found in any table", "httpStatusCode": 500}
+    )
+    responses[(_M2M_SQL, _dup_query("R", "k"))] = _sql(3)
+    wellcheck = _m2m_harness(responses, _M2M_MAPPING, logger)
+    result = wellcheck.check_datamodel_m2m_relationships(datamodels=["DM1"])
+    row = result[0]
+    assert row["status"] == "error" and row["is_m2m"] is None and row["left_duplicate_keys"] is None and row["right_duplicate_keys"] is None
+    assert row["error"] == "SQL query on 'L' failed: Query could not be compiled.\nColumn 'k' not found in any table"
+    assert [q for e, q in wellcheck.api_client.calls if e == _M2M_SQL] == [_dup_query("L", "k")]  # the right side is not queried after the left failed
+    assert any(m["level"] == "info" and "Found 0 many-to-many relationships" in m["msg"] for m in logger.messages)
+    # no answer at all is an error too
+    responses[(_M2M_SQL, _dup_query("L", "k"))] = None
+    assert _m2m_harness(responses, _M2M_MAPPING, logger).check_datamodel_m2m_relationships(datamodels=["DM1"])[0]["error"].startswith("no response")
+
+
+def test_check_datamodel_m2m_relationships_quotes_live_models_for_the_source_and_escapes_brackets() -> None:
+    logger = FakeLogger()
+    relations = [{"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "C1"}, {"dataset": "DS2", "table": "T2", "column": "C2"}]}]
+    tables = {("DS1", "T1"): {"name": "employees", "columns": [{"oid": "C1", "name": "EmployeeID"}]}, ("DS2", "T2"): {"name": "sales", "columns": [{"oid": "C2", "name": "EmployeeID"}]}}
+    responses = _m2m_schema_responses(relations, tables)
+    responses[(_M2M_SQL, _dup_query("employees", "EmployeeID", live=True))] = _sql(0)
+    responses[(_M2M_SQL, _dup_query("sales", "EmployeeID", live=True))] = _sql(4)
+    result = _m2m_harness(responses, _M2M_MAPPING, logger, model_type="live").check_datamodel_m2m_relationships(datamodels=["DM1"])
+    assert result[0]["status"] == "checked" and result[0]["is_m2m"] is False
+    assert WellCheckTestHarness._quote_identifier_for_m2m("odd]name", live=False) == "[odd]]name]"
+    assert WellCheckTestHarness._quote_identifier_for_m2m('odd"name', live=True) == '"odd""name"'
 
 
 # ---------------------------------------------------------------------------
@@ -1326,7 +1336,7 @@ def test_run_full_wellcheck_aggregates_results_and_invokes_subchecks() -> None:
                 }
             ]
 
-        def check_datamodel_rls_datatype(
+        def check_datamodel_rls_datatypes(
             self,
             datamodels: list[str] | None = None,
         ) -> list[dict[str, Any]]:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..utils import _duplicate_key_count, _group_relation_column_pairs, _many_to_many_check, _quote_sql_identifier
+
 
 class DatamodelChecksMixin:
     def check_datamodel_custom_tables(
@@ -767,58 +769,58 @@ class DatamodelChecksMixin:
     def check_datamodel_m2m_relationships(
         self,
         datamodels: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
-        """
-        Check for potential many-to-many (M2M) relationships between tables
-        in one or more data models.
+    ) -> list[dict[str, Any]] | dict[str, Any]:
+        """Check every relation of one or more data models for a many-to-many (M2M) join.
 
-        For each data model, this method inspects the relation graph, builds
-        table/column pairs from the relations, and runs aggregate SQL queries
-        against the data source to detect whether both sides of the relation
-        contain duplicate keys. Pairs where each side has more than one
-        occurrence of its key are flagged as many-to-many.
+        A relation is many-to-many when its join key is not unique on either side,
+        which is how Sisense itself classifies a relationship. For each pair of tables
+        connected by relations, the method runs one aggregate SQL query per side
+        through ``GET /api/datasources/{title}/sql``, counting the key values that
+        occur more than once:
+
+        ``select count(*) from (select <key columns> from <table> group by <key columns>
+        having count(*) > 1) t``
+
+        Both counts above zero means many-to-many. Tables joined on several columns
+        (several relations between the same two tables) are checked on the column
+        tuple together, since that is the key the engine joins on; a relation that
+        spans more than two tables is checked pairwise. Table and column names are
+        quoted in square brackets for ElastiCubes and in double quotes for live
+        models, whose SQL is passed to the source.
 
         Parameters
         ----------
-        datamodels : list of str, optional
-            One or more data model references to analyze. Each reference can be:
-              - a Sisense data model ID, or
-              - a data model title (name).
-            At least one data model reference is required. At runtime this
-            method is tolerant of a single string being passed instead of a
-            list, and will normalize it to a one-element list.
+        datamodels : list[str] | None, optional
+            One or more data model references, each an ID or a title. A single string
+            is accepted in place of a one-element list.
 
         Returns
         -------
-        list of dict
-            A list with one entry per relation field pair checked. Each entry
-            contains:
-              - data_model (str): Data model title.
-              - left_table (str): Name of the left table.
-              - left_column (str): Name of the left column.
-              - right_table (str): Name of the right table.
-              - right_column (str): Name of the right column.
-              - is_m2m (bool): True when both sides have more than one
-                occurrence of their key, False otherwise.
-
-            If no data models are successfully processed, an empty list is
-            returned and details are available in the logs.
+        list[dict[str, Any]] | dict[str, Any]
+            One row per pair of tables checked: ``data_model``, ``left_table``,
+            ``left_columns`` (list of names), ``left_column`` (the same names joined with
+            ``", "``), ``right_table``, ``right_columns``, ``right_column``,
+            ``left_duplicate_keys`` and ``right_duplicate_keys`` (how many key values
+            occur more than once on each side, ``None`` when not counted), ``is_m2m``
+            (``True``/``False``, or ``None`` when the pair could not be checked),
+            ``status`` — ``"checked"`` or ``"error"`` — and ``error`` (the engine's
+            message when a query failed, otherwise ``None``). A data model that cannot
+            be resolved contributes one row with ``status`` ``"error"`` and no tables.
+            When ``datamodels`` is missing or holds no reference, the standard
+            ``{"ok": False, "error": "..."}`` dict.
         """
         self.logger.info("Starting many-to-many (M2M) relationship check.")
         self.logger.debug(f"Input datamodels parameter: {datamodels}")
 
         if datamodels is None:
-            error_msg = "At least one datamodel reference (ID or name) is required."
-            self.logger.error(error_msg)
-            return []
-
+            failure = {"ok": False, "error": "At least one datamodel reference (ID or name) is required."}
+            self.logger.error(failure["error"])
+            return failure
         datamodel_refs = [datamodels] if isinstance(datamodels, str) else [ref for ref in datamodels if isinstance(ref, str)]
-
         if not datamodel_refs:
-            error_msg = "No valid datamodel references provided."
-            self.logger.error(error_msg)
-            return []
-
+            failure = {"ok": False, "error": "No valid datamodel references provided."}
+            self.logger.error(failure["error"])
+            return failure
         self.logger.info(f"Processing specified datamodels: {datamodel_refs}")
 
         results: list[dict[str, Any]] = []
@@ -826,104 +828,90 @@ class DatamodelChecksMixin:
         total_pairs_checked = 0
         total_m2m = 0
 
+        def error_row(model: str, message: str, **fields: Any) -> dict[str, Any]:
+            row = {
+                "data_model": model,
+                "left_table": None,
+                "left_columns": [],
+                "left_column": None,
+                "right_table": None,
+                "right_columns": [],
+                "right_column": None,
+                "left_duplicate_keys": None,
+                "right_duplicate_keys": None,
+                "is_m2m": None,
+                "status": "error",
+                "error": message,
+            }
+            row.update(fields)
+            return row
+
         for ref in datamodel_refs:
             self.logger.info(f"Processing datamodel reference: {ref}")
-
             resolved = self.datamodel.resolve_datamodel_reference(ref)
-            if not resolved.get("success"):
-                self.logger.warning(f"Skipping datamodel reference '{ref}': {resolved.get('error')}")
+            if not resolved.get("success") or not resolved.get("datamodel_id"):
+                message = f"Data model '{ref}' could not be resolved: {resolved.get('error') or 'not found'}"
+                self.logger.warning(message)
+                results.append(error_row(ref, message))
                 continue
-
-            datamodel_id = resolved.get("datamodel_id")
+            datamodel_id = resolved["datamodel_id"]
             datamodel_title = resolved.get("datamodel_title") or ref
+            live = self._is_live_datamodel_for_m2m(datamodel_title)
+            self.logger.debug(f"Resolved datamodel reference '{ref}' to ID '{datamodel_id}', title '{datamodel_title}' (live={live}).")
 
-            if not datamodel_id:
-                self.logger.warning(f"Resolved datamodel reference '{ref}' has no datamodel_id. Skipping.")
-                continue
-
-            self.logger.debug(f"Resolved datamodel reference '{ref}' to ID '{datamodel_id}', title '{datamodel_title}'.")
-
-            # Collect relation-based table/column pairs for this datamodel
-            pairs = self._collect_datamodel_relation_pairs_for_m2m(
-                datamodel_id=datamodel_id,
-                datamodel_title=datamodel_title,
-            )
-
+            pairs = self._collect_datamodel_relation_pairs_for_m2m(datamodel_id=datamodel_id, datamodel_title=datamodel_title)
             if not pairs:
                 self.logger.info(f"No relation column pairs found for datamodel '{datamodel_title}'.")
                 total_datamodels_processed += 1
                 continue
 
-            datasource_endpoint = f"/api/datasources/{datamodel_title}/sql"
-
-            for pair in pairs:
-                left_table = pair["left_table"]
-                left_column = pair["left_column"]
-                right_table = pair["right_table"]
-                right_column = pair["right_column"]
-
-                # Build the two aggregate queries
-                query1 = f"select [{left_column}], count([{left_column}]) as key_count1 from [{left_table}] group by [{left_column}] having count([{left_column}]) > 1"  # noqa: S608
-                query2 = f"select [{right_column}], count([{right_column}]) as key_count2 from [{right_table}] group by [{right_column}] having count([{right_column}]) > 1"  # noqa: S608
-
-                # Execute queries as CSV
-                resp1 = self.api_client.get(
-                    datasource_endpoint,
-                    params={"query": query1, "format": "csv"},
-                )
-                resp2 = self.api_client.get(
-                    datasource_endpoint,
-                    params={"query": query2, "format": "csv"},
-                )
-
-                def _count_rows_from_csv_response(response: Any) -> int:
-                    if response is None:
-                        return 0
-                    if getattr(response, "status_code", None) != 200:
-                        return 0
-                    text = getattr(response, "text", "") or ""
-                    if not text:
-                        return 0
-                    lines = [line for line in text.splitlines() if line.strip()]
-                    if not lines:
-                        return 0
-                    # First line is assumed to be header
-                    return max(len(lines) - 1, 0)
-
-                count1 = _count_rows_from_csv_response(resp1)
-                count2 = _count_rows_from_csv_response(resp2)
-
-                is_m2m = count1 > 1 and count2 > 1
-
-                self.logger.info(f"{datamodel_title}, {left_table}, {left_column}, {right_table}, {right_column}, {is_m2m}")
-
-                results.append(
-                    {
-                        "data_model": datamodel_title,
-                        "left_table": left_table,
-                        "left_column": left_column,
-                        "right_table": right_table,
-                        "right_column": right_column,
-                        "is_m2m": is_m2m,
-                    }
-                )
-
+            # Several relations between the same two tables form one composite key: each side is tested on all
+            # of its joined columns together (shared helper, also used by the perspective analysis).
+            for group in _group_relation_column_pairs(pairs):
+                left_table, right_table = group["left_table"], group["right_table"]
+                outcome = _many_to_many_check(self.api_client, datamodel_title, group, live)
+                row = {
+                    "data_model": datamodel_title,
+                    "left_table": left_table,
+                    "left_columns": list(group["left_columns"]),
+                    "left_column": ", ".join(group["left_columns"]),
+                    "right_table": right_table,
+                    "right_columns": list(group["right_columns"]),
+                    "right_column": ", ".join(group["right_columns"]),
+                    **outcome,
+                }
+                self.logger.info(f"{datamodel_title}, {left_table}, {row['left_column']}, {right_table}, {row['right_column']}, {row['is_m2m']}" + (f" ({row['error']})" if row["error"] else ""))
+                results.append(row)
                 total_pairs_checked += 1
-                if is_m2m:
+                if row["is_m2m"]:
                     total_m2m += 1
-
             total_datamodels_processed += 1
-
-        if total_datamodels_processed == 0:
-            self.logger.warning("No datamodels were successfully processed for M2M checks.")
-            return []
 
         self.logger.info(f"Processed {total_datamodels_processed} data models for many-to-many checks.")
         self.logger.info(f"Processed {total_pairs_checked} relation column pairs.")
         self.logger.info(f"Found {total_m2m} many-to-many relationships.")
         self.logger.info("Completed many-to-many (M2M) relationship check.")
-
         return results
+
+    def _is_live_datamodel_for_m2m(self, datamodel_title: str) -> bool:
+        """Whether the model is a live model (its SQL goes to the source, so identifiers are double-quoted)."""
+        getter = getattr(self.datamodel, "get_datamodel", None)
+        if getter is None:
+            return False
+        try:
+            model = getter(datamodel_title)
+        except Exception:
+            return False
+        return isinstance(model, dict) and str(model.get("type") or "").lower() == "live"
+
+    @staticmethod
+    def _quote_identifier_for_m2m(name: str, live: bool) -> str:
+        """Quote a table or column name for the model's SQL dialect (``[x]`` for cubes, ``"x"`` for live)."""
+        return _quote_sql_identifier(name, live)
+
+    def _duplicate_key_count_for_m2m(self, datamodel_title: str, table: str, columns: list[str], live: bool) -> tuple[int | None, str | None]:
+        """Count the key values of ``columns`` that occur more than once in ``table``: ``(count, error)``."""
+        return _duplicate_key_count(self.api_client, datamodel_title, table, columns, live)
 
     def _collect_datamodel_relation_pairs_for_m2m(
         self,
