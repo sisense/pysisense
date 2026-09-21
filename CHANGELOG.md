@@ -6,6 +6,10 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2.2.0] — 2026-09-21
+
 ### Fixed
 
 - **`check_pivot_widget_fields` and `check_datamodel_island_tables` no longer answer "clean" with an
@@ -80,7 +84,7 @@ All notable changes to `pysisense` are documented here. The format follows
   `shared_copy_unreadable` error, and the dashboard methods return the standard error dict.
   `get_unused_columns_bulk` and `get_dashboard_columns` read the same way. `validate_dashboard_queries` and
   `compare_dashboard_values` report `dashboard_copy` (`"shared"` / `"private"`); the analysis
-  reports `copy` per analysed dashboard.
+  reports `copy` per analysed dashboard (detailed view).
 
 ### Added
 
@@ -165,7 +169,7 @@ All notable changes to `pysisense` are documented here. The format follows
   `get_unused_columns_bulk`: a model whose dashboards' shared copies cannot be read now fails under
   `"errors"` instead of being analysed from the private copy; `get_dashboard_columns` returns the
   standard error dict in that case.
-  `analyze_perspective_requirements`: additive `dashboards.analyzed[].copy`; new error kind
+  `analyze_perspective_requirements`: additive `dashboards.analyzed[].copy` (detailed view only); new error kind
   `shared_copy_unreadable`.
 - New method `Dashboard.compare_dashboard_values(dashboard: str, datasource_a: str, datasource_b: str)`.
 - `analyze_perspective_requirements`: additive result keys `perspective_tables_all_paths` (list,
