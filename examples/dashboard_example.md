@@ -92,9 +92,9 @@ print(dashboard_df)
 
 Add a custom JavaScript script to a dashboard for UI customization.
 
-The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Only the **dashboard owner** can save scripts; pass **`executing_user`** as the Sisense **username** of your API token user to temporarily take ownership (admin), apply the script, then restore the previous owner and shares.
+The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Under Dashboard Co-Authoring the script is written on the shared copy (what viewers see) and on the owner's private copy, then the dashboard is republished. Only the **dashboard owner** can save scripts; a non-owner is refused with the owner named. An administrator can pass **`act_as_owner=True`** to take ownership for the change and hand it back afterwards (`executing_user`, the older email form of the same thing, still works).
 
-On success this returns `{"success": True, "message": "..."}`; failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`. If the update fails with **404** and no `executing_user` was passed, a hint about passing `executing_user` is appended to the `error` sentence.
+On success this returns `{"success": True, "message": "...", "copies_updated": [...], "published": ...}`; failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`, with `owner` and `co_owners` when the token's user is not the owner.
 
 ```python
 dashboard_id = "65d62c9574851800339cf49e"
@@ -120,7 +120,7 @@ dashboard.on('widgetready', function(d) {
         .css('padding-left', '20px');
 });
 """
-response = dashboard.add_dashboard_script(dashboard_id, script, executing_user="sisensepy@sisense.com")
+response = dashboard.add_dashboard_script(dashboard_id, script, act_as_owner=True)  # admin token that does not own the dashboard
 if response.get("ok") is False:
     print(response["error"])
 else:
@@ -131,7 +131,7 @@ else:
 
 ## Example 6: Add Widget Script
 
-Add a custom script to a specific widget in a dashboard. On success, the SDK **republishes** the dashboard so changes take effect and returns `{"success": True, "message": "..."}`. Failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}` — including when the script was added but the republish failed, in which case the `error` sentence says so. If your API user is not the owner, pass **`executing_user`** (same pattern as dashboard-level scripts); a failed PUT with **403** and no `executing_user` appends a hint about passing `executing_user` to the `error` sentence.
+Add a custom script to a specific widget in a dashboard. The script is written on every copy of the dashboard (shared first under Dashboard Co-Authoring) and the dashboard is **republished** so the change reaches viewers; success returns `{"success": True, "message": "...", "copies_updated": [...], "published": True}`. Failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`. Only the owner can write; an administrator who is not the owner passes **`act_as_owner=True`** (same pattern as dashboard-level scripts).
 
 ```python
 dashboard_id = "67dc928ae72ce30033bc6680"
@@ -152,7 +152,7 @@ widget.on('beforeviewloaded', function(se, ev){
     legend.y=y
 }) 
 """
-response = dashboard.add_widget_script(dashboard_id, widget_id, script, executing_user="sisensepy@sisense.com")
+response = dashboard.add_widget_script(dashboard_id, widget_id, script, act_as_owner=True)  # admin token that does not own the dashboard
 if response.get("ok") is False:
     print(response["error"])
 else:
@@ -311,25 +311,30 @@ print(df)
 
 ## Example 14: Move Dashboard to Folder
 
-Place an imported dashboard into a target folder after migration.
+Place an imported dashboard into a target folder after migration. The folder is shared by every copy of the dashboard, so one write moves it for everyone. Only the owner can move it; an administrator who is not the owner passes `act_as_owner=True`.
 
 ```python
 dashboard_id = "6823c49365acb80033041c88"
 folder_id = "folder_oid_here"
 result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id)
 print(json.dumps(result, indent=4))
+
+# Not the owner? Refused, naming who is:
+# {"ok": False, "error": "Dashboard 'Sales' is owned by jane@example.com; only the owner can move it. Pass act_as_owner=True ...", "owner": "jane@example.com", "co_owners": []}
+result = dashboard.move_dashboard_to_folder(dashboard_id, folder_id, act_as_owner=True)  # borrows ownership, hands it back
 ```
 
 ---
 
 ## Example 15: Rename Dashboard
 
-Update a dashboard title after import.
+Update a dashboard title after import. Under Dashboard Co-Authoring the title is written on the shared copy (what viewers see) and on the owner's private copy, then the dashboard is republished; the result carries `published`.
 
 ```python
 dashboard_id = "6823c49365acb80033041c88"
 result = dashboard.rename_dashboard(dashboard_id, "My Renamed Dashboard")
 print(json.dumps(result, indent=4))
+# {..., "title": "My Renamed Dashboard", "published": True}
 ```
 
 ---
@@ -403,6 +408,8 @@ widget["title"] = "Updated Widget Title"
 
 response = dashboard.update_widget(dashboard_id, widget_id, widget)
 print(json.dumps(response, indent=4))
+# Under Dashboard Co-Authoring the widget is written on the shared and the private copy and the dashboard
+# republished ("published": True in the result). An administrator who is not the owner passes act_as_owner=True.
 ```
 
 ---
@@ -482,20 +489,30 @@ dashboard.rename_dashboard(copy["dashboard_id"], "Sales Overview (test)")
 
 ```python
 # Point a dashboard at a perspective; widgets and filters on the old datasource follow,
-# widgets on other datasources are untouched.
+# widgets on other datasources are untouched. Under Dashboard Co-Authoring the shared copy
+# (what viewers see) is written first and verified, then the owner's private copy, then published.
 result = dashboard.replace_datasource("Sales Overview_perspective_stage", "sales_perspective")
 # {"success": True, "dashboard_id": "...", "title": "Sales Overview_perspective_stage",
 #  "previous_datasource": {"title": "Sample ECommerce", "id": "localhost_aSampleIAAaECommerce", ...},
-#  "new_datasource": {"title": "sales_perspective", ...}, "widgets_updated": 6, "widgets_unchanged": ["Other Model"], "published": True}
+#  "previous_datasource_title": "Sample ECommerce", "new_datasource": {"title": "sales_perspective", ...},
+#  "widgets_updated": 6, "widgets_unchanged": ["Other Model"], "published": True,
+#  "co_authoring": True, "shared_copy_updated": True, "private_copy_updated": True, "ownership_transferred_temporarily": False}
 
 # Revert: the previous datasource's title is all that is needed
-dashboard.replace_datasource(result["dashboard_id"], result["previous_datasource"]["title"])
+dashboard.replace_datasource(result["dashboard_id"], result["previous_datasource_title"])
 
 # Only some widgets are on the model being replaced? Name it.
 dashboard.replace_datasource("Mixed Board", "sales_perspective", from_datasource="Sample ECommerce")
 
-# Not the owner and not an admin? Sisense accepts the call but changes nothing; the failure dict says who can.
-# {"ok": False, "error": "Sisense accepted the request but dashboard 'Mixed Board' still shows datasource 'Sample ECommerce'; ...", "owner": "jane@example.com"}
+# Not the owner? Refused before anything is written, naming who can do it.
+dashboard.replace_datasource("Mixed Board", "sales_perspective")
+# {"ok": False, "error": "Dashboard 'Mixed Board' is owned by jane@example.com; only the owner can change its datasource. Pass act_as_owner=True ...",
+#  "owner": "jane@example.com", "co_owners": ["group:Designers"]}
+
+# An administrator can take ownership for the duration of the change; ownership and the share list are
+# handed back afterwards, even if the change or the publish fails.
+result = dashboard.replace_datasource("Mixed Board", "sales_perspective", act_as_owner=True)
+# {..., "ownership_transferred_temporarily": True, "original_owner": "jane@example.com"}
 ```
 
 ## Example 26: Delete a Dashboard Safely
@@ -528,6 +545,26 @@ for widget in report["widgets"]:
     if widget["status"] == "failed":
         print(widget["title"], "->", widget["error"])
         # Revenue by Brand -> not found in 'commerce_by_country': [Brand.Brand]
+```
+
+## Example 28: Compare a Dashboard's Numbers on Two Datasources
+
+```python
+# Same widgets, same filters, run against the root model and against a perspective built over it.
+# Row order is ignored; up to 1000 rows per widget and side are compared.
+report = dashboard.compare_dashboard_values("Sales Overview", "Sample ECommerce", "commerce_by_country")
+# {"dashboard_id": "...", "title": "Sales Overview", "datasource_a": "Sample ECommerce", "datasource_b": "commerce_by_country",
+#  "all_match": False, "compared": 5, "skipped": 2, "counts": {"match": 4, "mismatch": 1, "error": 0, "skipped": 2},
+#  "widgets": [{"widget_id": "...", "title": "Revenue", "type": "indicator", "status": "match", "rows_a": 1, "rows_b": 1, "error": None, "seconds": 0.4},
+#              {"widget_id": "...", "title": "Revenue by Brand", "type": "chart/bar", "status": "mismatch", "rows_a": 12, "rows_b": 9, "error": None, "seconds": 0.9},
+#              {"widget_id": "...", "title": "Notes", "type": "richtexteditor", "status": "skipped", "rows_a": None, "rows_b": None,
+#               "error": "richtexteditor widgets do not query data", "seconds": 0.0}, ...]}
+for widget in report["widgets"]:
+    if widget["status"] in ("mismatch", "error"):
+        print(widget["title"], "->", widget["status"], widget["error"] or f"{widget['rows_a']} vs {widget['rows_b']} rows")
+
+# A widget using a field the perspective left out is an error straight away, without waiting on the engine:
+#   Revenue by Brand -> error not found in 'commerce_by_country': [Brand.Brand]
 ```
 
 ## Notes

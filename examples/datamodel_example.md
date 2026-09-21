@@ -346,6 +346,16 @@ response = datamodel.deploy_datamodel(
     # These will be internally set to "publish" and ignored
 )
 print(json.dumps(response, indent=4))
+
+# Wait for the build to finish before doing anything that needs the built model,
+# for example querying a perspective created over it. Polls GET /api/v2/builds/{oid}.
+response = datamodel.deploy_datamodel("MyDataModel_ec2", build_type="schema_changes", wait=True, timeout=900, poll_interval=5)
+# {"oid": "2d81...", "datamodelId": "c7ba...", "buildType": "schema-changes", "status": "done",
+#  "datamodelTitle": "MyDataModel_ec2", "datamodelType": "extract", "started": "...", "completed": "...", ...}
+if response.get("ok") is False:
+    print(response["error"])  # "Build of DataModel 'MyDataModel_ec2' failed: ..." or "... did not finish within 900s (last status: building)."
+    print(response.get("build"))  # the last build object read, as Sisense reported it
+    print(response.get("model"))  # {"lastBuildTime": ..., "lastSuccessfulBuildTime": ..., "lastPublishTime": ...}
 ```
 
 ---
@@ -834,21 +844,45 @@ bad = datamodel.create_perspective("Sample ECommerce", "oops", [{"table": "Count
 ## Example 36: Analyze What a Perspective Over a Model Must Keep
 
 ```python
-# Summary view: the numbers, the tables to keep, the errors, and warning counts
+# Summary view: the numbers, the tables to keep, the join choices, the errors, and warning counts
 analysis = datamodel.analyze_perspective_requirements("Sample ECommerce")
 print(analysis["summary"])
 # {"model_tables": 5, "model_columns": 23, "dashboards_analyzed": 101, "dashboards_failed": 0,
-#  "tables_used_by_dashboards": 4, "columns_used_by_dashboards": 20, "columns_required_for_dependencies": 0,
-#  "tables_required_in_perspective": 4, "columns_required_in_perspective": 20,
-#  "tables_not_required": 1, "columns_not_required": 3, "issues": {"error": 14, "warning": 118}}
-print(analysis["perspective_tables"])  # [{"table": "Brand", "columns": ["Brand ID", "test"]}, ...] — what create_perspective takes
+#  "tables_used_by_dashboards": 4, "columns_used_by_dashboards": 20, "columns_required_for_dependencies": 2,
+#  "tables_required_in_perspective": 4, "columns_required_in_perspective": 22,
+#  "tables_required_all_paths": 5, "columns_required_all_paths": 24,
+#  "tables_not_required": 1, "columns_not_required": 1, "issues": {"error": 14, "warning": 118}}
+print(analysis["perspective_tables"])  # [{"table": "Brand", "columns": ["Brand ID", "test"]}, ...] — always explicit column names
 print(analysis["errors"])  # ["Sales by Category: 'DimDates'.'Date' is used but does not exist in data model 'Sample ECommerce'", ...]
 print(analysis["warnings"])  # {"renamed_reference": 73, "script_present": 28, "blox_widget": 17}
+
+# Two kept tables joined many-to-many are a warning, with the evidence in the detailed view:
+print(analysis["warnings"]["many_to_many_in_perspective"])  # 1
+# detailed["many_to_many"] -> [{"table_a": "Dim_Country", "columns_a": ["CountryCode"], "table_b": "Fact_Sale_orders",
+#   "columns_b": ["CountryCode"], "duplicate_keys_a": 2, "duplicate_keys_b": 56, "is_m2m": True, "status": "checked",
+#   "error": None, "scope": "perspective"}]
+# Queries spanning such a pair may double count; the perspective still keeps both tables.
+
+# Join dependencies are added only where two tables meet in one query (a widget, or a dashboard filter
+# reaching a widget). Where more than one equally short relation path connects such a pair through tables
+# no dashboard uses, the method asks the query translator which path the engine takes:
+#   perspective_tables            keeps the path(s) in use
+#   perspective_tables_all_paths  keeps every path (the safe superset)
+#   join_path_choices             lists the pair, every path, and which ones are in use
+print(analysis["join_path_choices"])
+# [{"from": "Brand", "to": "Country",
+#   "needed_by": ["Sales by Category: dashboard filter on 'Country' applies to 4 widgets on 'Brand'"],
+#   "resolved": True,
+#   "paths": [{"via": ["Commerce"], "in_use": True}, {"via": ["Returns"], "in_use": False}]}]
+# When the translation could not be obtained, "resolved" is False, every "in_use" is None, both table
+# lists keep every path, and the pair is counted in warnings as "ambiguous_join_path".
 
 # Detailed view: per dashboard, per column, per dependency, every issue
 detailed = datamodel.analyze_perspective_requirements("Sample ECommerce", detailed=True)
 for dash in detailed["dashboards"]["analyzed"]:
     print(dash["title"], dash["owner_email"], dash["datasource"], dash["tables_used"], "tables,", dash["columns_used"], "columns:", dash["columns"])
 for dep in detailed["dependencies"]["columns"]:
-    print(dep["table"], dep["column"], dep["reason"], "<-", dep["required_by"])
+    print(dep["table"], dep["column"], dep["reason"], "<-", dep["required_by"], "in use" if dep["in_use"] else "other path")
+print(detailed["dependencies"]["tables"])  # ["Commerce"] — kept only to connect Brand and Country
+print(detailed["dependencies"]["tables_all_paths"])  # ["Commerce", "Returns"]
 ```

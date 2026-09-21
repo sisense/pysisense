@@ -75,7 +75,7 @@ api_client.export_to_csv(rows, file_name="widget_counts.csv")
 
 ## Example 3: Check Pivot Widget Field Counts
 
-Find pivot widgets that have many fields attached (for example, more than 20).
+Count the fields of every pivot widget and flag the ones with more than the limit (for example 20). Every pivot is returned with `has_more_fields` true or false, so an empty result means there are no pivot widgets; a dashboard that could not be read is a row with `status: "error"`.
 
 ```python
 dashboards = [
@@ -86,6 +86,11 @@ dashboards = [
 
 fields = wellcheck.check_pivot_widget_fields(dashboards=dashboards, max_fields=20)
 print(json.dumps(fields, indent=4))
+# [{"dashboard_id": "...", "dashboard_title": "Sales Overview", "widget_id": "...", "field_count": 24,
+#   "has_more_fields": True, "status": "checked", "error": None},
+#  {"dashboard_id": "...", "dashboard_title": "Sales Overview", "widget_id": "...", "field_count": 3,
+#   "has_more_fields": False, "status": "checked", "error": None}, ...]
+wide = [row for row in fields if row["has_more_fields"]]
 
 # Convert to DataFrame
 fields_df = api_client.to_dataframe(fields)
@@ -122,7 +127,7 @@ api_client.export_to_csv(results, file_name="datamodel_custom_tables_report.csv"
 
 ## Example 5: Check Data Model Island Tables
 
-Find island tables (tables with no relationships) in a data model.
+List every table of a data model and flag the islands, tables with no relationships. Every table is returned with `relation` yes or no, so an empty result means the model has no tables; a model that could not be read is a row with `status: "error"`.
 
 ```python
 datamodels = "MyDataModel_ec"  # Can be ID or name
@@ -130,6 +135,11 @@ datamodels = "MyDataModel_ec"  # Can be ID or name
 results = wellcheck.check_datamodel_island_tables(datamodels=datamodels)
 print("Data Model Island Tables Report:")
 print(json.dumps(results, indent=4))
+# [{"datamodel": "MyDataModel_ec", "datamodel_oid": "...", "table": "Fact_Sales", "table_oid": "...", "type": "fact",
+#   "relation": "yes", "status": "checked", "error": None},
+#  {"datamodel": "MyDataModel_ec", "datamodel_oid": "...", "table": "Notes", "table_oid": "...", "type": "custom",
+#   "relation": "no", "status": "checked", "error": None}, ...]
+islands = [row for row in results if row["relation"] == "no"]
 
 # Convert to DataFrame
 df = api_client.to_dataframe(results)
@@ -187,6 +197,16 @@ datamodels = "MyDataModel_ec"  # Can be ID or name
 results = wellcheck.check_datamodel_m2m_relationships(datamodels=datamodels)
 print("Data Model Many-to-Many Relationships Report:")
 print(json.dumps(results, indent=4))
+# [{"data_model": "MyDataModel_ec", "left_table": "Dim_groups", "left_columns": ["group_id"], "left_column": "group_id",
+#   "right_table": "Fact_users_groups", "right_columns": ["group_id"], "right_column": "group_id",
+#   "left_duplicate_keys": 0, "right_duplicate_keys": 26, "is_m2m": False, "status": "checked", "error": None}, ...]
+# A composite key (two relations between the same tables) is one row with two columns per side, tested together.
+# A pair the engine could not check has status "error", is_m2m None and the engine's message in "error".
+for row in results:
+    if row["is_m2m"]:
+        print("many-to-many:", row["left_table"], row["left_column"], "<->", row["right_table"], row["right_column"])
+    elif row["status"] == "error":
+        print("not checked:", row["left_table"], "<->", row["right_table"], row["error"])
 
 # Convert to DataFrame
 df = api_client.to_dataframe(results)

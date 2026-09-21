@@ -293,9 +293,9 @@ Sets up a DataModel using an existing connection by creating a DataModel, datase
 
 ---
 
-### `deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest")`
+### `deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest", wait=False, timeout=900, poll_interval=5)`
 
-Deploys (builds or publishes) the specified DataModel based on its type.
+Deploys (builds or publishes) the specified DataModel based on its type. Sends `POST /api/v2/builds`, which only accepts the build: the returned object has `status: null` and the build runs in the background. With `wait=True` the method polls `GET /api/v2/builds/{oid}` every `poll_interval` seconds until the build reaches a final state or `timeout` elapses, so that whatever follows — a query, a perspective built over the model — sees the finished build.
 
 #### Parameters:
 
@@ -317,9 +317,15 @@ Deploys (builds or publishes) the specified DataModel based on its type.
 
   * `running`
 
+* `wait` (bool, optional): Poll the build until it finishes instead of returning as soon as it is accepted. Defaults to `False`.
+
+* `timeout` (float, optional): Seconds to wait for the build when `wait` is true. Defaults to `900`.
+
+* `poll_interval` (float, optional): Seconds between status reads when `wait` is true; also the pause before the first read, since a build is not readable in its first moments. Defaults to `5`.
+
 #### Returns:
 
-* `dict`: Deployment result including build or publish status. For Elasticube, includes build outcome. For Live model, includes publish status, e.g., `{ "publishElasticube": true }`. If failed, returns error details.
+* `dict`: The build object from `POST /api/v2/builds` — `oid`, `datamodelId`, `buildType`, `status` (`null` when just accepted), `datamodelTitle`, `datamodelType`, `created`, `started`, `completed`, and so on. With `wait=True`, the same object as last read with `status: "done"`, once the model's `lastSuccessfulBuildTime` (`lastPublishTime` for a live model) has moved to the build's start or later — a failed rebuild leaves the previous build running and moves only `lastBuildTime`, so the build's own status is confirmed against the model. When the build ends in any other final state (`failed`, `cancelled`), the model never confirms it, or it does not finish within `timeout`, the standard error dict `{"ok": False, "error": "...", "build": {...}, "model": {...}}` with the last build object read, every field Sisense reported on it, and the model's `lastBuildTime`, `lastSuccessfulBuildTime` and `lastPublishTime`. `{"ok": False, "error": "..."}` when the model is not found or the build is refused.
 
 ---
 
@@ -776,7 +782,11 @@ Deletes a perspective by name or ID: the reference is resolved against `GET /api
 
 ### `analyze_perspective_requirements(datamodel, detailed=False)`
 
-Works out which tables and columns of a data model its dashboards need, ready to build a perspective from. Read-only. Finds every dashboard that uses the model — directly, through a single widget, or through a perspective already built over it — reads each one's fields (filters, hierarchies, widget panels, nested formulas, drill history), keeping only references that belong to this model, resolves them against the model's schema, then adds what those columns depend on to keep working: join columns and intermediate tables on the relation paths between used tables, the columns custom columns read, and the tables custom tables select from. Anything that could not be resolved or verified is reported as an issue rather than dropped.
+Works out which tables and columns of a data model its dashboards need, ready to build a perspective from. Read-only.
+
+**How it works.** Finds every dashboard that uses the model — directly, through a single widget, or through a perspective already built over it — reads each one's fields (filters, hierarchies, widget panels, nested formulas, drill history) from the dashboard export — under Dashboard Co-Authoring, from the shared copy viewers see — its own filters, hierarchies and widgets, read as administrator (`GET /api/dashboards/{id}?adminAccess=true`) or as owner (`sharedMode=true`); a shared copy neither route can read fails that dashboard with a `shared_copy_unreadable` error rather than analysing the owner's private copy, which may differ from what viewers see — keeping only references that belong to this model, and resolves them against the model's schema. It then adds what the joins need: for every pair of tables that meet in one query — a widget's own tables together with the tables of the dashboard's filters and hierarchies, which apply to every widget, including widgets that have switched a filter off — it follows the shortest relation paths between them in the model and keeps both key columns of every relation on the way and any intermediate table. Tables used only by separate widgets, or by separate dashboards, need no join and get none. A perspective inherits a relation only when both of its columns are kept, and it evaluates custom columns and custom tables through the root model, so nothing else is added.
+
+When two tables are joined by more than one equally short path, and at least one of those paths runs through a table nothing else needs, the pair is a choice. For each widget behind such a pair the method sends the widget's query, with the dashboard filters applied, to `POST /api/datasources/{model}/jaql/sql` — translation only, nothing is executed — and reads from the returned SQL which of the candidate tables the query engine actually joins through. `perspective_tables` keeps only those paths; `perspective_tables_all_paths` keeps every path; `join_path_choices` lists the pair, every path and which ones are in use. When the translation cannot be obtained, or names none of the candidates, every path is kept in both lists and the pair is reported as `ambiguous_join_path`. Every relation between two kept tables is then tested for a many-to-many join with one aggregate SQL query per side (`GET /api/datasources/{model}/sql`): a perspective inherits the root model's relations, so a query spanning two kept tables joined many-to-many can fan out and double count. Such a pair is a warning with its evidence, never an error and never a reason to drop a table. Anything that could not be resolved or verified is reported as an issue rather than dropped.
 
 **Parameters:**
 
@@ -787,16 +797,19 @@ Works out which tables and columns of a data model its dashboards need, ready to
 
 - `dict`. Always present:
   - `datamodel`: `oid`, `title`, `type`, the counts of `tables`, `columns`, `relations`, `custom_columns` and `custom_tables`, and the names of its existing `perspectives`.
-  - `summary`: `model_tables`, `model_columns`; `dashboards_analyzed`, `dashboards_failed`; `tables_used_by_dashboards`, `columns_used_by_dashboards`; `columns_required_for_dependencies`; `tables_required_in_perspective`, `columns_required_in_perspective`; `tables_not_required`, `columns_not_required`; `issues` by severity.
-  - `perspective_tables`: the `{"table", "columns"}` entries a perspective must keep — every used column plus every dependency — in the form `create_perspective` accepts.
-  - `errors`: the distinct error messages (a field a dashboard uses that does not exist in the model, a dashboard that could not be exported, a custom table whose SQL names an unknown table).
-  - `warnings`: warning counts by kind (`renamed_reference` — a column referenced by a former name, kept; `blox_widget` and `script_present` — fields inside BloX templates or scripts cannot be verified; `ambiguous_dim`, `unreadable_dim`, and the dependency-closure kinds).
+  - `summary`: `model_tables`, `model_columns`; `dashboards_analyzed`, `dashboards_failed`; `tables_used_by_dashboards`, `columns_used_by_dashboards`; `columns_required_for_dependencies`; `tables_required_in_perspective`, `columns_required_in_perspective` (for `perspective_tables`); `tables_required_all_paths`, `columns_required_all_paths` (for `perspective_tables_all_paths`); `tables_not_required`, `columns_not_required`; `issues` by severity.
+  - `perspective_tables`: the `{"table", "columns"}` entries a perspective must keep — every used column plus the join columns and intermediate tables of the paths the query engine uses (every path where that could not be determined). `columns` is always the explicit list of column names.
+  - `perspective_tables_all_paths`: the same list with every equally short join path kept. Identical to `perspective_tables` when there is no choice to make.
+  - `join_path_choices`: one entry per pair of tables joined by more than one equally short path where some path runs through a table nothing else needs — `from`, `to`, `needed_by` (which dashboards, filters and how many widgets put the two tables in one query), `resolved` (whether the engine's path is known) and `paths`, each `{"via": [...], "in_use": ...}` naming the intermediate tables of one path and whether the engine uses it (`None` when not resolved). Empty when every needed join has a single path, or when every candidate table is used by a dashboard anyway.
+  - `errors`: the distinct error messages (a field a dashboard uses that does not exist in the model, a dashboard that could not be exported, a shared copy that could not be read — `shared_copy_unreadable`).
+  - `warnings`: warning counts by kind (`many_to_many_in_perspective` — always present, `0` when none: two kept tables joined many-to-many, see `many_to_many` below; `many_to_many_unchecked` — a kept pair whose SQL check failed; `renamed_reference` — a column referenced by a former name, kept; `ambiguous_join_path` — a pair in `join_path_choices` whose engine path could not be determined, every path kept; `blox_widget` and `script_present` — fields inside BloX templates or scripts cannot be verified; `ambiguous_dim`, `unreadable_dim`).
 
   With `detailed=True` also:
   - `required`: `tables` (`table`, `columns_used`, `columns_total`, `used_by_dashboards`) and `columns` (`table`, `column`, `used_in` — `"filter"`, `"hierarchy"` and/or `"widget"` — and `used_by` dashboards).
-  - `dependencies`: `columns` required for a reason other than direct use (`table`, `column`, `reason` — `join_column`, `custom_column_expression`, `custom_table_source` — `required_by`, `detail`), `tables` required only as join paths, and `join_paths`.
-  - `not_required`: the `tables` and `columns` a perspective can leave out.
-  - `dashboards`: `analyzed` (`dashboard_id`, `title`, `match`, `datasource` — the model or the perspective the dashboard sits on — `owner`, `owner_email`, `tables_used`, `columns_used`, `columns` as `"Table.Column"` strings, `widgets_on_other_datasources`) and `failed`.
+  - `dependencies`: `columns` required for a reason other than direct use (`table`, `column`, `reason` — always `join_column` — `required_by`, `detail`, and `in_use`, whether the column is in `perspective_tables`), `tables` kept only as join paths in `perspective_tables`, `tables_all_paths` the same for every path, and `join_paths` (the tables on every shortest path between each joined pair).
+  - `not_required`: the `tables` and `columns` a perspective can leave out, relative to `perspective_tables`.
+  - `many_to_many`: one entry per kept table pair joined many-to-many or not checkable — `table_a`, `columns_a`, `table_b`, `columns_b`, `duplicate_keys_a`, `duplicate_keys_b`, `is_m2m`, `status`, `error`, and `scope` (`"perspective"`, or `"all_paths"` for a pair kept only by the all-paths variant).
+  - `dashboards`: `analyzed` (`dashboard_id`, `title`, `match`, `datasource` — the model or the perspective the dashboard sits on — `copy` — `"shared"` under Dashboard Co-Authoring for a published dashboard, else `"private"` (the single copy) — `owner`, `owner_email`, `tables_used`, `columns_used`, `columns` as `"Table.Column"` strings, `widgets_on_other_datasources`) and `failed`.
   - `issues`: every issue as `{"severity", "kind", "dashboard", "widget_id", "detail"}`.
 
   On failure to resolve the model, read its schema or list dashboards, the standard error dict `{"ok": False, "error": "..."}`.

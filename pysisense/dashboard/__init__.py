@@ -26,7 +26,8 @@ class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin, Das
         duplicate a dashboard with a marker in the copy's title; change the datasource a
         dashboard queries, e.g. from a data model to a perspective built over it;
         run every widget's query to check the dashboard still answers, optionally
-        against another datasource.
+        against another datasource; run every widget's query against two datasources
+        and compare the values they return.
     shares :
         Dashboard share management — add or update share entries for users
         and groups; retrieve current shares; change dashboard owner.

@@ -75,29 +75,26 @@ Use this when you just need “how many widgets are on each dashboard” without
 
 ### `check_pivot_widget_fields(dashboards=None, max_fields=20)`
 
-Analyze pivot widgets on one or more dashboards and report those that use “too many” fields.
+Counts the fields of every pivot widget on one or more dashboards and flags the wide ones. Reads each dashboard (`GET /api/dashboards/{id}?adminAccess=true`), finds its pivot widgets (types containing `pivot`), counts the items across their panels and returns one row per pivot widget, flagged when the count is above `max_fields`.
 
-This is useful for spotting overly wide/complex pivots that may impact performance or usability.
+Every pivot is returned, so an empty list means the dashboards have no pivot widgets, not that all of them are within the limit. A dashboard that cannot be resolved or read is an error row.
 
 **Parameters:**
 
-- `dashboards` (list of str or str, optional):  
-  Dashboard references (ID or title). If `None`, logs an error and returns `[]`.
-
-- `max_fields` (int, optional):  
-  Threshold for the number of fields on a pivot widget.  
-  Only pivot widgets with **more than** `max_fields` fields are included. Defaults to `20`.
+- `dashboards` (list of str or str, optional): Dashboard references (ID or title). A single string is accepted.
+- `max_fields` (int, optional): Field count above which a pivot widget is flagged (strictly greater). Defaults to `20`.
 
 **Returns:**
 
-- `list` of `dict`: One row per pivot widget above the threshold, with keys:
-  - `dashboard_id` (str): Dashboard ID.  
-  - `dashboard_title` (str): Dashboard title.  
-  - `widget_id` (str): Pivot widget ID.  
-  - `has_more_fields` (bool): Always `True` for returned rows (explicit flag).  
-  - `field_count` (int): Number of fields (panel items) attached to the widget.
+- `list` of `dict`: One row per pivot widget:
+  - `dashboard_id`, `dashboard_title` (str)
+  - `widget_id` (str): Pivot widget ID.
+  - `field_count` (int): Items across the widget's panels.
+  - `has_more_fields` (bool): `field_count > max_fields`.
+  - `status` (str): `"checked"`, or `"error"` for a dashboard that could not be resolved or read (then the other fields are `None` and `error` holds the message).
+  - `error` (str or None).
 
-If a dashboard has no pivot widgets, this is noted in the logs and no rows are returned for that dashboard.
+  When `dashboards` is missing or holds no reference, the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 
@@ -129,26 +126,25 @@ Summary statistics (total tables, custom tables, and how many use `UNION`) are l
 
 ### `check_datamodel_island_tables(datamodels=None)`
 
-Find “island” tables in one or more data models—tables that do **not** participate in any relationships.
+Lists every table of one or more data models and flags the islands, tables that do not participate in any relationship. Reads each model's schema (`GET /api/v2/datamodels/{id}/schema`), collects the tables that appear in any relation and returns one row per table with `relation` `"yes"` or `"no"`.
 
-These tables can cause confusion in dashboards and are often candidates for cleanup or documentation.
+Every table is returned, so an empty list means the models have no tables, not that none of them is an island. A data model that cannot be resolved or read is an error row.
 
 **Parameters:**
 
-- `datamodels` (list of str or str, optional):  
-  Data model references (ID or title). If `None`, logs an error and returns `[]`.
+- `datamodels` (list of str or str, optional): Data model references (ID or title). A single string is accepted.
 
 **Returns:**
 
-- `list` of `dict`: One row per island table, with keys:
-  - `datamodel` (str): Data model title.  
-  - `datamodel_oid` (str): Data model ID.  
-  - `table` (str): Table name.  
-  - `table_oid` (str): Table ID.  
-  - `type` (str): Table type (for example, `fact`, `dim`, `custom`).  
-  - `relation` (str): `"no"` for island tables (no relationships).
+- `list` of `dict`: One row per table:
+  - `datamodel`, `datamodel_oid` (str)
+  - `table`, `table_oid` (str)
+  - `type` (str): Table type (for example `fact`, `dim`, `custom`, `custom_code`).
+  - `relation` (str): `"no"` for an island table, `"yes"` otherwise.
+  - `status` (str): `"checked"`, or `"error"` for a model that could not be resolved or read (then the other fields are `None` and `error` holds the message).
+  - `error` (str or None).
 
-The method logs, per data model, the total number of tables and how many are islands, plus overall totals.
+  When `datamodels` is missing or holds no reference, the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 
@@ -202,32 +198,33 @@ The method logs how many tables were processed across all data models and how ma
 
 ### `check_datamodel_m2m_relationships(datamodels=None)`
 
-Check for potential many-to-many (M2M) relationships between tables in one or more data models.
+Checks every relation of one or more data models for a many-to-many (M2M) join. A relation is many-to-many when its join key is not unique on either side, which is how Sisense itself classifies a relationship.
 
-For each relation, it builds table/column pairs and runs aggregate SQL queries against the data source to detect duplicate keys on both sides.
+For each pair of tables connected by relations, one aggregate SQL query per side runs through `GET /api/datasources/{title}/sql`, counting the key values that occur more than once:
+
+```sql
+select count(*) from (select <key columns> from <table> group by <key columns> having count(*) > 1) t
+```
+
+Both counts above zero means many-to-many. Tables joined on several columns (several relations between the same two tables) are checked on the column tuple together, since that is the key the engine joins on; a relation spanning more than two tables is checked pairwise. Identifiers are quoted in square brackets for ElastiCubes and in double quotes for live models, whose SQL is passed to the source. A query the engine rejects — an unbuilt cube, a live source that does not accept the SQL — is reported on the row, never as "not M2M".
 
 **Parameters:**
 
-- `datamodels` (list of str or str, optional):  
-  Data model references (ID or title). If `None`, logs an error and returns `[]`.
+- `datamodels` (list of str or str, optional): Data model references (ID or title). A single string is accepted.
 
 **Returns:**
 
-- `list` of `dict`: One row per relation field pair checked, with keys:
-  - `data_model` (str): Data model title.  
-  - `left_table` (str): Name of the left table.  
-  - `left_column` (str): Name of the left column.  
-  - `right_table` (str): Name of the right table.  
-  - `right_column` (str): Name of the right column.  
-  - `is_m2m` (bool):  
-    - `True` if **both** sides have more than one occurrence of their key (detected via SQL).  
-    - `False` otherwise.
+- `list` of `dict`: One row per pair of tables checked:
+  - `data_model` (str): Data model title.
+  - `left_table`, `right_table` (str): The two tables.
+  - `left_columns`, `right_columns` (list of str): The joined columns on each side, one for a simple key, several for a composite key.
+  - `left_column`, `right_column` (str): The same names joined with `", "`.
+  - `left_duplicate_keys`, `right_duplicate_keys` (int or None): How many key values occur more than once on each side; `None` when the side was not counted.
+  - `is_m2m` (bool or None): `True` when both sides have duplicated keys, `False` when at least one side is unique, `None` when the pair could not be checked.
+  - `status` (str): `"checked"` or `"error"`.
+  - `error` (str or None): The engine's message when a query failed.
 
-The method logs:
-
-- How many data models were processed.  
-- How many relation column pairs were checked.  
-- How many pairs were flagged as many-to-many.
+  A data model that cannot be resolved contributes one row with `status: "error"` and no tables. When `datamodels` is missing or holds no reference, the standard error dict `{"ok": False, "error": "..."}`.
 
 * * * * *
 

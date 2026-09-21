@@ -12,10 +12,10 @@ uv sync --dev
 uv run pytest -m "not integration"
 
 # Run a single test file
-uv run pytest tests/unit/unit_test_wellcheck.py
+uv run pytest tests/unit/test_wellcheck.py
 
 # Run a single test by name
-uv run pytest tests/unit/unit_test_wellcheck.py -k "test_name"
+uv run pytest tests/unit/test_wellcheck.py -k "test_name"
 
 # Run integration tests (requires live Sisense instance)
 uv run pytest -m integration
@@ -116,7 +116,7 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `admin.py` | `get_all_dashboard_shares`, `create_schedule_build` |
 | | `tenants.py` | `get_tenants` |
 | `custom_code/` | `core.py` | `get_notebooks`, `export_notebook`, `create_notebook`, `update_notebook`, `delete_notebook`, `list_notebook_folder_contents`, `rename_notebook_file`, `rename_notebook_folder` |
-| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk`, `get_dashboards_by_datasource` (dashboard- and widget-level matches; optional deep scan), `duplicate_dashboard` (export + import `duplicate`; copy titled `<original>_perspective_stage`), `replace_datasource` (model → perspective swap; owner call, read back, admin retry), `delete_dashboard` (id + exact title required), `validate_dashboard_queries` (run every widget's query, optionally against another datasource) |
+| `dashboard/` | `core.py` | `get_all_dashboards`, `get_dashboards`, `get_dashboard_by_id`, `get_dashboard_by_name`, `export_dashboard`, `get_dashboard_widgets`, `resolve_dashboard_reference`, `publish_dashboard`, `rename_dashboard`, `move_dashboard_to_folder`, `can_be_owned`, `import_dashboards_bulk`, `get_dashboards_by_datasource` (dashboard- and widget-level matches; optional deep scan), `duplicate_dashboard` (export + import `duplicate`; copy titled `<original>_perspective_stage`), `replace_datasource` (model → perspective swap; owner call, read back, admin retry), `delete_dashboard` (id + exact title required), `validate_dashboard_queries` (run every widget's query, optionally against another datasource), `compare_dashboard_values` (run every widget's query against two datasources and compare the values) |
 | | `shares.py` | `add_dashboard_shares`, `get_dashboard_share`, `get_dashboard_shares_v1`, `change_dashboard_owner` |
 | | `columns.py` | `get_dashboard_columns` |
 | | `scripts.py` | `add_dashboard_script`, `add_widget_script`, `get_dashboard_script`, `get_widget_script` (`SisenseScript` helper class in same file) |
@@ -637,7 +637,13 @@ datamodel.deploy_datamodel(name, build_type="by_table", schema_origin="latest")
 
 # Live model — no extra params needed
 datamodel.deploy_datamodel(name)
+
+# Block until the build finishes (polls GET /api/v2/builds/{oid}); error dict on failure or timeout
+datamodel.deploy_datamodel(name, build_type="schema_changes", wait=True, timeout=900, poll_interval=5)
 ```
+
+A perspective is never built by name: build its **root model** (a perspective on an ElastiCube becomes
+queryable only after the parent is built again; `deploy_datamodel(<perspective name>)` returns 404).
 
 ### Supported connection types for `generate_connections_payload`
 
@@ -714,17 +720,18 @@ m._emit = my_progress_callback  # defaults to print
 |---|---|
 | `check_dashboard_structure` | `pivot_count`, `tabber_count`, `jtd_count`, `accordion_count` |
 | `check_dashboard_widget_counts` | `widget_count` |
-| `check_pivot_widget_fields` | `field_count`, `has_more_fields` |
+| `check_pivot_widget_fields` | every pivot widget: `field_count`, `has_more_fields` (bool), `status`, `error` |
 | `check_datamodel_custom_tables` | `has_union` (`"yes"` / `"no"`) |
-| `check_datamodel_island_tables` | `relation` (`"no"` = island), `type` (`fact`/`dim`/`custom`) |
+| `check_datamodel_island_tables` | every table: `relation` (`"no"` = island, `"yes"` otherwise), `type` (`fact`/`dim`/`custom`), `status`, `error` |
 | `check_datamodel_rls_datatypes` | `datatype` |
 | `check_datamodel_import_queries` | `has_import_query` (`"yes"` / `"no"`) |
-| `check_datamodel_m2m_relationships` | `is_m2m` (bool) — runs real SQL queries |
+| `check_datamodel_m2m_relationships` | `is_m2m` (bool, `None` when not checked), `left_columns`/`right_columns` (composite keys tested together), `left_duplicate_keys`/`right_duplicate_keys`, `status`, `error` — runs one `count(*)` SQL query per side |
 
 ### Thresholds and edge cases
 
-- `check_pivot_widget_fields(max_fields=20)` — triggers on `field_count > max_fields` (strictly greater, not ≥)
-- `check_datamodel_m2m_relationships` executes aggregate SQL — can be slow
+- `check_pivot_widget_fields(max_fields=20)` — flags on `field_count > max_fields` (strictly greater, not ≥); every pivot is returned, so an empty list means no pivot widgets
+- WellCheck checks never return `[]` to mean "clean": every inspected item is a row with a flag, an unreadable input is a `status: "error"` row, missing input is the error dict
+- `check_datamodel_m2m_relationships` executes aggregate SQL — can be slow; a failed query is a `status: "error"` row, never `is_m2m: False`
 - `unused_columns` requires `access_mgmt` to be configured on the `WellCheck` instance
 
 ### Inputs accept IDs or titles

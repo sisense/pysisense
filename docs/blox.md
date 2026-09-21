@@ -78,13 +78,15 @@ Retrieves a BloX widget's `style.currentCard` and `style.currentConfig` objects.
 
 ---
 
-### `update_blox_widget_style(dashboard_id, widget_id, current_card=None, current_config=None, executing_user_id=None)`
+### `update_blox_widget_style(dashboard_id, widget_id, current_card=None, current_config=None, executing_user_id=None, act_as_owner=False)`
 
 Updates a BloX widget's `style.currentCard` and/or `style.currentConfig` objects. Reads the current widget, replaces the provided objects wholesale, and writes back via `PUT /api/dashboards/{dashboard_id}/widgets/{widget_id}`. Server-managed fields are stripped before the write.
 
 The typical flow is read-modify-write: fetch the objects with `get_blox_widget_style`, change the fields you need, and pass the modified objects back. Omitted objects are left unchanged. When neither object is provided, returns the current style immediately without writing.
 
-When `executing_user_id` is provided, ownership of the dashboard is temporarily transferred to that user before the write, then restored in a `finally` block regardless of write success or failure. Pass the Sisense user ID (not email); use `AccessManagement.get_my_user()` to look up the ID of the API token user.
+**Copies.** With Dashboard Co-Authoring on (system setting `dashboardCoAuthoring`), a published dashboard has a shared copy — what viewers see — and a private copy per owner; a write without `sharedMode=true` reaches only the private copy. The widget is written on both copies, shared first with `sharedMode=true`, and the dashboard is republished (never with `force=true`, which empties the owner's private copy under co-authoring); the result carries `published` (and `publish_error`). A never-published dashboard, or an instance with the feature off, has a single copy and is written once.
+
+**Ownership.** Only the owner may write. A non-owner is refused before anything is written, with `owner` and `co_owners` named — unless `act_as_owner=True` and the token belongs to an administrator, in which case ownership is transferred to the token's user for the duration of the change (`POST /api/v1/dashboards/{id}/change_owner`) and ownership and the exact share list are restored afterwards, even when the write fails; the result then carries `ownership_transferred_temporarily: True` and `original_owner`. `executing_user_id` (a Sisense user ID) is the older form of the same thing and is deprecated in favour of `act_as_owner`: when given, ownership is borrowed for that user instead of the token's user.
 
 **Parameters:**
 
@@ -92,8 +94,9 @@ When `executing_user_id` is provided, ownership of the dashboard is temporarily 
 - `widget_id` (str): The `oid` of the BloX widget.
 - `current_card` (dict | None, optional): Replacement for the `style.currentCard` object. Omit to leave unchanged.
 - `current_config` (dict | None, optional): Replacement for the `style.currentConfig` object. Omit to leave unchanged.
-- `executing_user_id` (str | None, optional): Sisense user ID to use for the temporary ownership swap. Required when the API token user is not the dashboard owner.
+- `executing_user_id` (str | None, optional): Deprecated in favour of `act_as_owner`; the Sisense user ID to borrow ownership for.
+- `act_as_owner` (bool, optional): Take ownership temporarily when the token's user is an administrator but not the owner. Defaults to `False`: refuse instead.
 
 **Returns:**
 
-- `dict`: On success: `{"currentCard": dict, "currentConfig": dict}` reflecting the values after the update. On failure: `{"error": "..."}`.
+- `dict`: On success: `{"currentCard": dict, "currentConfig": dict}` reflecting the values after the update, plus `published` (and `publish_error`) when a shared copy was written and `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed. On failure the standard error dict `{"ok": False, "error": "..."}`, with `owner` and `co_owners` when the token's user is not the owner.

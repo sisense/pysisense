@@ -4,7 +4,20 @@ import uuid
 from typing import Any
 
 from ..payloads import PerspectiveTableSpec
-from ..utils import _build_schema_index, _column_name_variants, _compute_dependency_closure, _discover_dashboards_on_datasource, _extract_dashboard_references, _extract_error_message
+from ..utils import (
+    _build_schema_index,
+    _co_authoring_enabled,
+    _column_name_variants,
+    _compute_dependency_closure,
+    _dashboard_for_reading,
+    _discover_dashboards_on_datasource,
+    _extract_dashboard_references,
+    _extract_error_message,
+    _group_relation_column_pairs,
+    _many_to_many_check,
+    _sql_names_table,
+    _widget_query_metadata,
+)
 
 
 def _is_default_perspective(perspective: dict[str, Any]) -> bool:
@@ -396,12 +409,37 @@ class PerspectivesMixin:
 
         Read-only. Finds every dashboard that uses the model — directly, through a
         single widget, or through a perspective already built over it — reads each one's fields
-        (filters, hierarchies, widget panels, nested formulas, drill history), keeping
-        only references that belong to this model, resolves them against the model's
-        schema, then adds what those columns depend on to keep working: join columns
-        and intermediate tables on the relation paths between used tables, the columns
-        custom columns read, and the tables custom tables select from. Anything that
-        could not be resolved or verified is reported as an issue rather than dropped.
+        (filters, hierarchies, widget panels, nested formulas, drill history) from the
+        dashboard export — under Dashboard Co-Authoring, from the shared copy viewers see — its own filters,
+        hierarchies and widgets, read as administrator or as owner; a shared copy neither can read fails that dashboard with a
+        ``shared_copy_unreadable`` error rather than analysing the owner's private copy in its
+        place — keeping only references that belong to this model, and resolves
+        them against the model's schema. It then adds what the joins need: for every pair
+        of tables that meet in one query — a widget's own tables together with the tables
+        of the dashboard's filters and hierarchies, which apply to every widget, including
+        widgets that have switched a filter off — it follows the shortest relation paths
+        between them in the model and keeps both key columns of every relation on the way
+        and any intermediate table. Tables used only by separate widgets, or by separate
+        dashboards, need no join and get none. A perspective inherits a relation only when
+        both of its columns are kept, and it evaluates custom columns and custom tables
+        through the root model, so nothing else is added.
+
+        When two tables are joined by more than one equally short path, and at least one of
+        those paths runs through a table nothing else needs, the pair is a choice. For each
+        widget behind such a pair the method sends the widget's query, with the dashboard
+        filters applied, to ``POST /api/datasources/{model}/jaql/sql`` — translation only,
+        nothing is executed — and reads from the returned SQL which of the candidate tables
+        the query engine actually joins through. ``perspective_tables`` keeps only those
+        paths; ``perspective_tables_all_paths`` keeps every path; ``join_path_choices`` lists
+        the pair, every path and which ones are in use. When the translation cannot be
+        obtained, or names none of the candidates, every path is kept in both lists and the
+        pair is reported as ``ambiguous_join_path``. Every relation between two kept tables is
+        then tested for a many-to-many join with one aggregate SQL query per side
+        (``GET /api/datasources/{model}/sql``): a perspective inherits the root model's
+        relations, so a query spanning two kept tables joined many-to-many can fan out and
+        double count. Such a pair is a warning with its evidence, never an error and never a
+        reason to drop a table. Anything that could not be resolved or verified is reported as
+        an issue rather than dropped.
 
         Parameters
         ----------
@@ -419,20 +457,36 @@ class PerspectivesMixin:
             ``perspectives``); ``summary`` (``model_tables``, ``model_columns``, ``dashboards_analyzed``,
             ``dashboards_failed``, ``tables_used_by_dashboards``, ``columns_used_by_dashboards``,
             ``columns_required_for_dependencies``, ``tables_required_in_perspective``,
-            ``columns_required_in_perspective``, ``tables_not_required``, ``columns_not_required``, and
+            ``columns_required_in_perspective``, ``tables_required_all_paths``,
+            ``columns_required_all_paths``, ``tables_not_required``, ``columns_not_required``, and
             ``issues`` by severity); ``perspective_tables`` — the ``{"table", "columns"}`` entries a
-            perspective must keep, every used column plus every dependency, in the form
-            ``create_perspective`` accepts; ``errors`` — the distinct error messages; and ``warnings`` —
-            warning counts by kind.
+            perspective must keep, ``columns`` always the explicit list of names: every used column
+            plus the join columns and intermediate tables of the paths the query engine uses (every
+            path where that could not be determined); ``perspective_tables_all_paths`` — the same
+            with every equally short path kept; ``join_path_choices`` — one entry per pair of
+            tables joined by more than one equally short path where some path runs through a
+            table nothing else needs, with ``from``, ``to``, ``needed_by`` (which dashboards, filters
+            and how many widgets put the two tables in one query), ``resolved`` (whether the
+            engine's path is known) and ``paths`` (each ``{"via": [...], "in_use": ...}`` — the
+            intermediate tables of one path and whether the engine uses it; ``None`` when not
+            resolved); ``errors`` — the distinct error messages; and ``warnings`` — warning counts
+            by kind, ``many_to_many_in_perspective`` always present (``0`` when none), plus
+            ``many_to_many_unchecked`` when a pair's SQL check failed.
 
             With ``detailed=True`` also: ``required`` (``tables``: ``table``, ``columns_used``,
             ``columns_total``, ``used_by_dashboards``; ``columns``: ``table``, ``column``, ``used_in`` —
             ``"filter"``, ``"hierarchy"`` and/or ``"widget"`` — ``used_by``); ``dependencies`` (``columns``
-            with ``table``, ``column``, ``reason`` — ``join_column``, ``custom_column_expression``,
-            ``custom_table_source`` — ``required_by``, ``detail``; ``tables`` required only as join
-            paths; ``join_paths``); ``not_required`` (``tables``, ``columns``); ``dashboards``
+            with ``table``, ``column``, ``reason`` — always ``join_column`` — ``required_by``, ``detail``,
+            ``in_use`` — whether the column is in ``perspective_tables``; ``tables`` kept only as join
+            paths in ``perspective_tables``; ``tables_all_paths`` the same for every path; ``join_paths``);
+            ``not_required`` (``tables``, ``columns`` — relative to ``perspective_tables``); ``many_to_many``
+            (one entry per kept table pair joined many-to-many or not checkable: ``table_a``, ``columns_a``,
+            ``table_b``, ``columns_b``, ``duplicate_keys_a``, ``duplicate_keys_b``, ``is_m2m``, ``status``,
+            ``error``, and ``scope`` — ``"perspective"``, or ``"all_paths"`` for a pair kept only by the
+            all-paths variant); ``dashboards``
             (``analyzed``: ``dashboard_id``, ``title``, ``match``, ``datasource`` — the model or the
-            perspective the dashboard sits on — ``owner``, ``owner_email``, ``tables_used``,
+            perspective the dashboard sits on — ``copy`` — ``"shared"`` under Dashboard Co-Authoring
+            for a published dashboard, else ``"private"`` (the single copy) — ``owner``, ``owner_email``, ``tables_used``,
             ``columns_used``, ``columns`` as ``"Table.Column"``, ``widgets_on_other_datasources``;
             ``failed``); and ``issues`` (``severity``, ``kind``, ``dashboard``, ``widget_id``, ``detail``).
             On failure to resolve the model, read its schema or list dashboards, the standard
@@ -511,6 +565,27 @@ class PerspectivesMixin:
                     failed.append({"dashboard_id": oid, "title": (listing.get(oid) or {}).get("title"), "error": "not present in the export response"})
                     issue("error", "dashboard_export_failed", oid, None, f"dashboard '{(listing.get(oid) or {}).get('title')}' was not present in the export response")
 
+        # Under Dashboard Co-Authoring the export returns the owner's private copy; viewers see the shared copy,
+        # which is read as owner or as administrator. A shared copy neither can read fails that dashboard: the
+        # private copy may differ from what viewers see and is never analysed in its place.
+        copies_read: dict[str, str] = {}
+        co_authoring = _co_authoring_enabled(self.api_client, next(iter(exports), None))
+        for oid, dashboard in list(exports.items()):
+            document, copy_read, shared_status = _dashboard_for_reading(self.api_client, self.logger, dashboard, co_authoring)
+            if document is None:
+                del exports[oid]
+                failed.append({"dashboard_id": oid, "title": dashboard.get("title"), "error": f"the shared copy could not be read (HTTP {shared_status})"})
+                issue(
+                    "error",
+                    "shared_copy_unreadable",
+                    oid,
+                    None,
+                    f"dashboard '{dashboard.get('title')}': the shared copy viewers see could not be read (HTTP {shared_status}); an owner or administrator token is required",
+                )
+                continue
+            exports[oid] = document
+            copies_read[oid] = copy_read
+
         owner_emails: dict[str, str] = {}
         users = self.api_client.get("/api/v1/users")
         if users is not None and users.status_code == 200:
@@ -521,6 +596,9 @@ class PerspectivesMixin:
 
         used: dict[tuple[str, str], set[str]] = {}  # (table_oid, column_oid) -> dashboard oids
         used_where: dict[tuple[str, str], set[str]] = {}  # (table_oid, column_oid) -> {"filter", "hierarchy", "widget"}
+        # Which tables meet in one query: per dashboard, each widget's own tables plus the tables of the
+        # dashboard-level filters and hierarchies (widget_id "N/A"), which apply to every widget.
+        scopes: dict[str, dict[str, dict[str, set[str]]]] = {}  # dashboard oid -> widget_id -> table_oid -> {source, ...}
         other_datasources: dict[str, list[dict[str, Any]]] = {}  # dashboard oid -> widgets left on other datasources
         lowered_tables = {name.lower(): oids for name, oids in ((t["name"], [oid]) for oid, t in index["tables"].items() if isinstance(t.get("name"), str))}
         severity_of = {"unreadable_dim": "error", "ambiguous_dim": "warning", "blox_widget": "warning", "script_present": "warning", "unclassified_location": "warning"}
@@ -558,25 +636,164 @@ class PerspectivesMixin:
                     if column_oid:
                         used.setdefault((table_oid, column_oid), set()).add(oid)
                         used_where.setdefault((table_oid, column_oid), set()).add(str(row.get("source")))
+                        scopes.setdefault(oid, {}).setdefault(str(row.get("widget_id")), {}).setdefault(table_oid, set()).add(str(row.get("source")))
                         break
                 if not column_oid:
                     issue("error", "unresolved_reference", oid, row.get("widget_id"), f"{title}: '{row['table']}'.'{row['column']}' is used but does not exist in data model '{model_title}'")
 
-        closure = _compute_dependency_closure(index, set(used))
-        for found in closure["issues"]:
-            issue(found["severity"], found["kind"], None, None, found["detail"])
-
-        # Assemble the report.
         def name_of(table_oid: str, column_oid: str | None = None) -> tuple[str, str | None]:
             table = index["tables"].get(table_oid) or {}
             column = (table.get("columns") or {}).get(column_oid) if column_oid else None
             return table.get("name"), (column or {}).get("name") if column else None
 
-        kept: dict[str, set[str]] = {}
+        join_pairs: set[tuple[str, str]] = set()
+        # sorted table pair -> (dashboard oid, dashboard title, kind, table a, table b) -> widget ids; kind is "both"
+        # (the widget itself uses both tables) or the dashboard-level source ("filter"/"hierarchy") that reaches the widget.
+        needed_by: dict[tuple[str, str], dict[tuple[str, str, str, str, str], set[str]]] = {}
+        for oid, by_widget in scopes.items():
+            title = (exports.get(oid) or {}).get("title") or oid
+            shared = by_widget.get("N/A", {})
+            for widget_id, own in by_widget.items():
+                if widget_id == "N/A":
+                    continue
+                in_query = {t: set(srcs) for t, srcs in own.items()}
+                for t, srcs in shared.items():
+                    in_query.setdefault(t, set()).update(srcs)
+                for a in in_query:
+                    for b in in_query:
+                        if a >= b:
+                            continue
+                        pair = (a, b)
+                        join_pairs.add(pair)
+                        if a in own and b in own:
+                            why = (oid, title, "both", a, b)
+                        else:
+                            shared_t, own_t = (a, b) if a not in own else (b, a)
+                            kind = "filter" if "filter" in shared.get(shared_t, set()) else "hierarchy"
+                            why = (oid, title, kind, shared_t, own_t)
+                        needed_by.setdefault(pair, {}).setdefault(why, set()).add(widget_id)
+
+        closure = _compute_dependency_closure(index, set(used), custom_columns=False, custom_tables=False, join_pairs=join_pairs)
+        for found in closure["issues"]:
+            issue(found["severity"], found["kind"], None, None, found["detail"])
+
+        # A pair is a choice only when picking one path would leave some table out: tables dashboards use
+        # directly, or that lie on the single path of another pair, are in the perspective regardless.
+        anchored = {t for t, _ in used}
+        for path in closure["join_paths"]:
+            if len(path.get("paths") or []) == 1:
+                anchored.update(path["paths"][0])
+
+        def edge_columns(u: str, v: str) -> set[tuple[str, str]]:
+            columns: set[tuple[str, str]] = set()
+            for group in index.get("relations") or []:
+                ours = [k for k in group if k[0] == u]
+                theirs = [k for k in group if k[0] == v]
+                if ours and theirs:
+                    columns.update(ours)
+                    columns.update(theirs)
+            return columns
+
+        def path_columns(path: list[str]) -> set[tuple[str, str]]:
+            columns: set[tuple[str, str]] = set()
+            for u, v in zip(path, path[1:], strict=False):
+                columns |= edge_columns(u, v)
+            return columns
+
+        # Ask the query translator which tables a widget's query actually joins through. Translation only;
+        # nothing is executed. Every dashboard filter is applied, even one the widget has switched off.
+        sql_cache: dict[tuple[str, str], str | None] = {}
+
+        def widget_sql(dashboard_oid: str, widget_id: str) -> str | None:
+            key = (dashboard_oid, widget_id)
+            if key in sql_cache:
+                return sql_cache[key]
+            dashboard = exports.get(dashboard_oid) or {}
+            widget = next((w for w in dashboard.get("widgets") or [] if isinstance(w, dict) and w.get("oid") == widget_id), None)
+            sql: str | None = None
+            if widget is not None:
+                widget_ds = widget.get("datasource") if isinstance(widget.get("datasource"), dict) else dashboard.get("datasource")
+                metadata = _widget_query_metadata(widget, dashboard, widget_ds, sources.get(dashboard_oid, model_title), honour_ignore=False)
+                if any(m["panel"] != "scope" for m in metadata):
+                    response = self.api_client.post(f"/api/datasources/{model_title}/jaql/sql", data={"datasource": model_title, "metadata": metadata, "count": 1})
+                    if response is not None and response.status_code == 200 and isinstance(response.text, str) and response.text.strip():
+                        sql = response.text
+                    else:
+                        self.logger.debug(f"Query translation unavailable for widget {widget_id} of dashboard {dashboard_oid} (status={getattr(response, 'status_code', None)})")
+            sql_cache[key] = sql
+            return sql
+
+        def widgets(n: int) -> str:
+            return "1 widget" if n == 1 else f"{n} widgets"
+
+        join_path_choices = []
+        paths_in_use: dict[tuple[str, str], list[list[str]]] = {}  # reported pair -> the paths the engine uses (resolved pairs only)
+        for path in closure["join_paths"]:
+            paths = path.get("paths") or []
+            if len(paths) < 2 or not any(t not in anchored for p in paths for t in p[1:-1]):
+                continue
+            pair = tuple(sorted((path["from"], path["to"])))
+            from_name, to_name = name_of(path["from"])[0], name_of(path["to"])[0]
+            reasons = []
+            translated = 0
+            used_paths: set[int] = set()
+            for (dashboard_oid, title, kind, a, b), widget_ids in sorted(needed_by.get(pair, {}).items(), key=lambda kv: (kv[0][1], kv[0][2], name_of(kv[0][3])[0] or "", name_of(kv[0][4])[0] or "")):
+                if kind == "both":
+                    verb = "uses" if len(widget_ids) == 1 else "use"
+                    reasons.append(f"{title}: {widgets(len(widget_ids))} {verb} both '{name_of(a)[0]}' and '{name_of(b)[0]}'")
+                else:
+                    reasons.append(f"{title}: dashboard {kind} on '{name_of(a)[0]}' applies to {widgets(len(widget_ids))} on '{name_of(b)[0]}'")
+                for widget_id in sorted(widget_ids):
+                    sql = widget_sql(dashboard_oid, widget_id)
+                    if sql is None:
+                        continue
+                    translated += 1
+                    for i, candidate in enumerate(paths):
+                        if all(_sql_names_table(sql, index["tables"][t]) for t in candidate[1:-1]):
+                            used_paths.add(i)
+            resolved = bool(used_paths)
+            candidates = "; ".join(" -> ".join(name_of(t)[0] or t for t in p[1:-1]) for p in paths)
+            if resolved:
+                paths_in_use[pair] = [paths[i] for i in sorted(used_paths)]
+            else:
+                why_not = "the translated query could not be obtained" if translated == 0 else "the translated query names none of the candidate tables"
+                issue("warning", "ambiguous_join_path", None, None, f"'{from_name}' and '{to_name}' are joined by {len(paths)} equally short paths, all kept ({why_not}): {candidates}")
+            join_path_choices.append(
+                {
+                    "from": from_name,
+                    "to": to_name,
+                    "needed_by": reasons,
+                    "resolved": resolved,
+                    "paths": [{"via": [name_of(t)[0] for t in p[1:-1]], "in_use": (i in used_paths) if resolved else None} for i, p in enumerate(paths)],
+                }
+            )
+
+        # Assemble the report. Two table lists: what the engine's own join paths need (all paths where they
+        # could not be determined), and the superset with every equally short path kept.
+        kept_all: dict[str, set[str]] = {}
         for table_oid, column_oid in list(used) + list(closure["retained"]):
-            kept.setdefault(table_oid, set()).add(column_oid)
+            kept_all.setdefault(table_oid, set()).add(column_oid)
         for table_oid in closure["tables"]:
-            kept.setdefault(table_oid, set())
+            kept_all.setdefault(table_oid, set())
+
+        kept: dict[str, set[str]] = {}
+        for table_oid, column_oid in used:
+            kept.setdefault(table_oid, set()).add(column_oid)
+        for path in closure["join_paths"]:
+            pair = tuple(sorted((path["from"], path["to"])))
+            if pair in paths_in_use:
+                for p in paths_in_use[pair]:
+                    for t in p:
+                        kept.setdefault(t, set())
+                    for t, c in path_columns(p):
+                        kept.setdefault(t, set()).add(c)
+            else:
+                for (t, c), reasons in closure["retained"].items():
+                    if any(r.get("required_by") == pair for r in reasons):
+                        kept.setdefault(t, set()).add(c)
+                for t, reasons in closure["tables"].items():
+                    if any(r.get("required_by") == pair for r in reasons):
+                        kept.setdefault(t, set())
 
         titles = {oid: (exports.get(oid) or listing.get(oid) or {}).get("title") for oid in matches}
         required_columns = []
@@ -601,14 +818,90 @@ class PerspectivesMixin:
                     required_by_label = " .. ".join(name_of(t)[0] or t for t in required_by)
                 else:
                     required_by_label = name_of(required_by)[0] if isinstance(required_by, str) else str(required_by)
-                dependencies.append({"table": table_name, "column": column_name, "reason": reason["reason"], "required_by": required_by_label, "detail": reason.get("detail")})
-        dependency_tables = sorted(name_of(t)[0] for t, reasons in closure["tables"].items() if t not in {k[0] for k in used} and t not in {k[0] for k in closure["retained"]})
+                dependencies.append(
+                    {
+                        "table": table_name,
+                        "column": column_name,
+                        "reason": reason["reason"],
+                        "required_by": required_by_label,
+                        "detail": reason.get("detail"),
+                        "in_use": column_oid in kept.get(table_oid, set()),
+                    }
+                )
+        used_tables = {t for t, _ in used}
+        dependency_tables = sorted(name_of(t)[0] for t in kept if t not in used_tables)
+        dependency_tables_all = sorted(name_of(t)[0] for t in closure["tables"] if t not in used_tables)
 
-        tables_spec: list[dict[str, Any]] = []
-        for table_oid in sorted(kept, key=lambda t: name_of(t)[0] or ""):
-            table = index["tables"][table_oid]
-            columns = sorted(table["columns"][c]["name"] for c in kept[table_oid] if c in table["columns"] and isinstance(table["columns"][c].get("name"), str))
-            tables_spec.append({"table": table["name"], "columns": columns if columns else "all"})
+        def spec(kept_map: dict[str, set[str]]) -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            for table_oid in sorted(kept_map, key=lambda t: name_of(t)[0] or ""):
+                table = index["tables"][table_oid]
+                out.append(
+                    {"table": table["name"], "columns": sorted(table["columns"][c]["name"] for c in kept_map[table_oid] if c in table["columns"] and isinstance(table["columns"][c].get("name"), str))}
+                )
+            return out
+
+        tables_spec = spec(kept)
+        tables_spec_all = spec(kept_all)
+
+        # Many-to-many joins between tables the perspective keeps. A perspective inherits the root model's
+        # relations, so a query spanning two kept tables joined many-to-many can fan out and double count.
+        # Reported as a warning with the evidence; nothing is dropped or blocked, since a many-to-many is a
+        # modelling decision. Pairs that exist only in the all-paths variant are reported with that scope.
+        def relation_groups_among(kept_map: dict[str, set[str]]) -> list[dict[str, Any]]:
+            pairs: list[dict[str, str]] = []
+            for group in index.get("relations") or []:
+                entries = [(t, c) for t, c in group if t in kept_map]
+                for i, (ta, ca) in enumerate(entries):
+                    for tb, cb in entries[i + 1 :]:
+                        if ta == tb:
+                            continue
+                        na, nca = name_of(ta, ca)
+                        nb, ncb = name_of(tb, cb)
+                        if na and nca and nb and ncb:
+                            pairs.append({"left_table": na, "left_column": nca, "right_table": nb, "right_column": ncb})
+            return _group_relation_column_pairs(pairs)
+
+        live_model = str(model_type or "").lower() == "live"
+        many_to_many: list[dict[str, Any]] = []
+        checked_pairs: set[tuple[Any, ...]] = set()
+        for scope, kept_map in (("perspective", kept), ("all_paths", kept_all)):
+            for group in relation_groups_among(kept_map):
+                pair_key = (group["left_table"], tuple(group["left_columns"]), group["right_table"], tuple(group["right_columns"]))
+                if pair_key in checked_pairs:
+                    continue
+                checked_pairs.add(pair_key)
+                outcome = _many_to_many_check(self.api_client, model_title, group, live_model)
+                a, b = group["left_table"], group["right_table"]
+                key_a, key_b = ", ".join(group["left_columns"]), ", ".join(group["right_columns"])
+                if outcome["status"] == "error":
+                    issue("warning", "many_to_many_unchecked", None, None, f"the join between '{a}' ({key_a}) and '{b}' ({key_b}) could not be checked for many-to-many: {outcome['error']}")
+                elif outcome["is_m2m"]:
+                    where = "the perspective" if scope == "perspective" else "the all-paths variant of the perspective"
+                    issue(
+                        "warning",
+                        "many_to_many_in_perspective",
+                        None,
+                        None,
+                        f"'{a}' ({key_a}) and '{b}' ({key_b}) are joined many-to-many — {outcome['left_duplicate_keys']} duplicated keys in '{a}', "
+                        f"{outcome['right_duplicate_keys']} in '{b}'; both tables are kept in {where}, so queries spanning them may double count",
+                    )
+                else:
+                    continue
+                many_to_many.append(
+                    {
+                        "table_a": a,
+                        "columns_a": list(group["left_columns"]),
+                        "table_b": b,
+                        "columns_b": list(group["right_columns"]),
+                        "duplicate_keys_a": outcome["left_duplicate_keys"],
+                        "duplicate_keys_b": outcome["right_duplicate_keys"],
+                        "is_m2m": outcome["is_m2m"],
+                        "status": outcome["status"],
+                        "error": outcome["error"],
+                        "scope": scope,
+                    }
+                )
 
         excluded_tables = sorted(t["name"] for oid, t in index["tables"].items() if oid not in kept and isinstance(t.get("name"), str))
         excluded_columns = []
@@ -629,6 +922,7 @@ class PerspectivesMixin:
                     "title": titles.get(oid),
                     "match": matches[oid],
                     "datasource": sources.get(oid, model_title),
+                    "copy": copies_read.get(oid, "private"),
                     "owner": owner_id,
                     "owner_email": owner_emails.get(owner_id),
                     "tables_used": len({key[0] for key, ds in used.items() if oid in ds}),
@@ -645,9 +939,11 @@ class PerspectivesMixin:
             "dashboards_failed": len(failed),
             "tables_used_by_dashboards": len(required_tables),
             "columns_used_by_dashboards": len(required_columns),
-            "columns_required_for_dependencies": len(closure["retained"]),
+            "columns_required_for_dependencies": sum(len(cols) for cols in kept.values()) - len(used),
             "tables_required_in_perspective": len(tables_spec),
-            "columns_required_in_perspective": sum(len(cols) if cols else len(index["tables"][oid]["columns"]) for oid, cols in kept.items()),
+            "columns_required_in_perspective": sum(len(t["columns"]) for t in tables_spec),
+            "tables_required_all_paths": len(tables_spec_all),
+            "columns_required_all_paths": sum(len(t["columns"]) for t in tables_spec_all),
             "tables_not_required": len(excluded_tables),
             "columns_not_required": excluded_column_count,
             "issues": by_severity,
@@ -669,10 +965,13 @@ class PerspectivesMixin:
         for i in issues:
             if i["severity"] == "warning":
                 warnings_by_kind[i["kind"]] = warnings_by_kind.get(i["kind"], 0) + 1
+        warnings_by_kind.setdefault("many_to_many_in_perspective", 0)
         result: dict[str, Any] = {
             "datamodel": model_facts,
             "summary": summary,
             "perspective_tables": tables_spec,
+            "perspective_tables_all_paths": tables_spec_all,
+            "join_path_choices": join_path_choices,
             "errors": errors,
             "warnings": warnings_by_kind,
         }
@@ -680,8 +979,14 @@ class PerspectivesMixin:
             result.update(
                 {
                     "required": {"tables": required_tables, "columns": required_columns},
-                    "dependencies": {"columns": dependencies, "tables": dependency_tables, "join_paths": [[name_of(t)[0] for t in path["tables"]] for path in closure["join_paths"]]},
+                    "dependencies": {
+                        "columns": dependencies,
+                        "tables": dependency_tables,
+                        "tables_all_paths": dependency_tables_all,
+                        "join_paths": [[name_of(t)[0] for t in path["tables"]] for path in closure["join_paths"]],
+                    },
                     "not_required": {"tables": excluded_tables, "columns": excluded_columns},
+                    "many_to_many": many_to_many,
                     "dashboards": {"analyzed": analyzed, "failed": failed},
                     "issues": issues,
                 }

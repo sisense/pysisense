@@ -6,6 +6,29 @@ Sisense *environments* — a different thing entirely.)
 
 ---
 
+## From 2.1 to 2.2
+
+2.2.0 adds capabilities and fixes; no method was removed or renamed, and every 2.1 call
+still works. Four behaviours changed in ways an existing caller can notice.
+
+| Symptom after upgrading | Cause | Fix |
+|---|---|---|
+| `replace_datasource` (or `rename_dashboard`, `move_dashboard_to_folder`, `add_dashboard_script`, `add_widget_script`, `update_widget`, `update_blox_widget_style`) returns `{"ok": False, "error": "... is owned by ...; only the owner can ..."}` for a dashboard you do not own | Dashboard writes now settle ownership first. 2.1 sent the write anyway and, for `replace_datasource`, retried with admin access — which under Dashboard Co-Authoring changed only the owner's private copy, so viewers never saw it. | Pass `act_as_owner=True` with an administrator token: ownership is borrowed for the change and returned, together with the exact share list. `executing_user` / `executing_user_id` still work as the older form. |
+| `check_pivot_widget_fields` / `check_datamodel_island_tables` return many more rows, some with `has_more_fields: False` / `relation: "yes"` | Every inspected item is now a row with its flag; an empty list means there was nothing to inspect. 2.1 returned only the offending items, so "clean" and "nothing found" looked the same. | Filter on the flag (`has_more_fields`, `relation == "no"`) instead of on presence. Rows also carry `status` (`"checked"` / `"error"`) and `error`. |
+| `check_datamodel_m2m_relationships` rows have new keys, `is_m2m` is sometimes `None`, and `None` / `[]` input returns a dict | Composite keys are tested as one tuple (`left_columns` / `right_columns`; `left_column` / `right_column` hold the joined names), a failed query is a `status: "error"` row instead of `is_m2m: False`, and missing input returns the error dict instead of `[]`. | Treat `is_m2m is True` as many-to-many, `None` as not checked (see `error`); detect bad input with `result.get("ok") is False`. |
+| `analyze_perspective_requirements` keeps far fewer tables and columns than 2.1, and `warnings` always contains `many_to_many_in_perspective` | Joins are added only between tables that meet in one query and the engine's own join path is used where several exist; custom-column and custom-table sources are no longer pulled in (the root model computes them). Many-to-many joins between kept tables are a warning. | Nothing to change for `perspective_tables`, which is still what `create_perspective` takes. Read `join_path_choices` if you want the alternative paths, and `perspective_tables_all_paths` for the superset. Consumers matching exact key sets must widen. |
+
+Under Dashboard Co-Authoring the reading methods (`analyze_perspective_requirements`,
+`validate_dashboard_queries`, `compare_dashboard_values`, `get_unused_columns_bulk`,
+`get_dashboard_columns`) now read the published shared copy — what viewers see — and report
+an unreadable shared copy instead of silently analysing the owner's private copy. With the
+feature off nothing changes.
+
+The full per-method list, including every additive result key, is the `[2.2.0]` entry in
+`CHANGELOG.md` and its "For downstream tool generators" block.
+
+---
+
 ## From 1.x to 2.0
 
 This section is the single reference for what changed between `pysisense` **1.1.0** and

@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -6,6 +7,7 @@ from collections import deque
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
+from urllib.parse import quote
 
 import pandas as pd
 import yaml
@@ -915,6 +917,556 @@ def _build_schema_index(schema: dict[str, Any]) -> dict[str, Any]:
     return {"tables": tables, "tables_by_name": tables_by_name, "relations": relations}
 
 
+def _jaql_panel(panel_name: str, jaql: dict[str, Any]) -> str:
+    """Map a widget slot name to the panel name the JAQL endpoint understands.
+
+    Widgets store their fields under slot names such as ``value``, ``values``,
+    ``categories`` or ``break by``; the query endpoints accept only ``rows``,
+    ``columns``, ``measures`` and ``scope`` (an unknown name stalls the query).
+    """
+    name = (panel_name or "").strip().lower()
+    if name == "filters":
+        return "scope"
+    if "agg" in jaql or "formula" in jaql or name in ("values", "value", "measures", "secondary", "min", "max", "size", "color"):
+        return "measures"
+    if name in ("columns", "break by", "breakby"):
+        return "columns"
+    return "rows"
+
+
+def _widget_query_metadata(widget: dict[str, Any], dashboard: dict[str, Any], datasource: dict[str, Any] | None, replaced_title: str | None, *, honour_ignore: bool = True) -> list[dict[str, Any]]:
+    """Build the metadata list a widget's query needs: its own items plus the dashboard filters that reach it.
+
+    ``honour_ignore=False`` adds every dashboard filter on the widget's datasource even when the widget
+    has switched it off, to see the query as it would be with every filter applied.
+    """
+    metadata: list[dict[str, Any]] = []
+    metadata_block = widget.get("metadata") if isinstance(widget.get("metadata"), dict) else {}
+    panels = metadata_block.get("panels") or []
+    if not panels and isinstance(widget.get("query"), dict):
+        for item in widget["query"].get("metadata") or []:  # some plugin widgets keep their query here
+            if isinstance(item, dict) and isinstance(item.get("jaql"), dict):
+                panels = [{"name": item.get("panel") or "rows", "items": [item]}]
+                metadata_block = {}
+                break
+    for panel in panels:
+        if not isinstance(panel, dict):
+            continue
+        for item in panel.get("items") or []:
+            jaql = item.get("jaql") if isinstance(item, dict) else None
+            if not isinstance(jaql, dict) or item.get("disabled"):
+                continue
+            jaql = dict(jaql)
+            if replaced_title and _datasource_title(jaql.get("datasource")) == replaced_title:
+                jaql.pop("datasource", None)
+            metadata.append({"jaql": jaql, "panel": _jaql_panel(panel.get("name"), jaql)})
+
+    ignore = metadata_block.get("ignore") if isinstance(metadata_block.get("ignore"), dict) and honour_ignore else {}
+    if ignore.get("all"):
+        return metadata
+    ignored_dims = {d for d in (ignore.get("dimensions") or []) if isinstance(d, str)}
+    ignored_ids = {i for i in (ignore.get("ids") or []) if isinstance(i, str)}
+    widget_ds = _datasource_title(datasource)
+    dashboard_ds = _datasource_title(dashboard.get("datasource"))
+
+    def belongs(jaql: dict[str, Any]) -> bool:
+        owner = _datasource_title(jaql.get("datasource")) or dashboard_ds
+        return owner == widget_ds or (replaced_title is not None and owner == replaced_title)
+
+    def add_filter(jaql: dict[str, Any], instance_id: Any) -> None:
+        if not isinstance(jaql, dict) or not isinstance(jaql.get("dim"), str) or jaql["dim"] in ignored_dims or (instance_id in ignored_ids) or not belongs(jaql):
+            return
+        jaql = dict(jaql)
+        jaql.pop("datasource", None)
+        filter_clause = jaql.get("filter") if isinstance(jaql.get("filter"), dict) else None
+        background = filter_clause.get("filter") if filter_clause and isinstance(filter_clause.get("filter"), dict) else None
+        if background is not None:  # a dependent filter's nested restriction is sent as its own background entry
+            jaql["filter"] = {k: v for k, v in filter_clause.items() if k != "filter"}
+            metadata.append({"jaql": dict(jaql, filter=background), "panel": "scope", "isBackground": True})
+        metadata.append({"jaql": jaql, "panel": "scope"})
+
+    for entry in dashboard.get("filters") or []:
+        if not isinstance(entry, dict) or entry.get("disabled"):
+            continue
+        if isinstance(entry.get("jaql"), dict):
+            add_filter(entry["jaql"], entry.get("instanceid"))
+        for level in entry.get("levels") or []:
+            if isinstance(level, dict):
+                add_filter(level, level.get("instanceid") or entry.get("instanceid"))
+    return metadata
+
+
+def _encode_cube_identifier(name: str) -> str:
+    """Spell a model table or column name the way an ElastiCube's SQL identifiers do.
+
+    ``a`` followed by the name, each character that is not a letter or digit replaced by the
+    base64 of ``(char, 0x00, 0x1A)`` — ``_`` becomes ``XwAa``, a space ``IAAa``.
+    """
+    out = ["a"]
+    for ch in name:
+        if ch.isalnum() and ord(ch) < 128:
+            out.append(ch)
+        else:
+            out.append(base64.b64encode(bytes([ord(ch) & 0xFF, 0, 0x1A])).decode("ascii"))
+    return "".join(out)
+
+
+def _sql_names_table(sql: str, table: dict[str, Any]) -> bool:
+    """Whether a translated query mentions a model table, by any spelling the engine uses for it.
+
+    ElastiCube SQL uses the encoded model name; live-model SQL uses the table's ``id`` (the physical
+    name, or the ``tq_…`` alias of a custom table). A spelling counts only as a whole identifier.
+    """
+    spellings = set()
+    for value in (table.get("name"), table.get("id")):
+        if isinstance(value, str) and value.strip():
+            spellings.add(value.strip())
+            spellings.add(_encode_cube_identifier(value.strip()))
+    return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(spelling) + r"(?![A-Za-z0-9])", sql) for spelling in spellings)
+
+
+# --------------------------------------------------------------------------- many-to-many detection
+
+
+def _quote_sql_identifier(name: str, live: bool) -> str:
+    """Quote a table or column name for a model's SQL dialect: ``[x]`` for ElastiCubes, ``"x"`` for live models."""
+    if live:
+        return '"' + name.replace('"', '""') + '"'
+    return "[" + name.replace("]", "]]") + "]"
+
+
+def _duplicate_key_count(api_client: Any, datasource_title: str, table: str, columns: list[str], live: bool) -> tuple[int | None, str | None]:
+    """Count the values of ``columns`` (taken together) that occur more than once in ``table``: ``(count, error)``.
+
+    Runs ``select count(*) from (select <columns> from <table> group by <columns> having count(*) > 1) t``
+    through ``GET /api/datasources/{title}/sql`` with a JSON answer. The endpoint reports query
+    failures with HTTP 200 and a body carrying ``"error": true``, so the body is checked too.
+    """
+    quoted_columns = ", ".join(_quote_sql_identifier(c, live) for c in columns)
+    query = f"select count(*) as dup_keys from (select {quoted_columns} from {_quote_sql_identifier(table, live)} group by {quoted_columns} having count(*) > 1) t"  # noqa: S608
+    response = api_client.get(f"/api/datasources/{quote(datasource_title, safe='')}/sql", params={"query": query, "format": "json"})
+    if response is None:
+        return None, f"no response from the SQL endpoint for '{datasource_title}'"
+    try:
+        body = response.json()
+    except Exception:
+        body = None
+    if getattr(response, "status_code", None) != 200:
+        detail = (body or {}).get("details") if isinstance(body, dict) else None
+        return None, f"SQL query on '{table}' failed (HTTP {response.status_code}): {detail or (getattr(response, 'text', '') or '')[:200] or 'no details'}"
+    if isinstance(body, dict) and body.get("error"):
+        return None, f"SQL query on '{table}' failed: {body.get('details') or body.get('message') or 'unrecognized error body'}"
+    values = body.get("values") if isinstance(body, dict) else None
+    try:
+        return int(values[0][0]), None
+    except (TypeError, ValueError, IndexError, KeyError):
+        return None, f"SQL query on '{table}' returned an unexpected body"
+
+
+def _group_relation_column_pairs(pairs: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Group single-column relation pairs by (unordered) table pair into composite keys.
+
+    Several relations between the same two tables form one composite key, so each side is
+    tested on all of its joined columns together. ``pairs`` carry ``left_table``, ``left_column``,
+    ``right_table``, ``right_column`` (names). Returns ``[{"left_table", "left_columns",
+    "right_table", "right_columns"}]`` with the tables in sorted order, in first-seen order.
+    """
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for pair in pairs:
+        left, right = pair["left_table"], pair["right_table"]
+        if left <= right:
+            key, left_col, right_col = (left, right), pair["left_column"], pair["right_column"]
+        else:
+            key, left_col, right_col = (right, left), pair["right_column"], pair["left_column"]
+        group = groups.setdefault(key, {"left_table": key[0], "left_columns": [], "right_table": key[1], "right_columns": []})
+        if left_col not in group["left_columns"]:
+            group["left_columns"].append(left_col)
+        if right_col not in group["right_columns"]:
+            group["right_columns"].append(right_col)
+    return list(groups.values())
+
+
+def _many_to_many_check(api_client: Any, datasource_title: str, group: dict[str, Any], live: bool) -> dict[str, Any]:
+    """Test one table pair for a many-to-many join: duplicated keys on both sides.
+
+    Returns ``{"left_duplicate_keys", "right_duplicate_keys", "is_m2m", "status", "error"}``;
+    ``is_m2m`` is ``None`` and ``status`` ``"error"`` when a query failed (the right side is
+    not queried after the left failed).
+    """
+    left_count, left_error = _duplicate_key_count(api_client, datasource_title, group["left_table"], group["left_columns"], live)
+    right_count, right_error = (None, None) if left_error else _duplicate_key_count(api_client, datasource_title, group["right_table"], group["right_columns"], live)
+    error = left_error or right_error
+    return {
+        "left_duplicate_keys": left_count,
+        "right_duplicate_keys": right_count,
+        "is_m2m": None if error else bool(left_count) and bool(right_count),
+        "status": "error" if error else "checked",
+        "error": error,
+    }
+
+
+# --------------------------------------------------------------------------- Dashboard Co-Authoring and ownership
+
+_ADMIN_ROLE_NAMES = {"admin", "super"}
+
+
+def _with_query(url: str, query: str) -> str:
+    """Append a ``key=value`` query fragment to a URL that may or may not already carry one."""
+    if not query:
+        return url
+    return url + ("&" if "?" in url else "?") + query
+
+
+def _co_authoring_enabled(api_client: Any, dashboard_id: str | None = None) -> bool:
+    """Whether Dashboard Co-Authoring is on: ``GET /api/v1/settings/system`` ``dashboardCoAuthoring.enabled``.
+
+    When the setting cannot be read, a ``sharedMode=true`` read of ``dashboard_id`` that
+    answers 200 counts as on; any other answer (unknown query parameters are rejected with
+    a 4xx on some versions) counts as off, so ``sharedMode`` is never sent on a write blindly.
+    """
+    response = api_client.get("/api/v1/settings/system")
+    if response is not None and response.status_code == 200:
+        try:
+            flag = ((response.json() or {}).get("dashboardCoAuthoring") or {}).get("enabled")
+        except Exception:
+            flag = None
+        if isinstance(flag, bool):
+            return flag
+    if dashboard_id is None:
+        return False
+    probe = api_client.get(f"/api/v1/dashboards/{dashboard_id}?sharedMode=true")
+    return probe is not None and probe.status_code == 200
+
+
+def _shared_dashboard_copy(api_client: Any, dashboard_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    """Read the shared copy (``GET /api/v1/dashboards/{id}?sharedMode=true``): ``(status, document or None)``."""
+    response = api_client.get(f"/api/v1/dashboards/{dashboard_id}?sharedMode=true")
+    if response is None:
+        return None, None
+    if response.status_code != 200:
+        return response.status_code, None
+    try:
+        body = response.json()
+    except Exception:
+        return response.status_code, None
+    return 200, body if isinstance(body, dict) else None
+
+
+def _shared_dashboard_widgets(api_client: Any, dashboard_id: str) -> list[dict[str, Any]]:
+    """The widgets of the shared copy (``GET /api/v1/dashboards/{id}/widgets?sharedMode=true``), or ``[]``."""
+    response = api_client.get(f"/api/v1/dashboards/{dashboard_id}/widgets?sharedMode=true")
+    if response is None or response.status_code != 200:
+        return []
+    try:
+        body = response.json()
+    except Exception:
+        return []
+    return [w for w in body if isinstance(w, dict)] if isinstance(body, list) else []
+
+
+def _read_shared_dashboard(api_client: Any, dashboard_id: str) -> tuple[int | None, dict[str, Any] | None]:
+    """Read the shared copy with its widgets and hierarchies: ``(status, document or None)``.
+
+    Tries ``GET /api/dashboards/{id}?adminAccess=true`` first — an administrator's route, owner or
+    not, which returns the shared copy with ``widgets`` embedded — then the owner's route,
+    ``GET /api/v1/dashboards/{id}?sharedMode=true`` plus the shared widgets endpoint. Both routes
+    carry the shared copy's own ``hierarchies`` (the key is absent when there are none); the
+    document returned always has ``widgets`` and ``hierarchies`` lists.
+    """
+    response = api_client.get(f"/api/dashboards/{dashboard_id}?adminAccess=true")
+    body: dict[str, Any] | None = None
+    if response is not None and response.status_code == 200:
+        try:
+            candidate = response.json()
+        except Exception:
+            candidate = None
+        if isinstance(candidate, dict):
+            body = dict(candidate)
+            if not isinstance(body.get("widgets"), list):
+                widgets = api_client.get(f"/api/dashboards/{dashboard_id}/widgets?adminAccess=true")
+                try:
+                    body["widgets"] = [w for w in widgets.json() if isinstance(w, dict)] if widgets is not None and widgets.status_code == 200 else []
+                except Exception:
+                    body["widgets"] = []
+    if body is None:
+        status, shared = _shared_dashboard_copy(api_client, dashboard_id)
+        if shared is None:
+            return (response.status_code if response is not None else status), None
+        body = dict(shared)
+        body["widgets"] = _shared_dashboard_widgets(api_client, dashboard_id)
+    body["hierarchies"] = [h for h in (body.get("hierarchies") or []) if isinstance(h, dict)]
+    return 200, body
+
+
+def _dashboard_admin_record(api_client: Any, dashboard_id: str) -> dict[str, Any] | None:
+    """The dashboard's row from the admin listing (owner, shares, datasource, title), or ``None``."""
+    response = api_client.get(f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    if isinstance(body, list):
+        body = body[0] if body and isinstance(body[0], dict) else None
+    return body if isinstance(body, dict) and "error" not in body else None
+
+
+def _current_user(api_client: Any) -> dict[str, Any] | None:
+    """The token's user (``GET /api/users/loggedin``), or ``None``."""
+    response = api_client.get("/api/users/loggedin")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) and body.get("_id") else None
+
+
+def _is_admin_user(api_client: Any, user: dict[str, Any] | None) -> bool:
+    """Whether the user's role is an administrator role (``admin`` or ``super``)."""
+    role_id = (user or {}).get("roleId")
+    if not isinstance(role_id, str):
+        return False
+    response = api_client.get("/api/roles")
+    if response is None or response.status_code != 200:
+        return False
+    try:
+        return any(isinstance(r, dict) and r.get("_id") == role_id and str(r.get("name") or "").lower() in _ADMIN_ROLE_NAMES for r in response.json())
+    except Exception:
+        return False
+
+
+def _user_email(api_client: Any, user_id: Any) -> str | None:
+    """Resolve a user id to an email via the user list, or ``None``."""
+    if not isinstance(user_id, str):
+        return None
+    response = api_client.get("/api/v1/users")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        return next((u.get("email") for u in response.json() if isinstance(u, dict) and u.get("_id") == user_id), None)
+    except Exception:
+        return None
+
+
+def _user_id_for_email(api_client: Any, email: str) -> str | None:
+    """Resolve an email to a user id via the user list, or ``None``."""
+    response = api_client.get("/api/v1/users")
+    if response is None or response.status_code != 200:
+        return None
+    try:
+        return next((u.get("_id") for u in response.json() if isinstance(u, dict) and str(u.get("email") or "").strip().lower() == email.strip().lower()), None)
+    except Exception:
+        return None
+
+
+def _co_owner_names(api_client: Any, record: dict[str, Any]) -> list[str]:
+    """Emails of users and ``group:<name>`` of groups holding an edit share on the dashboard."""
+    entries = [s for s in (record.get("shares") or []) if isinstance(s, dict) and str(s.get("rule") or "").lower() in ("edit", "owner")]
+    names: list[str] = []
+    if any(s.get("type") == "user" for s in entries):
+        users = api_client.get("/api/v1/users")
+        emails: dict[str, str] = {}
+        if users is not None and users.status_code == 200:
+            try:
+                emails = {u["_id"]: u.get("email") for u in users.json() if isinstance(u, dict) and u.get("_id")}
+            except Exception:
+                emails = {}
+        names += [emails.get(s.get("shareId")) or str(s.get("shareId")) for s in entries if s.get("type") == "user"]
+    if any(s.get("type") == "group" for s in entries):
+        groups = api_client.get("/api/v1/groups")
+        group_names: dict[str, str] = {}
+        if groups is not None and groups.status_code == 200:
+            try:
+                group_names = {g["_id"]: g.get("name") for g in groups.json() if isinstance(g, dict) and g.get("_id")}
+            except Exception:
+                group_names = {}
+        names += [f"group:{group_names.get(s.get('shareId')) or s.get('shareId')}" for s in entries if s.get("type") == "group"]
+    return names
+
+
+def _dashboard_copies(api_client: Any, dashboard_id: str, co_authoring: bool) -> tuple[bool, list[tuple[str, str]]]:
+    """Which copies a write must reach: ``(has_shared_copy, [(copy, query), ...])``.
+
+    Under co-authoring a published dashboard has a shared copy (viewers) and the owner's
+    private copy, written shared first; a never-published dashboard, or an instance with
+    the feature off, has a single copy.
+    """
+    if co_authoring:
+        _status, shared = _shared_dashboard_copy(api_client, dashboard_id)
+        if shared is not None and shared.get("lastPublish"):
+            return True, [("shared", "sharedMode=true"), ("private", "")]
+    return False, [("private", "")]
+
+
+def _borrow_ownership(api_client: Any, logger: Any, dashboard_id: str, title: Any, record: dict[str, Any], borrower_id: str) -> dict[str, Any]:
+    """Take ownership of a dashboard temporarily (``POST .../change_owner?adminAccess=true``).
+
+    Returns what ``_return_ownership`` needs, or the standard error dict.
+    """
+    owner_id = record.get("owner")
+    shares = [
+        {"shareId": s.get("shareId"), "type": s.get("type"), "rule": s.get("rule"), "subscribe": bool(s.get("subscribe"))}
+        for s in (record.get("shares") or [])
+        if isinstance(s, dict) and s.get("shareId") and s.get("rule")  # the owner's own entry carries no rule
+    ]
+    logger.info(f"Taking ownership of dashboard '{title}' ({dashboard_id}) temporarily from {owner_id}")
+    response = api_client.post(f"/api/v1/dashboards/{dashboard_id}/change_owner?adminAccess=true", data={"ownerId": borrower_id, "originalOwnerRule": "edit"})
+    if response is None or response.status_code != 200:
+        failure = _extract_error_message(response, f"Could not take ownership of dashboard '{title}' temporarily", api_client)
+        failure["owner"] = _user_email(api_client, owner_id) or owner_id
+        logger.error(failure["error"])
+        return failure
+    return {"owner_id": owner_id, "owner_email": _user_email(api_client, owner_id), "shares": shares}
+
+
+def _return_ownership(api_client: Any, logger: Any, dashboard_id: str, title: Any, borrowed: dict[str, Any]) -> dict[str, Any]:
+    """Give ownership back and restore the exact share list captured by ``_borrow_ownership``."""
+    owner_id = borrowed.get("owner_id")
+    label = borrowed.get("owner_email") or owner_id
+    response = api_client.post(f"/api/v1/dashboards/{dashboard_id}/change_owner?adminAccess=true", data={"ownerId": owner_id, "originalOwnerRule": "view"})
+    if response is None or response.status_code != 200:
+        failure = _extract_error_message(response, f"Could not return ownership of dashboard '{title}' to {label}", api_client)
+        logger.error(failure["error"])
+        return failure
+    # change_owner leaves the borrower with a view share; posting the original list (the owner as rule
+    # "owner") replaces the whole share list and removes it.
+    body = {"sharesTo": [{"shareId": owner_id, "type": "user", "rule": "owner", "subscribe": False}] + list(borrowed.get("shares") or [])}
+    response = api_client.post(f"/api/shares/dashboard/{dashboard_id}?adminAccess=true", data=body)
+    if response is None or response.status_code != 200:
+        failure = _extract_error_message(
+            response, f"Ownership of dashboard '{title}' was returned to {label}, but its share list could not be restored (the token's user keeps a view share)", api_client
+        )
+        logger.error(failure["error"])
+        return failure
+    logger.info(f"Returned ownership of dashboard '{title}' ({dashboard_id}) to {label} and restored its shares")
+    return {"success": True}
+
+
+def _dashboard_write_access(api_client: Any, logger: Any, dashboard_id: str, act_as_owner: bool, *, borrower: str | None = None, what: str = "change it") -> dict[str, Any]:
+    """Settle who may write a dashboard before anything is written.
+
+    Returns ``{"record", "title", "co_authoring", "borrowed"}`` — ``borrowed`` is ``None`` when the
+    token's user owns the dashboard (or ownership could not be determined) and otherwise what
+    ``_return_ownership`` needs — or the standard error dict when the token's user is not the
+    owner and may not, or may not yet, act as owner. ``borrower`` names the user to transfer
+    ownership to (default: the token's user).
+    """
+    record = _dashboard_admin_record(api_client, dashboard_id) or {}
+    title = record.get("title") or dashboard_id
+    co_authoring = _co_authoring_enabled(api_client, dashboard_id)
+    me = _current_user(api_client)
+    my_id = me.get("_id") if isinstance(me, dict) else None
+    owner_id = record.get("owner") if isinstance(record.get("owner"), str) else None
+    borrower_id = borrower or my_id
+    context: dict[str, Any] = {"record": record, "title": title, "co_authoring": co_authoring, "borrowed": None}
+    if not owner_id or not borrower_id or borrower_id == owner_id:
+        return context
+    owner_label = _user_email(api_client, owner_id) or owner_id
+    co_owners = _co_owner_names(api_client, record)
+    if not act_as_owner:
+        failure: dict[str, Any] = {
+            "ok": False,
+            "error": f"Dashboard '{title}' is owned by {owner_label}; only the owner can {what}. Pass act_as_owner=True with an administrator token to take ownership temporarily.",
+            "owner": owner_label,
+            "co_owners": co_owners,
+        }
+        logger.error(failure["error"])
+        return failure
+    if borrower is None and not _is_admin_user(api_client, me):
+        failure = {"ok": False, "error": f"Dashboard '{title}' is owned by {owner_label}; act_as_owner requires an administrator token.", "owner": owner_label, "co_owners": co_owners}
+        logger.error(failure["error"])
+        return failure
+    borrowed = _borrow_ownership(api_client, logger, dashboard_id, title, record, borrower_id)
+    if borrowed.get("ok") is False:
+        return borrowed
+    context["borrowed"] = borrowed
+    context["record"] = _dashboard_admin_record(api_client, dashboard_id) or record
+    return context
+
+
+def _finish_ownership(api_client: Any, logger: Any, dashboard_id: str, title: Any, borrowed: dict[str, Any] | None, result: dict[str, Any]) -> dict[str, Any]:
+    """Return borrowed ownership and stamp the outcome on ``result``."""
+    if borrowed is None:
+        return result
+    restored = _return_ownership(api_client, logger, dashboard_id, title, borrowed)
+    if isinstance(result, dict):
+        result["ownership_transferred_temporarily"] = True
+        result["original_owner"] = borrowed.get("owner_email") or borrowed.get("owner_id")
+        if restored.get("ok") is False:
+            result["ownership_restore_error"] = restored.get("error")
+    return result
+
+
+def _write_dashboard_copies(
+    api_client: Any, logger: Any, dashboard_id: str, title: Any, co_authoring: bool, write: Any, *, label: str, publish: Literal["never", "if_shared", "always"] = "if_shared"
+) -> dict[str, Any]:
+    """Apply one write to every copy of a dashboard, shared first, then publish when a shared copy was written.
+
+    ``write(query)`` performs the request for one copy (``query`` is ``"sharedMode=true"`` or
+    ``""``) and returns the response. ``publish`` is ``"if_shared"`` (publish only when a shared
+    copy was written), ``"always"`` (publish regardless — with ``force=true`` only when
+    co-authoring is off, since a forced publish empties the owner's private copy under it) or
+    ``"never"``. Returns ``{"success": True, "copies_updated": [...], "response": <last response>,
+    "published": bool | None}`` or, on the first failed write, the standard error dict with
+    ``copies_updated`` (copies written before the failure).
+    """
+    has_shared_copy, copies = _dashboard_copies(api_client, dashboard_id, co_authoring)
+    updated: list[str] = []
+    response = None
+    for copy, query in copies:
+        response = write(query)
+        if response is None or response.status_code not in (200, 201, 204):
+            failure = _extract_error_message(response, f"Failed to {label} on the {copy} copy of dashboard '{title}'" if has_shared_copy else f"Failed to {label} on dashboard '{title}'", api_client)
+            failure["copies_updated"] = updated
+            logger.error(failure["error"])
+            return failure
+        updated.append(copy)
+    result: dict[str, Any] = {"success": True, "copies_updated": updated, "response": response, "published": None}
+    if publish == "always" or (publish == "if_shared" and has_shared_copy):
+        # force=true on a co-authored dashboard wipes the owner's private copy's widgets (live-observed);
+        # it is only ever sent when the feature is off, where it is the long-standing behaviour.
+        force = publish == "always" and not co_authoring
+        published = api_client.post(f"/api/v1/dashboards/{dashboard_id}/publish" + ("?force=true" if force else ""))
+        result["published"] = published is not None and published.status_code in (200, 204)
+        if not result["published"]:
+            result["publish_error"] = _extract_error_message(published, f"Failed to publish dashboard '{title}' after the change", api_client)["error"]
+            logger.warning(result["publish_error"])
+    logger.info(f"{label} on dashboard '{title}' ({dashboard_id}): copies={updated}, published={result['published']}")
+    return result
+
+
+def _dashboard_for_reading(api_client: Any, logger: Any, export_doc: dict[str, Any], co_authoring: bool) -> tuple[dict[str, Any] | None, str, int | None]:
+    """The dashboard as viewers see it: ``(document, copy, status)``.
+
+    With Dashboard Co-Authoring off, or for a dashboard that was never published, the export is
+    the single copy (``copy`` is ``"private"``). Otherwise the shared copy is the dashboard and is
+    read on its own — datasource, filters, widgets and hierarchies are all per copy — as
+    administrator (``GET /api/dashboards/{id}?adminAccess=true``) or as owner (``sharedMode=true``);
+    ``copy`` is ``"shared"``. When the shared copy exists but neither route can read it, the
+    document is ``None`` with ``copy`` ``"unreadable"`` and the HTTP status: the owner's private
+    copy is never substituted, since it may differ from what viewers see.
+    """
+    dashboard_id = export_doc.get("oid")
+    if not co_authoring or not isinstance(dashboard_id, str):
+        return export_doc, "private", None
+    status, shared = _read_shared_dashboard(api_client, dashboard_id)
+    if shared is None:
+        if not export_doc.get("lastPublish"):
+            return export_doc, "private", None  # never published: a single copy
+        if logger:
+            logger.error(f"Dashboard {dashboard_id}: the shared copy could not be read (HTTP {status})")
+        return None, "unreadable", status
+    if not shared.get("lastPublish"):
+        return export_doc, "private", None
+    shared.setdefault("oid", dashboard_id)
+    if logger:
+        logger.debug(f"Dashboard {dashboard_id}: reading the shared copy ({len(shared.get('widgets') or [])} widgets, {len(shared.get('hierarchies') or [])} hierarchies)")
+    return shared, "shared", None
+
+
 def _compute_dependency_closure(
     index: dict[str, Any],
     used: set[_ColumnKey],
@@ -923,14 +1475,17 @@ def _compute_dependency_closure(
     custom_columns: bool = True,
     custom_tables: bool = True,
     custom_table_columns: Literal["all", "parsed"] = "all",
+    join_pairs: set[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Compute everything a set of columns depends on beyond the columns themselves.
 
     Runs three closures to a fixpoint over the retained set: join paths between
-    every pair of retained tables (both join columns of every edge on every
+    pairs of retained tables (both join columns of every edge on every
     shortest path, and the intermediate tables), custom-column formulas
     (the columns they read), and custom-table SQL (the tables and columns it
-    selects from). Each retained entry carries the reasons it was kept.
+    selects from). Each retained entry carries the reasons it was kept. When a
+    pair of tables has more than one shortest path, every path is kept and all
+    of them are listed in ``join_paths``.
 
     Parameters
     ----------
@@ -947,12 +1502,17 @@ def _compute_dependency_closure(
     custom_table_columns : {"all", "parsed"}, optional
         ``"all"`` keeps every column of every table a custom table's SQL references;
         ``"parsed"`` keeps only the columns the SQL names (``select *`` still keeps all).
+    join_pairs : set[tuple[str, str]] | None, optional
+        The ``(table_oid, table_oid)`` pairs that must be joinable, in either order. Default
+        ``None`` joins every pair of retained endpoint tables.
 
     Returns
     -------
     dict[str, Any]
         ``{"retained": {(table_oid, column_oid): [reason, ...]}, "tables": {table_oid: [reason, ...]},
-        "join_paths": [{"from", "to", "tables"}], "issues": [{"severity", "kind", "detail"}], "options": {...}}``.
+        "join_paths": [{"from", "to", "tables", "paths"}], "issues": [{"severity", "kind", "detail"}], "options": {...}}``.
+        ``paths`` lists every shortest path as a table-oid sequence from ``from`` to ``to``;
+        ``tables`` is their union ordered by distance from ``from``.
         ``retained`` holds dependency columns only (never the ``used`` input); ``tables`` lists tables
         kept for a table-level reason — an intermediate table on a join path or the source table of a
         custom table — with their reasons, whether or not they also have retained columns.
@@ -1001,7 +1561,7 @@ def _compute_dependency_closure(
     for _ in range(50):  # fixpoint; each pass only adds
         changed = False
         if join_paths:
-            changed |= _close_join_paths(index, endpoint_tables(), keep, keep_table, issue, join_path_report, seen_paths)
+            changed |= _close_join_paths(index, endpoint_tables(), keep, keep_table, issue, join_path_report, seen_paths, pairs=join_pairs)
         if custom_columns:
             for key in sorted((set(used) | set(retained)) - processed_columns):
                 processed_columns.add(key)
@@ -1020,15 +1580,18 @@ def _compute_dependency_closure(
         "tables": extra_tables,
         "join_paths": join_path_report,
         "issues": issues,
-        "options": {"join_paths": join_paths, "custom_columns": custom_columns, "custom_tables": custom_tables, "custom_table_columns": custom_table_columns},
+        "options": {"join_paths": join_paths, "custom_columns": custom_columns, "custom_tables": custom_tables, "custom_table_columns": custom_table_columns, "join_pairs": join_pairs},
     }
 
 
-def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, seen_paths) -> bool:
+def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, seen_paths, pairs=None) -> bool:
     """Retain the join columns on every shortest path between each pair of needed tables.
 
     ``tables_needed`` are the endpoint tables only; a table that lies on a path
-    is kept as an intermediate but never becomes an endpoint itself.
+    is kept as an intermediate but never becomes an endpoint itself. With
+    ``pairs`` given, only those table pairs are connected; otherwise every pair
+    of needed tables is. A pair with more than one shortest path keeps them all;
+    the report lists every path so the caller can tell.
     """
     tables = index["tables"]
     adjacency: dict[str, dict[str, list[tuple[_ColumnKey, _ColumnKey]]]] = {}
@@ -1038,31 +1601,51 @@ def _close_join_paths(index, tables_needed, keep, keep_table, issue, report, see
                 if a[0] != b[0] and a[0] in tables and b[0] in tables:
                     adjacency.setdefault(a[0], {}).setdefault(b[0], []).append((a, b))
     changed = False
-    needed = sorted(t for t in tables_needed if t in tables)
-    for i, source in enumerate(needed):
+    if pairs is None:
+        needed = sorted(t for t in tables_needed if t in tables)
+        wanted = [(source, target) for i, source in enumerate(needed) for target in needed[i + 1 :]]
+    else:
+        wanted = sorted({tuple(sorted(pair)) for pair in pairs if pair[0] != pair[1] and pair[0] in tables and pair[1] in tables})
+        needed = sorted({t for pair in wanted for t in pair})
+    for source, target in wanted:
+        if (source, target) in seen_paths:
+            continue
+        seen_paths.add((source, target))
         distances = _bfs(adjacency, source)
-        for target in needed[i + 1 :]:
-            if (source, target) in seen_paths:
-                continue
-            seen_paths.add((source, target))
-            if target not in distances:
-                issue("info", "tables_not_joined", f"no relation path between '{tables[source]['name']}' and '{tables[target]['name']}'")
-                continue
-            back = _bfs(adjacency, target)
-            total = distances[target]
-            on_path = {t for t in distances if t in back and distances[t] + back[t] == total}
-            for u in on_path:
-                for v, pairs in adjacency.get(u, {}).items():
-                    if v in on_path and distances.get(v) == distances[u] + 1:
-                        for a, b in pairs:
-                            label = f"join {tables[a[0]]['name']} -> {tables[b[0]]['name']} on the path {tables[source]['name']} .. {tables[target]['name']}"
-                            changed |= keep(a, "join_column", (source, target), label)
-                            changed |= keep(b, "join_column", (source, target), label)
-            for t in on_path - set(needed):
-                keep_table(t, "join_path_table", (source, target), f"intermediate table between '{tables[source]['name']}' and '{tables[target]['name']}'")
-                changed = True
-            report.append({"from": source, "to": target, "tables": sorted(on_path, key=lambda t: distances[t])})
+        if target not in distances:
+            issue("info", "tables_not_joined", f"no relation path between '{tables[source]['name']}' and '{tables[target]['name']}'")
+            continue
+        back = _bfs(adjacency, target)
+        total = distances[target]
+        on_path = {t for t in distances if t in back and distances[t] + back[t] == total}
+        for u in on_path:
+            for v, pairs_uv in adjacency.get(u, {}).items():
+                if v in on_path and distances.get(v) == distances[u] + 1:
+                    for a, b in pairs_uv:
+                        label = f"join {tables[a[0]]['name']} -> {tables[b[0]]['name']} on the path {tables[source]['name']} .. {tables[target]['name']}"
+                        changed |= keep(a, "join_column", (source, target), label)
+                        changed |= keep(b, "join_column", (source, target), label)
+        for t in on_path - set(needed):
+            keep_table(t, "join_path_table", (source, target), f"intermediate table between '{tables[source]['name']}' and '{tables[target]['name']}'")
+            changed = True
+        report.append({"from": source, "to": target, "tables": sorted(on_path, key=lambda t: (distances[t], t)), "paths": _enumerate_shortest_paths(adjacency, source, target, distances, on_path)})
     return changed
+
+
+def _enumerate_shortest_paths(adjacency, source, target, distances, on_path, limit: int = 50) -> list[list[str]]:
+    """List every shortest path from ``source`` to ``target`` as table-oid sequences, at most ``limit``."""
+    paths: list[list[str]] = []
+    stack: list[list[str]] = [[source]]
+    while stack and len(paths) < limit:
+        path = stack.pop()
+        node = path[-1]
+        if node == target:
+            paths.append(path)
+            continue
+        for neighbour in sorted(adjacency.get(node, {}), reverse=True):
+            if neighbour in on_path and distances.get(neighbour) == distances[node] + 1:
+                stack.append(path + [neighbour])
+    return sorted(paths)
 
 
 def _bfs(adjacency, start) -> dict[str, int]:

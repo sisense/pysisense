@@ -8,6 +8,183 @@ All notable changes to `pysisense` are documented here. The format follows
 
 _Nothing yet._
 
+## [2.2.0] — 2026-09-21
+
+### Fixed
+
+- **`check_pivot_widget_fields` and `check_datamodel_island_tables` no longer answer "clean" with an
+  empty list.** Both returned only the offending items, so a caller could not tell "all pivots are
+  within the limit" from "no pivot widgets found" from "the dashboard could not be read", and an
+  exported CSV was simply empty. Like the other WellCheck checks they now return every inspected
+  item with its flag: one row per pivot widget with `has_more_fields` true or false, one row per
+  table with `relation` yes or no. A dashboard or model that cannot be resolved or read is a row
+  with `status: "error"` and the message in `error`; a missing or empty reference list returns the
+  standard error dict instead of `[]`. Rows gain `status` and `error`.
+
+- **`check_datamodel_m2m_relationships` no longer misses or misreports many-to-many joins.** It
+  required two or more duplicated key values per side (a side with exactly one repeating key was
+  treated as unique), tested each column of a composite key on its own (a unique Year+Region key
+  looked many-to-many because each column repeats), and reported any failed query — an unbuilt
+  cube, a live source rejecting the SQL, the engine's HTTP-200 error body — as `is_m2m: False`.
+  It now flags a pair when any key value repeats on both sides, groups the relations between the
+  same two tables into one composite key tested with a single `group by` over all its columns,
+  runs one `select count(*)` per side instead of pulling every duplicated key over the wire,
+  quotes identifiers for the model's dialect (square brackets for cubes, double quotes for live
+  models) and URL-encodes the model title, and reports failures as `status: "error"` rows with
+  the engine's message and `is_m2m: None`. A missing or empty `datamodels` argument returns the
+  standard error dict instead of `[]`; an unresolvable model contributes an error row. Rows gain
+  `left_columns`/`right_columns`, `left_duplicate_keys`/`right_duplicate_keys`, `status` and
+  `error`; `left_column`/`right_column` now hold the joined column names for a composite key.
+- **The WellCheck unit tests run in CI.** `tests/unit/unit_test_wellcheck.py` did not match
+  pytest's default file pattern and was never collected; it is now `test_wellcheck.py`, and the
+  orchestrator test's misnamed RLS override it hid is fixed.
+
+- **`replace_datasource` now reaches viewers under Dashboard Co-Authoring.** With the system
+  setting `dashboardCoAuthoring` on, a published dashboard is a shared copy (what viewers see)
+  plus a private copy per owner, and publishing flows shared → private. The method wrote the
+  private copy and published, so the owner saw the new datasource and nobody else did — and its
+  "already uses" pre-check read that same private copy. It now compares against the shared copy,
+  writes it first with `sharedMode=true`, verifies the shared dashboard and every widget, writes
+  the owner's private copy, publishes, and verifies the shared copy again; a never-published
+  dashboard (single copy) and instances with the feature off behave as before. The silent
+  `adminAccess=true` retry is gone: a non-owner is refused before any write, with `owner` and
+  `co_owners` named, because an administrator who is not the owner cannot read or publish the
+  shared copy on this version. New `act_as_owner=False` parameter: with an administrator token it
+  transfers ownership to the token's user for the duration of the change and restores ownership
+  and the exact share list afterwards, even when the change or the publish fails. Result gains
+  `previous_datasource_title` (the revert value), `co_authoring`, `shared_copy_updated`,
+  `private_copy_updated`, `ownership_transferred_temporarily` and, when borrowed,
+  `original_owner` / `ownership_restore_error`; `published` now means the shared copy was read
+  back with the change.
+- **Every other dashboard write follows the same rules.** `rename_dashboard`,
+  `move_dashboard_to_folder`, `add_dashboard_script`, `add_widget_script`, `update_widget` and
+  `Blox.update_blox_widget_style` settle ownership first (non-owners are refused with `owner` and
+  `co_owners`; `act_as_owner=True` borrows and returns ownership), write the shared copy first
+  with `sharedMode=true` and then the private copy where the property is per copy (title, script,
+  widgets — the folder is one shared property and is written once), and republish when a shared
+  copy was written. `rename_dashboard` and `move_dashboard_to_folder` fall back from `PATCH` to
+  `PUT /api/dashboards/{id}` on versions without the PATCH route (this one returns 404, so both
+  methods were broken there). `add_widget_script` no longer republishes with `force=true` under
+  co-authoring: a forced publish empties the owner's private copy's widgets (live-observed); the
+  flag is still sent when the feature is off. `executing_user` / `executing_user_id` remain as
+  the older form of `act_as_owner` and are deprecated in its favour.
+- **Each copy is replaced from the datasource it currently shows.** After a change made under
+  borrowed ownership the owner's private copy can lag behind the shared copy; `replace_datasource`
+  now names each copy's own current datasource in the swap request (a swap named after the wrong
+  old datasource is silently a no-op) and skips a copy that already shows the target.
+  `delete_dashboard` accepts the title of either copy.
+- **The read side sees what viewers see.** `analyze_perspective_requirements`,
+  `validate_dashboard_queries` and `compare_dashboard_values` read the export, which under
+  co-authoring is the owner's private copy. They now read the published shared copy on its own — as
+  administrator via `GET /api/dashboards/{id}?adminAccess=true`, which returns the shared copy with
+  its widgets, or as owner via `sharedMode=true`. Filters, hierarchies and widgets are all per copy
+  (a hierarchy added on one copy never appears on the other), so nothing is taken from the export
+  for a co-authored dashboard. A shared copy neither route can read is reported, not replaced by
+  the private copy: the analysis lists that dashboard under `dashboards.failed` with a
+  `shared_copy_unreadable` error, and the dashboard methods return the standard error dict.
+  `get_unused_columns_bulk` and `get_dashboard_columns` read the same way. `validate_dashboard_queries` and
+  `compare_dashboard_values` report `dashboard_copy` (`"shared"` / `"private"`); the analysis
+  reports `copy` per analysed dashboard (detailed view).
+
+### Added
+
+- **`Dashboard.compare_dashboard_values(dashboard, datasource_a, datasource_b)`** — run every
+  widget's query, with the dashboard filters that apply to it, once against each datasource
+  (up to 1000 rows a side) and compare the result sets row for row, ignoring order. Answers
+  "does the dashboard show the same numbers on the perspective as on the root model". Returns
+  `all_match` (true only when at least one widget was compared and none mismatched or errored),
+  `compared`, `skipped`, `counts` by status and a per-widget list with `status`
+  (`match`/`mismatch`/`error`/`skipped`), `rows_a`, `rows_b`, `error` and `seconds`. Fields a
+  datasource does not expose are reported as `error` before any query is sent, since the engine
+  stalls on them; widgets on another datasource, BloX widgets and widgets with nothing to query
+  are `skipped`. Read-only.
+
+- **`DataModel.deploy_datamodel(..., wait=False, timeout=900, poll_interval=5)`** — with
+  `wait=True` the method polls `GET /api/v2/builds/{oid}` after the build is accepted until it
+  reaches a final state, confirms a `done` build against the model's `lastSuccessfulBuildTime`
+  (`lastPublishTime` for a live model — a failed rebuild keeps the previous build running and
+  moves only `lastBuildTime`), and returns the final build object (`status: "done"`). A build
+  that ends `failed` or `cancelled`, is never confirmed by the model, or does not finish within
+  `timeout`, returns the standard error dict with the last build object read under `build` and
+  the model's build timestamps under `model`. Without `wait` the behaviour is unchanged: the
+  accepted build object with `status: null`.
+
+### Changed
+
+- **`analyze_perspective_requirements` warns about many-to-many joins inside the perspective.**
+  Every relation between two kept tables is tested for duplicated keys on both sides (the same
+  detection `check_datamodel_m2m_relationships` uses, shared through `utils`), composite keys
+  as a tuple. A many-to-many pair is a `many_to_many_in_perspective` warning — always present
+  in `warnings`, `0` when none — with the detail listing both tables, their join columns and the
+  duplicate counts, plus a `many_to_many` list in the detailed view (`scope` marks pairs kept only
+  by the all-paths variant). A pair whose SQL check failed is `many_to_many_unchecked`. Nothing is
+  dropped and `errors` is untouched: a many-to-many is a modelling decision for the caller.
+- **`analyze_perspective_requirements` keeps only what a perspective actually needs, and asks the
+  engine which join path it uses.** A perspective evaluates custom columns and custom tables through
+  its root model, so the columns a custom column reads and the tables a custom table selects from
+  are no longer added (on one model this had turned 2 used columns into 24 tables and 155 columns).
+  Join columns and intermediate tables are now added only between tables that meet in one query —
+  a widget's own tables plus the dashboard's filter and hierarchy tables (a filter counts even for a
+  widget that has switched it off, so the perspective survives the toggle) — instead of between
+  every pair of used tables, so widgets on separate tables with no shared filter keep no join at
+  all. Where a pair is connected by more than one equally short path through tables no dashboard
+  uses, the method sends each widget's query to `POST /api/datasources/{model}/jaql/sql`
+  (translation only, nothing runs) and reads which candidate tables the engine joins through:
+  `perspective_tables` keeps only those paths, the new `perspective_tables_all_paths` keeps every
+  path, and the new `join_path_choices` lists the pair (`from`, `to`, `needed_by`, `resolved`,
+  `paths` as `{"via": [...], "in_use": ...}`). When the translation cannot be obtained or names
+  none of the candidates, both lists keep every path and the pair is counted in `warnings` as
+  `ambiguous_join_path`. `perspective_tables[].columns` is now always an explicit list of names.
+  `summary` gains `tables_required_all_paths` and `columns_required_all_paths`. In the detailed
+  view, `dependencies.columns` carries only `join_column` reasons plus an `in_use` flag,
+  `dependencies.tables` lists every table kept purely as a join path in `perspective_tables` (it
+  previously listed only tables kept with no columns, which a join path never is), and
+  `dependencies.tables_all_paths` does the same for every path.
+
+### For downstream tool generators
+
+- `check_pivot_widget_fields`, `check_datamodel_island_tables`: every inspected item is now a row
+  (`has_more_fields` / `relation` may be false / `"yes"`), so consumers must filter on the flag
+  instead of on presence; additive row keys `status`, `error`; a missing or empty reference list
+  returns the error dict (was `[]`), so the return type is `list[dict] | dict`; an unresolvable
+  reference is an error row (was silently skipped).
+- `analyze_perspective_requirements`: `warnings.many_to_many_in_perspective` is always present; new
+  warning kind `many_to_many_unchecked`; additive detailed key `many_to_many`.
+- `check_datamodel_m2m_relationships`: additive row keys `left_columns`, `right_columns`,
+  `left_duplicate_keys`, `right_duplicate_keys`, `status`, `error`; `is_m2m` may now be `None`;
+  `left_column`/`right_column` hold `", "`-joined names for composite keys; a missing or empty
+  `datamodels` argument returns the error dict (was `[]`), so the return type is
+  `list[dict] | dict`; an unresolvable model is an error row (was silently skipped).
+- `replace_datasource`: additive param `act_as_owner: bool`; additive result keys
+  `previous_datasource_title`, `co_authoring`, `shared_copy_updated`, `private_copy_updated`,
+  `ownership_transferred_temporarily`, `original_owner`, `ownership_restore_error`; failure dicts
+  may carry `owner`, `co_owners`, `shared_copy_updated`, `private_copy_updated`.
+- `rename_dashboard`, `move_dashboard_to_folder`, `add_dashboard_script`, `add_widget_script`,
+  `update_widget`, `Blox.update_blox_widget_style`: additive param `act_as_owner: bool`; success
+  results may gain `published`, `publish_error`, `ownership_transferred_temporarily`,
+  `original_owner`, `ownership_restore_error`; the script methods gain `copies_updated`; failure
+  dicts may carry `owner`, `co_owners`, `copies_updated`. `executing_user` / `executing_user_id`
+  are deprecated in favour of `act_as_owner` (still accepted).
+- `validate_dashboard_queries`, `compare_dashboard_values`: additive result key `dashboard_copy`.
+  `get_unused_columns_bulk`: a model whose dashboards' shared copies cannot be read now fails under
+  `"errors"` instead of being analysed from the private copy; `get_dashboard_columns` returns the
+  standard error dict in that case.
+  `analyze_perspective_requirements`: additive `dashboards.analyzed[].copy` (detailed view only); new error kind
+  `shared_copy_unreadable`.
+- New method `Dashboard.compare_dashboard_values(dashboard: str, datasource_a: str, datasource_b: str)`.
+- `analyze_perspective_requirements`: additive result keys `perspective_tables_all_paths` (list,
+  always present) and `join_path_choices` (list, always present); additive `summary` keys
+  `tables_required_all_paths`, `columns_required_all_paths`; additive detailed keys
+  `dependencies.tables_all_paths` and `dependencies.columns[].in_use`. Consumers matching exact
+  key sets must widen. `perspective_tables` remains valid to pass to `create_perspective`
+  unchanged; `perspective_tables[].columns` is now always `list[str]` (never `"all"`). Dropped
+  `reason` values in the detailed `dependencies.columns`: `custom_column_expression`,
+  `custom_table_source`. Dropped warning kinds: `custom_column_token_unresolved`,
+  `custom_table_sql_unresolved`, `custom_table_sql_column_unresolved`, `custom_table_sql_complex`,
+  `custom_table_sql_no_source`. New warning kind: `ambiguous_join_path`.
+- `deploy_datamodel`: additive params `wait: bool`, `timeout: float`, `poll_interval: float`.
+  Failure dict gains the additive keys `build` and `model`.
+
 ## [2.1.0] — 2026-09-04
 
 ### Changed

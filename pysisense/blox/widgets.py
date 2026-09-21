@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..utils import _extract_error_message
+from ..utils import _dashboard_write_access, _extract_error_message, _finish_ownership, _with_query, _write_dashboard_copies
 
 # Fields that Sisense manages server-side and must be stripped before a PUT write.
 _SERVER_MANAGED_FIELDS = frozenset({"oid", "_id", "owner", "userId", "created", "lastUpdated", "instanceType", "dashboardid"})
@@ -63,6 +63,7 @@ class BloxWidgetsMixin:
         current_card: dict[str, Any] | None = None,
         current_config: dict[str, Any] | None = None,
         executing_user_id: str | None = None,
+        act_as_owner: bool = False,
     ) -> dict[str, Any]:
         """Update the style objects of a BloX widget.
 
@@ -77,12 +78,15 @@ class BloxWidgetsMixin:
         and pass the modified objects back here. Each provided object replaces
         the existing one wholesale; omitted objects are left unchanged.
 
-        When ``executing_user_id`` is provided, ownership of the dashboard is
-        temporarily transferred to that user before the write, then restored
-        in a ``finally`` block regardless of whether the write succeeds. Pass
-        the Sisense user ID (not email); resolve it with
-        ``AccessManagement.get_my_user()`` for the API token user, or
-        ``AccessManagement.get_user(email)`` for any other user.
+        With Dashboard Co-Authoring on, a published dashboard's widget lives on its
+        shared copy (what viewers see) and on the owner's private copy; both are
+        written, shared first with ``sharedMode=true``, and the dashboard is
+        republished. Only the owner may write; a non-owner is refused with the owner
+        named, unless ``act_as_owner`` is true and the token belongs to an
+        administrator, in which case ownership is borrowed for the change and
+        returned afterwards together with the exact share list. ``executing_user_id``
+        is the older form of the same thing: when provided, ownership is borrowed for
+        that user (a Sisense user ID) instead of the token's user.
 
         When neither ``current_card`` nor ``current_config`` is provided the
         method returns immediately with the current style objects and makes
@@ -101,8 +105,11 @@ class BloxWidgetsMixin:
             Replacement for the ``style.currentConfig`` object. Omit to leave
             the current value unchanged.
         executing_user_id : str | None, optional
-            Sisense user ID of the user who should own the dashboard during the
-            write. Required when the API token user is not the dashboard owner.
+            Deprecated in favour of ``act_as_owner``: the Sisense user ID to transfer
+            ownership to for the change. Default ``None``.
+        act_as_owner : bool, optional
+            Take ownership temporarily when the token's user is an administrator but not
+            the owner. Default ``False``: refuse instead.
 
         Returns
         -------
@@ -112,7 +119,11 @@ class BloxWidgetsMixin:
             - ``currentCard`` (dict): The value of ``style.currentCard`` after the write.
             - ``currentConfig`` (dict): The value of ``style.currentConfig`` after the write.
 
-            Returns ``{"error": "..."}`` on failure or if the widget is not a BloX type.
+            ``published`` (and ``publish_error``) is added when a shared copy was written,
+            ``ownership_transferred_temporarily`` / ``original_owner`` when ownership was
+            borrowed. On failure, or if the widget is not a BloX type, the standard
+            ``{"ok": False, "error": "...", ...}`` dict, with ``owner`` and ``co_owners``
+            when the token's user is not the owner.
         """
         widget = self._get_blox_widget(dashboard_id, widget_id, admin_access=True)
         if "error" in widget:
@@ -131,31 +142,33 @@ class BloxWidgetsMixin:
 
         payload = {k: v for k, v in widget.items() if k not in _SERVER_MANAGED_FIELDS}
 
-        took_ownership = False
-        original_owner_id: str | None = None
-        original_shares: list[dict[str, Any]] = []
-
-        if executing_user_id:
-            take_result = self._blox_take_ownership(dashboard_id, executing_user_id)
-            if isinstance(take_result, str):
-                return {"ok": False, "error": take_result}
-            original_owner_id, original_shares = take_result
-            took_ownership = True
-
+        access = _dashboard_write_access(self.api_client, self.logger, dashboard_id, act_as_owner or bool(executing_user_id), borrower=executing_user_id or None, what="modify its widgets")
+        if access.get("ok") is False:
+            return access
+        title, co_authoring, borrowed = access["title"], access["co_authoring"], access["borrowed"]
+        result: dict[str, Any] = {"ok": False, "error": f"Updating BloX widget '{widget_id}' failed unexpectedly."}
         try:
-            response = self.api_client.put(f"/api/dashboards/{dashboard_id}/widgets/{widget_id}", data=payload)
-
-            if response is None or response.status_code != 200:
-                failure = _extract_error_message(response, f"Failed to update widget '{widget_id}'", self.api_client)
-                self.logger.error(failure["error"])
-                return failure
-
-            self.logger.info(f"BloX widget {widget_id} style updated on dashboard {dashboard_id}.")
-            return {"currentCard": style_block.get("currentCard", {}), "currentConfig": style_block.get("currentConfig", {})}
-
+            outcome = _write_dashboard_copies(
+                self.api_client,
+                self.logger,
+                dashboard_id,
+                title,
+                co_authoring,
+                lambda query: self.api_client.put(_with_query(f"/api/dashboards/{dashboard_id}/widgets/{widget_id}", query), data=payload),
+                label=f"update BloX widget '{widget_id}'",
+            )
+            if outcome.get("ok") is False:
+                result = outcome
+            else:
+                self.logger.info(f"BloX widget {widget_id} style updated on dashboard {dashboard_id}.")
+                result = {"currentCard": style_block.get("currentCard", {}), "currentConfig": style_block.get("currentConfig", {})}
+                if outcome.get("published") is not None:
+                    result["published"] = outcome["published"]
+                    if outcome.get("publish_error"):
+                        result["publish_error"] = outcome["publish_error"]
         finally:
-            if took_ownership:
-                self._blox_release_ownership(dashboard_id, original_owner_id, original_shares)
+            result = _finish_ownership(self.api_client, self.logger, dashboard_id, title, borrowed, result)
+        return result
 
     def _get_blox_widget(self, dashboard_id: str, widget_id: str, *, admin_access: bool = True) -> dict[str, Any]:
         """Fetch a widget and verify it is a BloX widget.
@@ -195,91 +208,3 @@ class BloxWidgetsMixin:
             return {"ok": False, "error": msg}
 
         return widget
-
-    def _blox_take_ownership(self, dashboard_id: str, executing_user_id: str) -> tuple[str, list[dict[str, Any]]] | str:
-        """Take temporary ownership of a dashboard for the specified user.
-
-        Fetches the current owner and shares, then transfers ownership to
-        ``executing_user_id``. The caller must call :meth:`_blox_release_ownership`
-        in a ``finally`` block to restore the original state.
-
-        Parameters
-        ----------
-        dashboard_id : str
-            The dashboard to take ownership of.
-        executing_user_id : str
-            Sisense user ID of the user to transfer ownership to.
-
-        Returns
-        -------
-        tuple[str, list[dict[str, Any]]] | str
-            On success: ``(original_owner_id, original_shares_list)``.
-            On failure: an error message string.
-        """
-        self.logger.debug(f"Taking temporary ownership of dashboard {dashboard_id} for user {executing_user_id}.")
-
-        owner_response = self.api_client.get(f"/api/v1/dashboards/admin?dashboardType=owner&id={dashboard_id}&asObject=false")
-        if owner_response is None or owner_response.status_code != 200:
-            self.logger.error(f"Failed to retrieve original owner for dashboard {dashboard_id}.")
-            return f"Failed to retrieve original owner for dashboard '{dashboard_id}'."
-
-        owner_data = owner_response.json()
-        if not owner_data:
-            self.logger.error(f"Dashboard {dashboard_id} not found in the admin dashboard list.")
-            return f"Dashboard '{dashboard_id}' not found."
-        original_owner_id = owner_data[0].get("owner")
-
-        shares_response = self.api_client.get(f"/api/shares/dashboard/{dashboard_id}?adminAccess=true")
-        if shares_response is None or shares_response.status_code != 200:
-            error_message = shares_response.json() if shares_response else "No response received."
-            self.logger.error(f"Failed to retrieve shares for dashboard {dashboard_id}. Error: {error_message}")
-            return f"Failed to retrieve shares for dashboard '{dashboard_id}'."
-
-        original_shares = shares_response.json().get("sharesTo", [])
-
-        change_response = self.api_client.post(
-            f"/api/v1/dashboards/{dashboard_id}/change_owner?adminAccess=true",
-            data={"ownerId": executing_user_id, "originalOwnerRule": "edit"},
-        )
-        if change_response is None or change_response.status_code != 200:
-            error_message = change_response.json() if change_response else "No response received."
-            self.logger.error(f"Failed to change ownership of dashboard {dashboard_id}. Error: {error_message}")
-            return f"Failed to change ownership of dashboard '{dashboard_id}'."
-
-        self.logger.info(f"Dashboard {dashboard_id} ownership temporarily transferred to {executing_user_id}.")
-        return (original_owner_id, original_shares)
-
-    def _blox_release_ownership(self, dashboard_id: str, original_owner_id: str, shares: list[dict[str, Any]]) -> None:
-        """Restore original ownership and shares for a dashboard.
-
-        Intended to be called in a ``finally`` block after :meth:`_blox_take_ownership`.
-        Restoration errors are logged but not raised so the caller's return value
-        is not overridden.
-
-        Parameters
-        ----------
-        dashboard_id : str
-            The dashboard to restore ownership for.
-        original_owner_id : str
-            The user ID of the original owner.
-        shares : list[dict[str, Any]]
-            The original shares list as returned by :meth:`_blox_take_ownership`.
-        """
-        self.logger.info(f"Restoring ownership of dashboard {dashboard_id} to '{original_owner_id}'.")
-
-        shares_payload = [{"shareId": s["shareId"], "type": s["type"], "rule": s.get("rule", "edit"), "subscribe": s.get("subscribe", False)} for s in shares]
-
-        restore_shares_response = self.api_client.post(f"/api/shares/dashboard/{dashboard_id}", data={"sharesTo": shares_payload})
-        if restore_shares_response is None or restore_shares_response.status_code != 200:
-            error_message = restore_shares_response.json() if restore_shares_response else "No response received."
-            self.logger.error(f"Failed to restore shares for dashboard {dashboard_id}. Error: {error_message}")
-
-        restore_ownership_response = self.api_client.post(
-            f"/api/v1/dashboards/{dashboard_id}/change_owner",
-            data={"ownerId": original_owner_id, "originalOwnerRule": "edit"},
-        )
-        if restore_ownership_response is None or restore_ownership_response.status_code != 200:
-            error_message = restore_ownership_response.json() if restore_ownership_response else "No response received."
-            self.logger.error(f"Failed to restore ownership of dashboard {dashboard_id}. Error: {error_message}")
-        else:
-            self.logger.info(f"Ownership of dashboard {dashboard_id} restored to '{original_owner_id}'.")

@@ -141,21 +141,17 @@ print(result)
 # {"currentCard": {...}, "currentConfig": {...}}
 ```
 
-When the API token user does not own the dashboard, pass `executing_user_id` (the Sisense user ID of the token owner) to enable a temporary ownership swap:
+Under Dashboard Co-Authoring the widget is written on the shared copy (what viewers see) and on the owner's private copy, then the dashboard is republished; the result carries `published`. Only the owner can write. When the API token belongs to an administrator who does not own the dashboard, pass `act_as_owner=True` to take ownership for the change:
 
 ```python
-from pysisense import AccessManagement
-
-access_mgmt = AccessManagement(api_client=api_client)
-my_user_id = access_mgmt.get_my_user()["_id"]
-
 result = blox.update_blox_widget_style(
     dashboard_id,
     widget_id,
     current_card=style["currentCard"],
-    executing_user_id=my_user_id,
+    act_as_owner=True,
 )
 print(result)
+# {"currentCard": {...}, "currentConfig": {...}, "published": True, "ownership_transferred_temporarily": True, "original_owner": "jane@example.com"}
 ```
 
-Ownership is always restored in a `finally` block, so it is returned to the original owner even if the write fails.
+Ownership and the exact share list are always restored in a `finally` block, even if the write fails. A non-owner without the flag is refused before anything is written, with `owner` and `co_owners` in the error dict. `executing_user_id` (a Sisense user ID) is the older form of the same thing and still works.
