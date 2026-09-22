@@ -147,13 +147,15 @@ class AdminMixin:
         interval_hours: int | None = None,
         interval_minutes: int | None = None,
     ) -> dict[str, Any]:
-        """Create a schedule build for a DataModel.
+        """Schedule a recurring build for an ElastiCube.
 
-        Supports both cron-based schedules (e.g. every Monday at 9:00 UTC) and
-        interval-based schedules (e.g. every 2 days, 1 hour, 30 minutes). An
-        interval-based schedule is created when any of the ``interval_*``
-        parameters are provided; otherwise a cron-based schedule is created from
-        ``days``, ``hour``, and ``minute``.
+        Sends ``POST /api/v2/datamodels/{id}/schedule`` to store a build schedule
+        on the model. No build is started by this call; the model is built by
+        Sisense whenever the schedule comes due. Supports both cron-based
+        schedules (e.g. every Monday at 9:00 UTC) and interval-based schedules
+        (e.g. every 2 days, 1 hour, 30 minutes). An interval-based schedule is
+        created when any of the ``interval_*`` parameters are provided; otherwise
+        a cron-based schedule is created from ``days``, ``hour``, and ``minute``.
 
         Parameters
         ----------

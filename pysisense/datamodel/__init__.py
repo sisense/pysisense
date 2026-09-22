@@ -34,7 +34,7 @@ class DataModel(
         connections; generate connection payloads for supported providers.
     build :
         Schema provisioning — create data models, datasets, and tables;
-        deploy a data model with configurable build behavior.
+        build an ElastiCube or publish a live data model.
     security :
         Row-level security — get, update, and bulk-add datasecurity rules
         that restrict data access per user or group; retrieve raw,

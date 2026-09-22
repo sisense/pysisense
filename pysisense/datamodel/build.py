@@ -485,7 +485,7 @@ class BuildMixin:
         timeout: float = 900,
         poll_interval: float = 5,
     ) -> dict[str, Any]:
-        """Deploy (build or publish) the specified data model based on its type.
+        """Build (run) an ElastiCube or publish a live data model, and optionally wait for it to finish.
 
         Supports both Elasticube (EXTRACT) and Live models. For EXTRACT models a
         build is triggered using ``build_type``, ``row_limit``, and ``schema_origin``.
