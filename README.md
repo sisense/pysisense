@@ -183,6 +183,7 @@ Logs rotate automatically at midnight and keep **7 days of history**. The active
 - 🔭 **Perspectives** – List, create, and delete metadata-only views over a data model, and analyze what a perspective must keep for the model's dashboards to keep working
 - 🔐 **Permissions** – Resolve and apply share rules (users & groups)
 - 🔄 **Cross-Environment Migrations** – Move dashboards, models, and users
+- 🌿 **Git Integration** *(optional feature)* – Manage Sisense Git projects, branches, and commits, and sync with a remote repository (fetch/pull/push)
 - ✅ **WellCheck** – Analyze dashboard and data model health (structure complexity, widget density, pivot fields, island tables, RLS datatypes, import queries, many-to-many relationships, and unused columns)
 - 🧠 **Smart Logging & Data Helpers** – Auto log capture, CSV export, and DataFrame conversion
 - ➕ **And many more** – Refer to the documentation for full details
@@ -246,6 +247,7 @@ Comprehensive module-level documentation is available in the `docs/` folder:
 -   [Access Management](docs/access_management.md) – Manage users, groups, roles, and permissions
 -   [Data Model](docs/datamodel.md) – Handle datasets, tables, schemas, security, and deployment
 -   [Dashboard](docs/dashboard.md) – Retrieve, modify, and share Sisense dashboards
+-   [Git](docs/git.md) – Sisense Git Integration (optional feature): projects, branches, commits, and remote fetch/pull/push
 -   [Migration](docs/migration.md) – Migrate users, dashboards, and models between environments
 -   [Utils](docs/utils.md) – Helper functions for export, formatting, and data operations
 -   [WellCheck](docs/wellcheck.md) – Run health checks on dashboards and data models (structure, complexity, and best-practice validations)
