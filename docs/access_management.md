@@ -419,7 +419,7 @@ Retrieves all dashboard share settings, including user and group shares.
 
 ### `create_schedule_build(self, datamodel_name, build_type="ACCUMULATE", *, days=None, hour=None, minute=None, interval_days=None, interval_hours=None, interval_minutes=None)`
 
-Schedules a build for a DataModel. Supports both:
+Schedules a recurring build for an ElastiCube. Sends `POST /api/v2/datamodels/{id}/schedule` to store a build schedule on the model; no build is started by this call, the model is built by Sisense whenever the schedule comes due. Supports both:
 - **Cron-based schedules** (e.g., specific days and time in UTC)
 - **Interval-based schedules** (e.g., every N days/hours/minutes)
 

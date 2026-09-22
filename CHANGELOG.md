@@ -6,7 +6,21 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`deploy_datamodel` and `create_schedule_build` lead with what they do.** `deploy_datamodel`
+  opened with "Deploy (build or publish) the specified data model based on its type", which names
+  the action nobody uses for it and puts "build" in brackets; it now reads "Build (run) an ElastiCube or
+  publish a live data model, and optionally wait for it to finish". `create_schedule_build`
+  opened with "Create a schedule build for a DataModel", which reads as though it builds something;
+  it now reads "Schedule a recurring build for an ElastiCube", and its description states that the
+  call stores a schedule and starts no build. No signature, behaviour or return shape changed.
+
+### For downstream tool generators
+
+- The summary lines of `DataModel.deploy_datamodel` and `AccessManagement.create_schedule_build`
+  changed, and so did the `build` entry in `DataModel`'s `Modules` docstring. Any generator that
+  caches or embeds these descriptions must regenerate them. Nothing else about either method moved.
 
 ## [2.2.0] — 2026-09-21
 

@@ -295,7 +295,7 @@ Sets up a DataModel using an existing connection by creating a DataModel, datase
 
 ### `deploy_datamodel(self, datamodel_name, build_type="full", row_limit=0, schema_origin="latest", wait=False, timeout=900, poll_interval=5)`
 
-Deploys (builds or publishes) the specified DataModel based on its type. Sends `POST /api/v2/builds`, which only accepts the build: the returned object has `status: null` and the build runs in the background. With `wait=True` the method polls `GET /api/v2/builds/{oid}` every `poll_interval` seconds until the build reaches a final state or `timeout` elapses, so that whatever follows — a query, a perspective built over the model — sees the finished build.
+Builds (runs) an ElastiCube or publishes a live DataModel, and optionally waits for it to finish. Sends `POST /api/v2/builds`, which only accepts the build: the returned object has `status: null` and the build runs in the background. With `wait=True` the method polls `GET /api/v2/builds/{oid}` every `poll_interval` seconds until the build reaches a final state or `timeout` elapses, so that whatever follows — a query, a perspective built over the model — sees the finished build.
 
 #### Parameters:
 
