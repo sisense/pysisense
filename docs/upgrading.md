@@ -6,10 +6,10 @@ Sisense *environments* — a different thing entirely.)
 
 ---
 
-## From 2.3 to 2.4
+## From 2.3.0 to 2.3.1
 
 `analyze_perspective_requirements` changes where it gets its answer. No method was removed or renamed,
-and no key was removed.
+and no key was removed, but the same model can return a different set of tables.
 
 | Symptom after upgrading | Cause | Fix |
 |---|---|---|

@@ -6,6 +6,10 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2.3.1] — 2026-09-23
+
 ### Changed
 
 - **`analyze_perspective_requirements` takes the tables a query needs from its translated SQL, not
