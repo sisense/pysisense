@@ -1943,6 +1943,7 @@ class TestAnalyzePerspectiveJoins:
                 "from": "dim_dashboard",
                 "to": "dim_datamodels",
                 "needed_by": ["Governance: dashboard filter on 'dim_dashboard' applies to 1 widget on 'dim_datamodels'"],
+                "changes_tables": True,
                 "resolved": False,
                 "paths": [{"via": ["fact_a"], "in_use": None}, {"via": ["fact_b"], "in_use": None}],
             }
@@ -1968,6 +1969,7 @@ class TestAnalyzePerspectiveJoins:
                 "from": "dim_dashboard",
                 "to": "dim_datamodels",
                 "needed_by": ["Governance: dashboard filter on 'dim_dashboard' applies to 1 widget on 'dim_datamodels'"],
+                "changes_tables": True,
                 "resolved": True,
                 "paths": [{"via": ["fact_a"], "in_use": True}, {"via": ["fact_b"], "in_use": False}],
             }
@@ -2029,8 +2031,9 @@ class TestAnalyzePerspectiveJoins:
             "Governance: dashboard filter on 'dim_dashboard' applies to 2 widgets on 'dim_datamodels'",
         ]
 
-    def test_no_choice_when_every_candidate_table_is_used_anyway(self):
-        # Both facts are used directly, so picking one path would drop no table: all join columns kept, nothing to decide.
+    def test_ambiguity_is_reported_even_when_it_changes_no_table(self):
+        # Both facts are used directly, so picking a path would drop no table. The pair is still joinable
+        # two ways and says so, but nothing is narrowed: both facts' join columns stay, and with them both relations.
         export = _b_export(
             [_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name")), _b_widget("w3", ("fact_a", "views")), _b_widget("w4", ("fact_b", "builds"))],
             filters=[("dim_dashboard", "owner")],
@@ -2038,7 +2041,10 @@ class TestAnalyzePerspectiveJoins:
         a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b", detailed=True)
         assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
         assert {(d["table"], d["column"]) for d in a["dependencies"]["columns"]} >= {("fact_a", "datamodel_id"), ("fact_b", "datamodel_id"), ("dim_datamodels", "datamodel_id")}
-        assert a["join_path_choices"] == [] and "ambiguous_join_path" not in a["warnings"]
+        choice = a["join_path_choices"]
+        assert len(choice) == 1 and choice[0]["changes_tables"] is False
+        assert {tuple(p["via"]) for p in choice[0]["paths"]} == {("fact_a",), ("fact_b",)}
+        assert "ambiguous_join_path" not in a["warnings"]  # failing to pick costs nothing when every route is kept
         assert len(a["dependencies"]["join_paths"]) == 3  # dashboard..datamodels (2 paths), dashboard..fact_a, dashboard..fact_b
 
     def test_single_path_join_is_silent(self):

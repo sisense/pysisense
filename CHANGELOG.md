@@ -37,6 +37,17 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Changed
 
+- **`join_path_choices` reports every pair of tables joinable more than one way.** It listed only the
+  pairs where picking a path would change which tables the perspective keeps, so on a model where
+  every table is used by a dashboard anyway it came back empty — a confident `[]` about a model whose
+  dimensions are each joinable five ways. Every multi-path pair is now listed, with a new
+  `changes_tables` key saying whether the choice moves any table. Only pairs with `changes_tables`
+  true are acted on: they alone drive `perspective_tables` and `perspective_tables_all_paths`, and
+  they alone raise `ambiguous_join_path`. A pair that changes nothing is reported and left alone,
+  since narrowing it to the path in use would drop the other paths' join columns and with them their
+  relations. The two table lists and both `*_all_paths` counters keep their meaning, and the warning
+  count no longer equals the number of unresolved entries in the list.
+
 - **`deploy_datamodel` and `create_schedule_build` lead with what they do.** `deploy_datamodel`
   opened with "Deploy (build or publish) the specified data model based on its type", which names
   the action nobody uses for it and puts "build" in brackets; it now reads "Build (run) an ElastiCube or
@@ -50,6 +61,10 @@ All notable changes to `pysisense` are documented here. The format follows
 - The summary lines of `DataModel.deploy_datamodel` and `AccessManagement.create_schedule_build`
   changed, and so did the `build` entry in `DataModel`'s `Modules` docstring. Any generator that
   caches or embeds these descriptions must regenerate them. Nothing else about either method moved.
+
+- `join_path_choices[]` gains `changes_tables` (bool). Consumers matching exact key sets must widen.
+  `paths[].in_use` can be true on more than one path of the same pair; render it as a set rather than
+  a single winner. `via` is a list of intermediate tables in order, not a single table name.
 
 ## [2.2.0] — 2026-09-21
 
