@@ -413,8 +413,12 @@ class PerspectivesMixin:
         dashboard export — under Dashboard Co-Authoring, from the shared copy viewers see — its own filters,
         hierarchies and widgets, read as administrator or as owner; a shared copy neither can read fails that dashboard with a
         ``shared_copy_unreadable`` error rather than analysing the owner's private copy in its
-        place — keeping only references that belong to this model, and resolves
-        them against the model's schema. It then adds what the joins need: for every pair
+        place — keeping only references that belong to this model or to a perspective over it,
+        and resolves them against the model's schema. Which of those a dashboard shows is read
+        from the copy that was opened, not from the dashboard listing, because the listing
+        always describes the owner's copy and the two copies can sit on different members of
+        the family. A dashboard whose widgets all query something else entirely contributes no
+        columns and is reported as ``dashboard_on_other_datasource``. It then adds what the joins need: for every pair
         of tables that meet in one query — a widget's own tables together with the tables
         of the dashboard's filters and hierarchies, which apply to every widget, including
         widgets that have switched a filter off — it follows the shortest relation paths
@@ -602,14 +606,28 @@ class PerspectivesMixin:
         other_datasources: dict[str, list[dict[str, Any]]] = {}  # dashboard oid -> widgets left on other datasources
         lowered_tables = {name.lower(): oids for name, oids in ((t["name"], [oid]) for oid, t in index["tables"].items() if isinstance(t.get("name"), str))}
         severity_of = {"unreadable_dim": "error", "ambiguous_dim": "warning", "blox_widget": "warning", "script_present": "warning", "unclassified_location": "warning"}
+        # The model and every perspective over it share one schema, so a dashboard on any of them
+        # counts. Which one a dashboard shows is read off the copy in hand, never off the listing:
+        # the listing describes the owner's copy, and under Co-Authoring the shared copy that is
+        # read here can be on a different member of the family.
+        family = [model_title] + perspective_titles
+        family_lower = {name.lower() for name in family if isinstance(name, str)}
         for oid, dashboard in exports.items():
             title = dashboard.get("title")
-            report = _extract_dashboard_references(dashboard, title, known_columns=known_columns, logger=self.logger, datasource=sources.get(oid, model_title))
+            copy_title = (dashboard.get("datasource") or {}).get("title") if isinstance(dashboard.get("datasource"), dict) else None
+            if isinstance(copy_title, str) and copy_title.lower() in family_lower:
+                sources[oid] = copy_title
+            report = _extract_dashboard_references(dashboard, title, known_columns=known_columns, logger=self.logger, datasource=family)
             other_datasources[oid] = [{"widget_id": w.get("widget_id"), "title": w.get("title"), "type": w.get("type"), "datasource": w.get("datasource")} for w in report["skipped_widgets"]]
             for found in report["issues"]:
                 severity = severity_of.get(found["kind"])
                 if severity:  # informational kinds (a widget on another datasource) are not issues for the perspective
                     issue(severity, found["kind"], oid, found.get("widget_id"), f"{title}: {found['detail']}")
+            if not report["rows"] and other_datasources[oid]:
+                elsewhere = sorted({w["datasource"] for w in other_datasources[oid] if w.get("datasource")})
+                where = " or ".join(repr(name) for name in elsewhere) if elsewhere else "another datasource"
+                detail = f"{title}: every widget queries {where}, not '{model_title}' or a perspective over it; no columns counted"
+                issue("warning", "dashboard_on_other_datasource", oid, None, detail)
             for row in report["rows"]:
                 table_oids = lowered_tables.get(str(row["table"]).strip().lower(), [])
                 column_oid = None

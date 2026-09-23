@@ -4,7 +4,7 @@ from typing import Any
 
 from typing_extensions import deprecated
 
-from ..utils import _co_authoring_enabled, _dashboard_for_reading, _discover_dashboards_on_datasource, _extract_dashboard_columns
+from ..utils import _co_authoring_enabled, _dashboard_for_reading, _datasource_family, _datasource_title, _discover_dashboards_on_datasource, _extract_dashboard_columns
 
 
 class ColumnsMixin:
@@ -181,12 +181,19 @@ class ColumnsMixin:
 
         # Step 2: Fetch dashboards associated with this DataModel
         self.logger.info(f"Fetching dashboards linked to DataModel '{datamodel_name}'")
-        discovered = _discover_dashboards_on_datasource(self.api_client, self.logger, datamodel_name)
-        if discovered.get("ok") is False:
-            self.logger.error(f"Failed to fetch dashboards for DataModel '{datamodel_name}': {discovered['error']}")
-            return []
-
-        dashboard_ids = set(discovered["matches"])
+        # With Dashboard Co-Authoring on, a dashboard's two copies can name different members of the
+        # same model family, and the listing only ever reports the owner's copy. Every member is swept
+        # so that the dashboards worth opening are found; which one each belongs to is settled below,
+        # from the copy that is read. With the feature off there is one copy and the listing matches it.
+        co_authoring = _co_authoring_enabled(self.api_client)
+        sweep = _datasource_family(self.api_client, self.logger, datamodel_name) if co_authoring else [datamodel_name]
+        dashboard_ids: set[str] = set()
+        for source_title in sweep:
+            discovered = _discover_dashboards_on_datasource(self.api_client, self.logger, source_title)
+            if discovered.get("ok") is False:
+                self.logger.error(f"Failed to fetch dashboards for DataModel '{datamodel_name}': {discovered['error']}")
+                return []
+            dashboard_ids.update(discovered["matches"])
         if not dashboard_ids:
             self.logger.warning(f"No dashboards found using DataModel '{datamodel_name}' or access is restricted.")
             # For a valid DataModel with no dashboards, treat all columns as unused.
@@ -208,7 +215,8 @@ class ColumnsMixin:
         # Under Dashboard Co-Authoring the export is the owner's private copy; viewers see the shared copy, which is
         # read in its place (as administrator or as owner). A shared copy neither can read fails the whole analysis:
         # an unused-column list that silently skipped a dashboard would be wrong in the unsafe direction.
-        co_authoring = _co_authoring_enabled(self.api_client, next(iter(dashboard_ids), None))
+        wanted_title = (datamodel_name or "").strip().lower()
+        elsewhere = 0
         for dashboard_id in dashboard_ids:
             dashboard_url = f"/api/v1/dashboards/export?dashboardIds={dashboard_id}&adminAccess=true"
             response = self.api_client.get(dashboard_url)
@@ -230,6 +238,11 @@ class ColumnsMixin:
                     "status_code": shared_status,
                 }
             dashboard_name = dashboard.get("title", "Unknown Dashboard")
+            copy_title = _datasource_title(dashboard.get("datasource"))
+            if co_authoring and copy_title is not None and copy_title != wanted_title:
+                elsewhere += 1
+                self.logger.info(f"Dashboard '{dashboard_name}' is on datasource '{copy_title}', not '{datamodel_name}'; not counted")
+                continue
             self.logger.debug(f"Analyzing Dashboard '{dashboard_name}' (ID: {dashboard_id})")
 
             # Extract every column reference from filters and widgets (shared walk).
@@ -243,6 +256,11 @@ class ColumnsMixin:
             total_widgets += widget_count
             self.logger.info(f"Processed {widget_count} widgets and {filter_count} filters and extracted {len(extracted)} columns for dashboard '{dashboard_name}'")
 
+        if elsewhere:
+            self.logger.warning(
+                f"{elsewhere} dashboard(s) found under DataModel '{datamodel_name}' are on another member of its model family "
+                f"and were not counted; columns they use are reported as unused for '{datamodel_name}'."
+            )
         self.logger.info(f"Total filters processed: {total_filters}")
         self.logger.info(f"Total widgets processed: {total_widgets}")
         self.logger.info(f"Total dashboard columns extracted: {len(dashboard_columns)}")
@@ -295,6 +313,14 @@ class ColumnsMixin:
         (``GET /api/dashboards/{id}?adminAccess=true``) or as owner (``sharedMode=true``).
         A shared copy neither route can read fails that model's analysis with the standard
         error dict under ``"errors"`` rather than the private copy being analysed in its place.
+        A dashboard counts for the datasource its shared copy names, and for no other: a data
+        model and a perspective over it are separate datasources here, so a dashboard on the
+        perspective leaves the model's columns unused and vice versa. Because the dashboard
+        listing reports owner copies only, and never names a perspective, the data model and
+        every perspective over it are swept to find the dashboards worth opening
+        (``GET /api/v2/datamodels/schema``, ``GET /api/v2/perspectives``); the copy that is
+        read then decides which of them a dashboard belongs to. With the feature off there is
+        a single copy and only the given datasource is searched.
         Parameters
         ----------
         datamodels : str or list of str

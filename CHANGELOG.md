@@ -6,6 +6,35 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`analyze_perspective_requirements` counted nothing for a dashboard whose two copies sit on
+  different datasources.** Dashboards are discovered from `GET /api/v1/dashboards/admin`, which
+  always describes the owner's copy, but under Dashboard Co-Authoring the copy that is read is the
+  shared one, and the datasource is per copy. The datasource title from the listing was then used to
+  decide which widgets belong to the model, so when the shared copy sat on a perspective while the
+  owner's copy sat on the root model, every widget looked foreign and the analysis reported the
+  dashboard as analysed with zero columns and raised no warning. The scope now comes from the copy
+  that was opened, and a reference is kept when it belongs to the model or to any perspective over
+  it, so a dashboard whose widgets are split between the two is fully counted. A dashboard whose
+  widgets all query something else contributes no columns and is now reported as
+  `dashboard_on_other_datasource` instead of passing silently.
+
+- **`get_unused_columns_bulk` reported columns in active use as unused.** It found dashboards from
+  the listing, which names the owner's copy, then read the shared copy and matched its widgets
+  against the name from the listing, so under Dashboard Co-Authoring a dashboard whose two copies
+  named different datasources contributed nothing. It also swept only the given datasource, and the
+  listing never names a perspective, so dashboards on a perspective were unreachable from either
+  side. A data model and a perspective over it stay separate datasources: a dashboard counts for the
+  one its shared copy names and for no other. To find the dashboards worth opening, the model and
+  every perspective over it are now swept, and the copy that is read decides which one each
+  dashboard belongs to; dashboards excluded that way are logged with their datasource. With the
+  feature off there is a single copy and the behaviour is unchanged.
+
+- **`widgets_on_other_datasources[].datasource` was lower-cased.** It carried the comparison form of
+  the title rather than the spelling Sisense records, so a perspective named `Governance_Optimized_AI`
+  was reported as `governance_optimized_ai`. It now reads as written.
+
 ### Changed
 
 - **`deploy_datamodel` and `create_schedule_build` lead with what they do.** `deploy_datamodel`
