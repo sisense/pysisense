@@ -1645,7 +1645,7 @@ class TestAnalyzePerspectiveRequirements:
         assert d["title"] == "Sales" and d["match"] == "dashboard" and d["datasource"] == "Model A"
         assert d["owner"] == "u1" and d["owner_email"] == "owner@example.com"
         assert d["tables_used"] == 2 and d["columns_used"] == 3 and d["columns"] == ["Customers.City", "Customers.test", "Orders.Total"]
-        assert d["widgets_on_other_datasources"] == [{"widget_id": "w2", "title": None, "type": "chart/bar", "datasource": "other model"}]
+        assert d["widgets_on_other_datasources"] == [{"widget_id": "w2", "title": None, "type": "chart/bar", "datasource": "Other Model"}]  # reported as written
         assert a["dashboards"]["failed"] == []
 
     def test_datamodel_facts_and_summary(self):
@@ -1860,6 +1860,64 @@ class TestAnalyzeUnderCoAuthoring:
         assert a["perspective_tables"] == [] and a["summary"]["dashboards_failed"] == 1
 
 
+class TestAnalyzeScopeFromTheCopyRead:
+    """The datasource a dashboard is scoped to comes from the copy that was read, not from the listing.
+
+    The admin listing always describes the owner's copy. Under Co-Authoring the shared copy read here
+    can sit on a different member of the model family, and scoping its widgets against the listing's
+    title leaves every widget looking foreign.
+    """
+
+    _PERSPECTIVE_DS = {"title": "Model B AI", "id": "live:Model B", "fullname": "live:Model B", "live": True}
+
+    def _dm(self, shared_ds, perspectives=(), widgets=None):
+        listing = [{"oid": "db1", "title": "Governance", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]}]
+        export = dict(_b_export([_b_widget("w1", ("dim_dashboard", "title"))]), lastPublish="2026-09-16T20:48:16.794Z")
+        shared_widgets = widgets if widgets is not None else [dict(_b_widget("w1", ("dim_dashboard", "owner")), datasource=shared_ds)]
+        shared = dict(export, datasource=shared_ds, widgets=shared_widgets)
+        return _make_dm(
+            get_responses={
+                "/api/v2/datamodels/dm-b/schema": FakeResponse(200, _B_SCHEMA),
+                "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm-b", "title": "Model B"}]),
+                "/api/v2/perspectives": FakeResponse(200, [{"oid": "p1", "name": n, "datamodelOid": "dm-b", "parentOid": "dm-b"} for n in perspectives]),
+                "/api/v1/dashboards/admin": FakeResponse(200, listing),
+                "/api/v1/dashboards/export": FakeResponse(200, [export]),
+                "/api/v1/users": FakeResponse(200, []),
+                "/api/v1/settings/system": FakeResponse(200, {"dashboardCoAuthoring": {"enabled": True}}),
+                "/api/v1/dashboards/db1?sharedMode=true": FakeResponse(403, {}),
+                "/api/dashboards/db1?adminAccess=true": FakeResponse(200, shared),
+            }
+        )
+
+    def test_shared_copy_on_a_perspective_still_counts_its_columns(self):
+        a = self._dm(self._PERSPECTIVE_DS, perspectives=["Model B AI"]).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["owner"]}]
+        assert a["dashboards"]["analyzed"][0]["widgets_on_other_datasources"] == []
+        assert a["dashboards"]["analyzed"][0]["datasource"] == "Model B AI"  # the copy that was read, not the listing
+
+    def test_widgets_split_between_the_model_and_a_perspective_are_both_counted(self):
+        widgets = [
+            dict(_b_widget("w1", ("dim_dashboard", "owner")), datasource=self._PERSPECTIVE_DS),
+            dict(_b_widget("w2", ("dim_datamodels", "name")), datasource=_B_DS),
+        ]
+        a = self._dm(self._PERSPECTIVE_DS, perspectives=["Model B AI"], widgets=widgets).analyze_perspective_requirements("dm-b", detailed=True)
+        assert {t["table"] for t in a["perspective_tables"]} == {"dim_dashboard", "dim_datamodels"}
+
+    def test_a_copy_on_a_foreign_model_counts_nothing_and_says_so(self):
+        foreign = {"title": "Other Model", "id": "live:Other Model", "fullname": "live:Other Model", "live": True}
+        a = self._dm(foreign).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == []
+        assert a["warnings"]["dashboard_on_other_datasource"] == 1
+        assert a["dashboards"]["analyzed"][0]["columns_used"] == 0
+        detail = next(i for i in a["issues"] if i["kind"] == "dashboard_on_other_datasource")["detail"]
+        assert "'Other Model'" in detail and "no columns counted" in detail
+
+    def test_copies_that_agree_are_unchanged(self):
+        a = self._dm(_B_DS).analyze_perspective_requirements("dm-b", detailed=True)
+        assert a["perspective_tables"] == [{"table": "dim_dashboard", "columns": ["owner"]}]
+        assert a["warnings"].get("dashboard_on_other_datasource") is None
+
+
 class TestAnalyzePerspectiveJoins:
     def test_separate_widgets_on_separate_tables_need_no_join(self):
         export = _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))])
@@ -1885,6 +1943,7 @@ class TestAnalyzePerspectiveJoins:
                 "from": "dim_dashboard",
                 "to": "dim_datamodels",
                 "needed_by": ["Governance: dashboard filter on 'dim_dashboard' applies to 1 widget on 'dim_datamodels'"],
+                "changes_tables": True,
                 "resolved": False,
                 "paths": [{"via": ["fact_a"], "in_use": None}, {"via": ["fact_b"], "in_use": None}],
             }
@@ -1910,6 +1969,7 @@ class TestAnalyzePerspectiveJoins:
                 "from": "dim_dashboard",
                 "to": "dim_datamodels",
                 "needed_by": ["Governance: dashboard filter on 'dim_dashboard' applies to 1 widget on 'dim_datamodels'"],
+                "changes_tables": True,
                 "resolved": True,
                 "paths": [{"via": ["fact_a"], "in_use": True}, {"via": ["fact_b"], "in_use": False}],
             }
@@ -1971,8 +2031,9 @@ class TestAnalyzePerspectiveJoins:
             "Governance: dashboard filter on 'dim_dashboard' applies to 2 widgets on 'dim_datamodels'",
         ]
 
-    def test_no_choice_when_every_candidate_table_is_used_anyway(self):
-        # Both facts are used directly, so picking one path would drop no table: all join columns kept, nothing to decide.
+    def test_ambiguity_is_reported_even_when_it_changes_no_table(self):
+        # Both facts are used directly, so picking a path would drop no table. The pair is still joinable
+        # two ways and says so, but nothing is narrowed: both facts' join columns stay, and with them both relations.
         export = _b_export(
             [_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name")), _b_widget("w3", ("fact_a", "views")), _b_widget("w4", ("fact_b", "builds"))],
             filters=[("dim_dashboard", "owner")],
@@ -1980,7 +2041,10 @@ class TestAnalyzePerspectiveJoins:
         a = _make_analyzer_b(export).analyze_perspective_requirements("dm-b", detailed=True)
         assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
         assert {(d["table"], d["column"]) for d in a["dependencies"]["columns"]} >= {("fact_a", "datamodel_id"), ("fact_b", "datamodel_id"), ("dim_datamodels", "datamodel_id")}
-        assert a["join_path_choices"] == [] and "ambiguous_join_path" not in a["warnings"]
+        choice = a["join_path_choices"]
+        assert len(choice) == 1 and choice[0]["changes_tables"] is False
+        assert {tuple(p["via"]) for p in choice[0]["paths"]} == {("fact_a",), ("fact_b",)}
+        assert "ambiguous_join_path" not in a["warnings"]  # failing to pick costs nothing when every route is kept
         assert len(a["dependencies"]["join_paths"]) == 3  # dashboard..datamodels (2 paths), dashboard..fact_a, dashboard..fact_b
 
     def test_single_path_join_is_silent(self):

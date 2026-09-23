@@ -413,8 +413,12 @@ class PerspectivesMixin:
         dashboard export — under Dashboard Co-Authoring, from the shared copy viewers see — its own filters,
         hierarchies and widgets, read as administrator or as owner; a shared copy neither can read fails that dashboard with a
         ``shared_copy_unreadable`` error rather than analysing the owner's private copy in its
-        place — keeping only references that belong to this model, and resolves
-        them against the model's schema. It then adds what the joins need: for every pair
+        place — keeping only references that belong to this model or to a perspective over it,
+        and resolves them against the model's schema. Which of those a dashboard shows is read
+        from the copy that was opened, not from the dashboard listing, because the listing
+        always describes the owner's copy and the two copies can sit on different members of
+        the family. A dashboard whose widgets all query something else entirely contributes no
+        columns and is reported as ``dashboard_on_other_datasource``. It then adds what the joins need: for every pair
         of tables that meet in one query — a widget's own tables together with the tables
         of the dashboard's filters and hierarchies, which apply to every widget, including
         widgets that have switched a filter off — it follows the shortest relation paths
@@ -424,16 +428,21 @@ class PerspectivesMixin:
         both of its columns are kept, and it evaluates custom columns and custom tables
         through the root model, so nothing else is added.
 
-        When two tables are joined by more than one equally short path, and at least one of
-        those paths runs through a table nothing else needs, the pair is a choice. For each
-        widget behind such a pair the method sends the widget's query, with the dashboard
+        Two tables joined by more than one equally short path can be joined several ways, and
+        the answer depends on which — so every such pair is listed in ``join_path_choices``.
+        For each widget behind a pair the method sends the widget's query, with the dashboard
         filters applied, to ``POST /api/datasources/{model}/jaql/sql`` — translation only,
         nothing is executed — and reads from the returned SQL which of the candidate tables
-        the query engine actually joins through. ``perspective_tables`` keeps only those
-        paths; ``perspective_tables_all_paths`` keeps every path; ``join_path_choices`` lists
-        the pair, every path and which ones are in use. When the translation cannot be
-        obtained, or names none of the candidates, every path is kept in both lists and the
-        pair is reported as ``ambiguous_join_path``. Every relation between two kept tables is
+        the query engine actually joins through. More than one path can be in use at once,
+        since different widgets may join the same two tables differently. ``changes_tables``
+        says whether picking a path would change which tables the perspective keeps: it is
+        true only when some path runs through a table nothing else needs. Those are the pairs
+        acted on — ``perspective_tables`` keeps the paths in use and
+        ``perspective_tables_all_paths`` keeps every path — and the ones reported as
+        ``ambiguous_join_path`` when the translation cannot be obtained or names none of the
+        candidates. A pair with ``changes_tables`` false is reported and never acted on:
+        every candidate table is kept either way, and narrowing to the path in use would drop
+        the other paths' join columns and with them their relations. Every relation between two kept tables is
         then tested for a many-to-many join with one aggregate SQL query per side
         (``GET /api/datasources/{model}/sql``): a perspective inherits the root model's
         relations, so a query spanning two kept tables joined many-to-many can fan out and
@@ -464,12 +473,13 @@ class PerspectivesMixin:
             plus the join columns and intermediate tables of the paths the query engine uses (every
             path where that could not be determined); ``perspective_tables_all_paths`` — the same
             with every equally short path kept; ``join_path_choices`` — one entry per pair of
-            tables joined by more than one equally short path where some path runs through a
-            table nothing else needs, with ``from``, ``to``, ``needed_by`` (which dashboards, filters
-            and how many widgets put the two tables in one query), ``resolved`` (whether the
-            engine's path is known) and ``paths`` (each ``{"via": [...], "in_use": ...}`` — the
-            intermediate tables of one path and whether the engine uses it; ``None`` when not
-            resolved); ``errors`` — the distinct error messages; and ``warnings`` — warning counts
+            tables joined by more than one equally short path, with ``from``, ``to`` (table names,
+            in no particular order), ``needed_by`` (which dashboards, filters and how many widgets
+            put the two tables in one query), ``changes_tables`` (whether picking a path changes
+            which tables are kept), ``resolved`` (whether the engine's path is known) and ``paths``
+            (each ``{"via": [...], "in_use": ...}`` — the intermediate tables of one path, in order,
+            and whether the engine uses it; ``None`` when not resolved, and true on more than one
+            path when different widgets take different routes); ``errors`` — the distinct error messages; and ``warnings`` — warning counts
             by kind, ``many_to_many_in_perspective`` always present (``0`` when none), plus
             ``many_to_many_unchecked`` when a pair's SQL check failed.
 
@@ -602,14 +612,28 @@ class PerspectivesMixin:
         other_datasources: dict[str, list[dict[str, Any]]] = {}  # dashboard oid -> widgets left on other datasources
         lowered_tables = {name.lower(): oids for name, oids in ((t["name"], [oid]) for oid, t in index["tables"].items() if isinstance(t.get("name"), str))}
         severity_of = {"unreadable_dim": "error", "ambiguous_dim": "warning", "blox_widget": "warning", "script_present": "warning", "unclassified_location": "warning"}
+        # The model and every perspective over it share one schema, so a dashboard on any of them
+        # counts. Which one a dashboard shows is read off the copy in hand, never off the listing:
+        # the listing describes the owner's copy, and under Co-Authoring the shared copy that is
+        # read here can be on a different member of the family.
+        family = [model_title] + perspective_titles
+        family_lower = {name.lower() for name in family if isinstance(name, str)}
         for oid, dashboard in exports.items():
             title = dashboard.get("title")
-            report = _extract_dashboard_references(dashboard, title, known_columns=known_columns, logger=self.logger, datasource=sources.get(oid, model_title))
+            copy_title = (dashboard.get("datasource") or {}).get("title") if isinstance(dashboard.get("datasource"), dict) else None
+            if isinstance(copy_title, str) and copy_title.lower() in family_lower:
+                sources[oid] = copy_title
+            report = _extract_dashboard_references(dashboard, title, known_columns=known_columns, logger=self.logger, datasource=family)
             other_datasources[oid] = [{"widget_id": w.get("widget_id"), "title": w.get("title"), "type": w.get("type"), "datasource": w.get("datasource")} for w in report["skipped_widgets"]]
             for found in report["issues"]:
                 severity = severity_of.get(found["kind"])
                 if severity:  # informational kinds (a widget on another datasource) are not issues for the perspective
                     issue(severity, found["kind"], oid, found.get("widget_id"), f"{title}: {found['detail']}")
+            if not report["rows"] and other_datasources[oid]:
+                elsewhere = sorted({w["datasource"] for w in other_datasources[oid] if w.get("datasource")})
+                where = " or ".join(repr(name) for name in elsewhere) if elsewhere else "another datasource"
+                detail = f"{title}: every widget queries {where}, not '{model_title}' or a perspective over it; no columns counted"
+                issue("warning", "dashboard_on_other_datasource", oid, None, detail)
             for row in report["rows"]:
                 table_oids = lowered_tables.get(str(row["table"]).strip().lower(), [])
                 column_oid = None
@@ -730,8 +754,14 @@ class PerspectivesMixin:
         paths_in_use: dict[tuple[str, str], list[list[str]]] = {}  # reported pair -> the paths the engine uses (resolved pairs only)
         for path in closure["join_paths"]:
             paths = path.get("paths") or []
-            if len(paths) < 2 or not any(t not in anchored for p in paths for t in p[1:-1]):
+            if len(paths) < 2:
                 continue
+            # Whether picking a route changes which tables the perspective keeps. When every candidate
+            # runs through tables that are required anyway, the pair is still ambiguous — the same two
+            # tables can be joined several ways, and the answer depends on which — but the perspective
+            # is the same either way, so the choice is reported and never acted on: narrowing to the
+            # route in use would drop the other routes' join keys and with them their relations.
+            changes_tables = any(t not in anchored for p in paths for t in p[1:-1])
             pair = tuple(sorted((path["from"], path["to"])))
             from_name, to_name = name_of(path["from"])[0], name_of(path["to"])[0]
             reasons = []
@@ -753,9 +783,9 @@ class PerspectivesMixin:
                             used_paths.add(i)
             resolved = bool(used_paths)
             candidates = "; ".join(" -> ".join(name_of(t)[0] or t for t in p[1:-1]) for p in paths)
-            if resolved:
+            if resolved and changes_tables:
                 paths_in_use[pair] = [paths[i] for i in sorted(used_paths)]
-            else:
+            elif not resolved and changes_tables:
                 why_not = "the translated query could not be obtained" if translated == 0 else "the translated query names none of the candidate tables"
                 issue("warning", "ambiguous_join_path", None, None, f"'{from_name}' and '{to_name}' are joined by {len(paths)} equally short paths, all kept ({why_not}): {candidates}")
             join_path_choices.append(
@@ -763,6 +793,7 @@ class PerspectivesMixin:
                     "from": from_name,
                     "to": to_name,
                     "needed_by": reasons,
+                    "changes_tables": changes_tables,
                     "resolved": resolved,
                     "paths": [{"via": [name_of(t)[0] for t in p[1:-1]], "in_use": (i in used_paths) if resolved else None} for i, p in enumerate(paths)],
                 }

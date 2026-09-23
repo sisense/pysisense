@@ -1,5 +1,7 @@
 """Unit tests for pysisense.access_management.AccessManagement."""
 
+from urllib.parse import urlencode
+
 import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
@@ -1295,6 +1297,80 @@ class TestUnusedColumnsDiscovery:
         used = {(r["table"], r["column"]): r["used"] for r in am.get_unused_columns_bulk("MyModel")["results"]}
         # col1 via the widget on MyModel, col2 via the filter on MyModel; col3 belongs to ModelB's widget and must not count
         assert used == {("tbl", "col1"): True, ("tbl", "col2"): True, ("tbl", "col3"): False}
+
+
+class TestUnusedColumnsUnderCoAuthoring:
+    """A dashboard belongs to the datasource its shared copy names, not the one the listing reports."""
+
+    _MODEL = {"title": "MyModel"}
+    _PERSPECTIVE = {"title": "MyModel_AI"}
+
+    class _ParamAwareClient(FakeApiClient):
+        """Honours the ``title`` query parameter, which the model listing filters on."""
+
+        def get(self, url, params=None, **kwargs):
+            if params:
+                merged = url + "?" + urlencode(params)
+                if merged in self._get:
+                    return self._lookup(self._get, merged)
+            return super().get(url, params=params, **kwargs)
+
+    def _am(self, shared_ds, *, co_authoring=True, perspectives=(("p1", "MyModel_AI"),)):
+        # The listing always reports the owner's copy, which names the root model.
+        listing = [{"oid": "db1", "title": "Governance", "datasource": self._MODEL, "widgetsDatasources": [self._MODEL]}]
+        export = [
+            {
+                "oid": "db1",
+                "title": "Governance",
+                "datasource": self._MODEL,
+                "lastPublish": "2026-09-16T20:48:16.794Z",
+                "filters": [],
+                "widgets": [{"oid": "w1", "datasource": self._MODEL, "metadata": {"panels": [{"items": [{"jaql": {"dim": "[tbl.col1]", "table": "tbl", "column": "col1"}}]}]}}],
+            }
+        ]
+        shared = dict(
+            export[0], datasource=shared_ds, widgets=[{"oid": "w1", "datasource": shared_ds, "metadata": {"panels": [{"items": [{"jaql": {"dim": "[tbl.col1]", "table": "tbl", "column": "col1"}}]}]}}]
+        )
+        return AccessManagement(
+            api_client=self._ParamAwareClient(
+                logger=FakeLogger(),
+                get_responses={
+                    # Live: the plain model listing carries no perspectives; a perspective resolves only by title.
+                    "/api/v2/datamodels/schema": FakeResponse(200, [{"oid": "dm123", "title": "MyModel"}]),
+                    "/api/v2/datamodels/schema?title=MyModel": FakeResponse(200, [{"oid": "dm123", "title": "MyModel"}]),
+                    "/api/v2/datamodels/schema?title=MyModel_AI": FakeResponse(200, [{"oid": "p1", "title": "MyModel_AI", "type": "extract"}]),
+                    "/api/v2/datamodels/dm123/schema": FakeResponse(
+                        200, {"oid": "dm123", "datasets": [{"oid": "ds1", "schema": {"tables": [{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}]}]}}]}
+                    ),
+                    "/api/v2/datamodels/p1/schema": FakeResponse(
+                        200, {"oid": "p1", "datasets": [{"oid": "ds1", "schema": {"tables": [{"name": "tbl", "columns": [{"name": "col1"}, {"name": "col2"}]}]}}]}
+                    ),
+                    "/api/v2/perspectives": FakeResponse(200, [{"oid": oid, "name": name, "datamodelOid": "dm123", "parentOid": "dm123"} for oid, name in perspectives]),
+                    "/api/v1/settings/system": FakeResponse(200, {"dashboardCoAuthoring": {"enabled": co_authoring}}),
+                    "/api/v1/dashboards/admin": FakeResponse(200, listing),
+                    "/api/v1/dashboards/export": FakeResponse(200, export),
+                    "/api/v1/dashboards/db1?sharedMode=true": FakeResponse(403, {}),
+                    "/api/dashboards/db1?adminAccess=true": FakeResponse(200, shared),
+                },
+            )
+        )
+
+    def test_a_shared_copy_on_a_perspective_does_not_count_for_the_root_model(self):
+        used = {(r["table"], r["column"]): r["used"] for r in self._am(self._PERSPECTIVE).get_unused_columns_bulk("MyModel")["results"]}
+        assert used == {("tbl", "col1"): False, ("tbl", "col2"): False}
+
+    def test_the_perspective_finds_the_dashboard_through_its_root_model(self):
+        # The listing never names a perspective, so the sweep has to reach the dashboard via the parent.
+        used = {(r["table"], r["column"]): r["used"] for r in self._am(self._PERSPECTIVE).get_unused_columns_bulk("MyModel_AI")["results"]}
+        assert used[("tbl", "col1")] is True
+
+    def test_copies_that_agree_still_count_for_the_model(self):
+        used = {(r["table"], r["column"]): r["used"] for r in self._am(self._MODEL).get_unused_columns_bulk("MyModel")["results"]}
+        assert used == {("tbl", "col1"): True, ("tbl", "col2"): False}
+
+    def test_with_co_authoring_off_the_single_copy_counts_as_before(self):
+        used = {(r["table"], r["column"]): r["used"] for r in self._am(self._MODEL, co_authoring=False).get_unused_columns_bulk("MyModel")["results"]}
+        assert used == {("tbl", "col1"): True, ("tbl", "col2"): False}
 
 
 class TestGetDatamodelColumnsSchemaPaths:

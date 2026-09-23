@@ -51,4 +51,7 @@ target.json
 .pytest_cache/
 
 # win2linux merge tool — local only, never committed
-win2linux-merge-tool/
+win2linux-merge-tool/.pysisense-dev/
+
+# pysisense dev-cycle skill working state — not a deliverable
+/.pysisense-dev/

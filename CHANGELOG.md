@@ -8,6 +8,81 @@ All notable changes to `pysisense` are documented here. The format follows
 
 _Nothing yet._
 
+## [2.3.0] — 2026-09-23
+
+### Added
+
+- **`Git` — Sisense Git Integration.** A new top-level facade covering projects, branches, commits and
+  the remote. Projects: `get_git_projects`, `get_git_project`, `resolve_git_project_reference`,
+  `get_git_project_status`, `unlock_git_project`, `sync_git_project`, `discard_git_project_changes`.
+  Branches: `get_git_branches`, `get_git_branch`, `create_git_branch`, `checkout_git_branch`. Commits:
+  `get_git_commits`, `get_git_commit`, `create_git_commit`, `checkout_git_commit`. Remote: `git_fetch`,
+  `git_pull`, `git_push`. Comes with `docs/git.md` and `examples/git_example.md`. (#96)
+
+### Fixed
+
+- **`analyze_perspective_requirements` counted nothing for a dashboard whose two copies sit on
+  different datasources.** Dashboards are discovered from `GET /api/v1/dashboards/admin`, which
+  always describes the owner's copy, but under Dashboard Co-Authoring the copy that is read is the
+  shared one, and the datasource is per copy. The datasource title from the listing was then used to
+  decide which widgets belong to the model, so when the shared copy sat on a perspective while the
+  owner's copy sat on the root model, every widget looked foreign and the analysis reported the
+  dashboard as analysed with zero columns and raised no warning. The scope now comes from the copy
+  that was opened, and a reference is kept when it belongs to the model or to any perspective over
+  it, so a dashboard whose widgets are split between the two is fully counted. A dashboard whose
+  widgets all query something else contributes no columns and is now reported as
+  `dashboard_on_other_datasource` instead of passing silently.
+
+- **`get_unused_columns_bulk` reported columns in active use as unused.** It found dashboards from
+  the listing, which names the owner's copy, then read the shared copy and matched its widgets
+  against the name from the listing, so under Dashboard Co-Authoring a dashboard whose two copies
+  named different datasources contributed nothing. It also swept only the given datasource, and the
+  listing never names a perspective, so dashboards on a perspective were unreachable from either
+  side. A data model and a perspective over it stay separate datasources: a dashboard counts for the
+  one its shared copy names and for no other. To find the dashboards worth opening, the model and
+  every perspective over it are now swept, and the copy that is read decides which one each
+  dashboard belongs to; dashboards excluded that way are logged with their datasource. With the
+  feature off there is a single copy and the behaviour is unchanged.
+
+- **`widgets_on_other_datasources[].datasource` was lower-cased.** It carried the comparison form of
+  the title rather than the spelling Sisense records, so a perspective named `Governance_Optimized_AI`
+  was reported as `governance_optimized_ai`. It now reads as written.
+
+### Changed
+
+- **`join_path_choices` reports every pair of tables joinable more than one way.** It listed only the
+  pairs where picking a path would change which tables the perspective keeps, so on a model where
+  every table is used by a dashboard anyway it came back empty — a confident `[]` about a model whose
+  dimensions are each joinable five ways. Every multi-path pair is now listed, with a new
+  `changes_tables` key saying whether the choice moves any table. Only pairs with `changes_tables`
+  true are acted on: they alone drive `perspective_tables` and `perspective_tables_all_paths`, and
+  they alone raise `ambiguous_join_path`. A pair that changes nothing is reported and left alone,
+  since narrowing it to the path in use would drop the other paths' join columns and with them their
+  relations. The two table lists and both `*_all_paths` counters keep their meaning, and the warning
+  count no longer equals the number of unresolved entries in the list.
+
+- **`deploy_datamodel` and `create_schedule_build` lead with what they do.** `deploy_datamodel`
+  opened with "Deploy (build or publish) the specified data model based on its type", which names
+  the action nobody uses for it and puts "build" in brackets; it now reads "Build (run) an ElastiCube or
+  publish a live data model, and optionally wait for it to finish". `create_schedule_build`
+  opened with "Create a schedule build for a DataModel", which reads as though it builds something;
+  it now reads "Schedule a recurring build for an ElastiCube", and its description states that the
+  call stores a schedule and starts no build. No signature, behaviour or return shape changed.
+
+### For downstream tool generators
+
+- The summary lines of `DataModel.deploy_datamodel` and `AccessManagement.create_schedule_build`
+  changed, and so did the `build` entry in `DataModel`'s `Modules` docstring. Any generator that
+  caches or embeds these descriptions must regenerate them. Nothing else about either method moved.
+
+- New facade class `Git` in `pysisense.FACADES`, with a new `GitHttpsCredentialsPayload` TypedDict
+  (`username`, `password` required; `save` optional). Generators iterating `FACADES` pick it up
+  automatically; anything with a hard-coded class list must add it.
+
+- `join_path_choices[]` gains `changes_tables` (bool). Consumers matching exact key sets must widen.
+  `paths[].in_use` can be true on more than one path of the same pair; render it as a set rather than
+  a single winner. `via` is a list of intermediate tables in order, not a single table name.
+
 ## [2.2.0] — 2026-09-21
 
 ### Fixed

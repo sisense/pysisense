@@ -30,6 +30,7 @@ _EXPECTED_FACADE_NAMES = {
     "DataModel",
     "Encryption",
     "Folder",
+    "Git",
     "MergeTool",
     "Metadata",
     "Migration",

@@ -323,9 +323,9 @@ print(json.dumps(response, indent=4))
 
 ---
 
-## Example 11: Deploy DataModel
+## Example 11: Build a DataModel
 
-Deploy ELASTICUBE and LIVE DataModels.
+Build an ELASTICUBE or publish a LIVE DataModel, optionally waiting for the run to finish.
 
 ```python
 # ELASTICUBE Deployment
