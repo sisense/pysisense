@@ -6,6 +6,19 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2.3.0] — 2026-09-23
+
+### Added
+
+- **`Git` — Sisense Git Integration.** A new top-level facade covering projects, branches, commits and
+  the remote. Projects: `get_git_projects`, `get_git_project`, `resolve_git_project_reference`,
+  `get_git_project_status`, `unlock_git_project`, `sync_git_project`, `discard_git_project_changes`.
+  Branches: `get_git_branches`, `get_git_branch`, `create_git_branch`, `checkout_git_branch`. Commits:
+  `get_git_commits`, `get_git_commit`, `create_git_commit`, `checkout_git_commit`. Remote: `git_fetch`,
+  `git_pull`, `git_push`. Comes with `docs/git.md` and `examples/git_example.md`. (#96)
+
 ### Fixed
 
 - **`analyze_perspective_requirements` counted nothing for a dashboard whose two copies sit on
@@ -61,6 +74,10 @@ All notable changes to `pysisense` are documented here. The format follows
 - The summary lines of `DataModel.deploy_datamodel` and `AccessManagement.create_schedule_build`
   changed, and so did the `build` entry in `DataModel`'s `Modules` docstring. Any generator that
   caches or embeds these descriptions must regenerate them. Nothing else about either method moved.
+
+- New facade class `Git` in `pysisense.FACADES`, with a new `GitHttpsCredentialsPayload` TypedDict
+  (`username`, `password` required; `save` optional). Generators iterating `FACADES` pick it up
+  automatically; anything with a hard-coded class list must add it.
 
 - `join_path_choices[]` gains `changes_tables` (bool). Consumers matching exact key sets must widen.
   `paths[].in_use` can be true on more than one path of the same pair; render it as a set rather than

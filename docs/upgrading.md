@@ -6,6 +6,31 @@ Sisense *environments* — a different thing entirely.)
 
 ---
 
+## From 2.2 to 2.3
+
+2.3.0 adds the `Git` facade and fixes how a dashboard is matched to a datasource. No method was
+removed or renamed, and every 2.2 call still works. Three behaviours changed in ways an existing
+caller can notice, all of them under Dashboard Co-Authoring or in the join-path report.
+
+| Symptom after upgrading | Cause | Fix |
+|---|---|---|
+| `analyze_perspective_requirements` suddenly keeps tables and columns where 2.2 reported none, and a dashboard may now carry the warning `dashboard_on_other_datasource` | A dashboard is now matched against the datasource its **shared copy** names. 2.2 took that title from `GET /api/v1/dashboards/admin`, which always describes the owner's copy, so when the two copies sat on different datasources every widget looked foreign and nothing was counted. A reference is kept when it belongs to the model **or any perspective over it**. | Nothing to change. The 2.2 result was wrong in the unsafe direction — an empty perspective. If you relied on `analyzed[].datasource`, it now names the copy that was read. |
+| `get_unused_columns_bulk` reports fewer columns as unused for a model, or finds dashboards for a perspective name where 2.2 found none | A data model and a perspective over it are separate datasources here: a dashboard counts for the one its shared copy names and for no other. Because the dashboard listing never names a perspective, the model and its perspectives are swept to find the dashboards worth opening, and the copy that is read decides which one each belongs to. | Nothing to change. Ask about the datasource the dashboards actually sit on. Dashboards excluded by this rule are logged with the datasource they were found on. |
+| `join_path_choices` returns many more entries, including pairs that change nothing | It now lists **every** pair of tables joinable more than one way. 2.2 listed only the pairs where picking a route changed which tables were kept, so a model where every table is used anyway reported `[]` — a confident "no ambiguity" about a model full of it. | Read the new `changes_tables` key: `True` is the 2.2 contents and the only pairs acted on, `False` is reported for information. `paths[].in_use` can be true on several routes at once, so render it as a set, not a single winner. |
+
+`widgets_on_other_datasources[].datasource` now carries the title as Sisense records it rather than
+a lower-cased form. `perspective_tables`, `perspective_tables_all_paths` and both `*_all_paths`
+counters keep their meaning, and `ambiguous_join_path` still means the engine's route could not be
+determined — but it is raised only for pairs where the choice matters, so its count no longer equals
+the number of unresolved entries in the list.
+
+With Dashboard Co-Authoring off there is a single copy and none of the matching behaviour changes.
+
+The full per-method list, including every additive result key, is the `[2.3.0]` entry in
+`CHANGELOG.md` and its "For downstream tool generators" block.
+
+---
+
 ## From 2.1 to 2.2
 
 2.2.0 adds capabilities and fixes; no method was removed or renamed, and every 2.1 call
