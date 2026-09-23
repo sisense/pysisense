@@ -6,7 +6,37 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **`analyze_perspective_requirements` takes the tables a query needs from its translated SQL, not
+  from the relation graph.** A widget names only the fields someone put on it; the tables the engine
+  joins through to connect them, and their key columns, are decided at query time and appear nowhere
+  until the query is written out. The method used to reconstruct them by walking the relations and
+  keeping the shortest path, which is an assumption: a model where two tables are joined both in two
+  steps and in three has no guarantee the engine takes the short one, and nothing verified it. Every
+  widget's query is now translated and the model tables the SQL names are what `perspective_tables`
+  keeps, together with the key columns of the relations between them. A pair the SQL cannot account
+  for, because no query translated or none names a table on a shortest path, still falls back to the
+  relations with every shortest path kept, so nothing regresses when translation is unavailable.
+
+- **`perspective_tables_all_paths` is now the relations-only answer**, the superset you would get
+  without consulting any SQL, rather than "the same with every equally short path kept". It is still
+  always a superset of `perspective_tables`, and `tables_required_all_paths` /
+  `columns_required_all_paths` still count it, so callers reading it as the conservative fallback see
+  no change.
+
+- **A join route is reported as in use only when it can be proved.** A middle table appearing in the
+  SQL shows it was the bridge only when nothing else in the query needed it. Where every candidate is
+  required anyway — `changes_tables: false` — its presence says nothing about that pair, so `resolved`
+  is now `false` and every `in_use` is `null` instead of marking routes that may simply have been in
+  the query for their own reasons. Nothing is lost: those are exactly the pairs where all candidates
+  are kept regardless. Verified live, a query joining two tables through one bridge still names a
+  second, unrelated table when another field needs it.
+
+- Every widget is now translated, rather than only those behind an ambiguous pair, so the method makes
+  roughly one `POST /api/datasources/{model}/jaql/sql` call per widget. Translations are cached per
+  widget within a call.
+
 
 ## [2.3.0] — 2026-09-23
 

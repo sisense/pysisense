@@ -428,21 +428,27 @@ class PerspectivesMixin:
         both of its columns are kept, and it evaluates custom columns and custom tables
         through the root model, so nothing else is added.
 
+        A widget's own definition names only the fields someone put on it. The tables the engine
+        joins through to connect them, and their key columns, are decided at query time and
+        appear nowhere until the query is written out. So every widget's query is sent, with the
+        dashboard filters applied, to ``POST /api/datasources/{model}/jaql/sql`` — translation
+        only, nothing is executed — and the model tables the returned SQL names are the ones
+        ``perspective_tables`` keeps, together with the key columns of every relation between
+        them. A pair the SQL cannot account for, because no query could be translated or none
+        names a table on a shortest path between the two, falls back to the model's relations
+        with every shortest path kept. ``perspective_tables_all_paths`` is that relations-only
+        answer throughout, always a superset of ``perspective_tables``.
+
         Two tables joined by more than one equally short path can be joined several ways, and
-        the answer depends on which — so every such pair is listed in ``join_path_choices``.
-        For each widget behind a pair the method sends the widget's query, with the dashboard
-        filters applied, to ``POST /api/datasources/{model}/jaql/sql`` — translation only,
-        nothing is executed — and reads from the returned SQL which of the candidate tables
-        the query engine actually joins through. More than one path can be in use at once,
-        since different widgets may join the same two tables differently. ``changes_tables``
-        says whether picking a path would change which tables the perspective keeps: it is
-        true only when some path runs through a table nothing else needs. Those are the pairs
-        acted on — ``perspective_tables`` keeps the paths in use and
-        ``perspective_tables_all_paths`` keeps every path — and the ones reported as
-        ``ambiguous_join_path`` when the translation cannot be obtained or names none of the
-        candidates. A pair with ``changes_tables`` false is reported and never acted on:
-        every candidate table is kept either way, and narrowing to the path in use would drop
-        the other paths' join columns and with them their relations. Every relation between two kept tables is
+        the answer depends on which, so every such pair is listed in ``join_path_choices``.
+        ``changes_tables`` says whether picking a path would change which tables the perspective
+        keeps; it is true only when some path runs through a table nothing else needs. A route is
+        reported as in use only for those pairs: a middle table in the SQL proves it was the
+        bridge only when nothing else in the query needed it, and where every candidate is
+        required anyway its presence says nothing, so no route is claimed. More than one path can
+        be in use at once, since different widgets may join the same two tables differently.
+        ``ambiguous_join_path`` is raised when the choice matters and the engine's path could not
+        be determined. Every relation between two kept tables is
         then tested for a many-to-many join with one aggregate SQL query per side
         (``GET /api/datasources/{model}/sql``): a perspective inherits the root model's
         relations, so a query spanning two kept tables joined many-to-many can fan out and
@@ -469,10 +475,11 @@ class PerspectivesMixin:
             ``columns_required_in_perspective``, ``tables_required_all_paths``,
             ``columns_required_all_paths``, ``tables_not_required``, ``columns_not_required``, and
             ``issues`` by severity); ``perspective_tables`` — the ``{"table", "columns"}`` entries a
-            perspective must keep, ``columns`` always the explicit list of names: every used column
-            plus the join columns and intermediate tables of the paths the query engine uses (every
-            path where that could not be determined); ``perspective_tables_all_paths`` — the same
-            with every equally short path kept; ``join_path_choices`` — one entry per pair of
+            perspective must keep, ``columns`` always the explicit list of names: every used column,
+            every table the widgets' translated SQL names, and the key columns of the relations between
+            them (a pair the SQL cannot account for keeps every shortest path from the relations);
+            ``perspective_tables_all_paths`` — the relations-only answer, with every equally short path
+            kept, always a superset of ``perspective_tables``; ``join_path_choices`` — one entry per pair of
             tables joined by more than one equally short path, with ``from``, ``to`` (table names,
             in no particular order), ``needed_by`` (which dashboards, filters and how many widgets
             put the two tables in one query), ``changes_tables`` (whether picking a path changes
@@ -750,8 +757,24 @@ class PerspectivesMixin:
         def widgets(n: int) -> str:
             return "1 widget" if n == 1 else f"{n} widgets"
 
+        # The tables each widget's query really needs. A widget's own definition names only the fields
+        # someone put on it; the tables the engine joins through to connect them, and their key columns,
+        # are decided at query time and appear nowhere until the query is translated. So the translated
+        # SQL is read for every widget, and the model's tables it names are the ones the perspective keeps.
+        sql_tables: set[str] = set()
+        untranslated: set[tuple[str, str]] = set()
+        for dashboard_oid, dashboard in exports.items():
+            elsewhere_ids = {w.get("widget_id") for w in other_datasources.get(dashboard_oid, [])}
+            for widget in dashboard.get("widgets") or []:
+                if not isinstance(widget, dict) or not isinstance(widget.get("oid"), str) or widget["oid"] in elsewhere_ids:
+                    continue
+                sql = widget_sql(dashboard_oid, widget["oid"])
+                if sql is None:
+                    untranslated.add((dashboard_oid, widget["oid"]))
+                    continue
+                sql_tables.update(oid for oid, table in index["tables"].items() if _sql_names_table(sql, table))
+
         join_path_choices = []
-        paths_in_use: dict[tuple[str, str], list[list[str]]] = {}  # reported pair -> the paths the engine uses (resolved pairs only)
         for path in closure["join_paths"]:
             paths = path.get("paths") or []
             if len(paths) < 2:
@@ -781,11 +804,14 @@ class PerspectivesMixin:
                     for i, candidate in enumerate(paths):
                         if all(_sql_names_table(sql, index["tables"][t]) for t in candidate[1:-1]):
                             used_paths.add(i)
+            # A middle table in the translated SQL only proves it was the bridge when nothing else in the
+            # query needed it. Where every candidate is required anyway, its presence says nothing about
+            # this pair, so no route is claimed — and nothing is lost, since all of them are kept regardless.
+            if not changes_tables:
+                used_paths = set()
             resolved = bool(used_paths)
             candidates = "; ".join(" -> ".join(name_of(t)[0] or t for t in p[1:-1]) for p in paths)
-            if resolved and changes_tables:
-                paths_in_use[pair] = [paths[i] for i in sorted(used_paths)]
-            elif not resolved and changes_tables:
+            if not resolved and changes_tables:
                 why_not = "the translated query could not be obtained" if translated == 0 else "the translated query names none of the candidate tables"
                 issue("warning", "ambiguous_join_path", None, None, f"'{from_name}' and '{to_name}' are joined by {len(paths)} equally short paths, all kept ({why_not}): {candidates}")
             join_path_choices.append(
@@ -799,32 +825,55 @@ class PerspectivesMixin:
                 }
             )
 
-        # Assemble the report. Two table lists: what the engine's own join paths need (all paths where they
-        # could not be determined), and the superset with every equally short path kept.
+        # Assemble the report. ``kept`` is what the queries themselves need: the fields the dashboards use,
+        # the tables their translated SQL names, and the key columns joining those tables. A pair whose
+        # widgets could not be translated falls back to the model's relations, keeping every shortest path.
+        # ``kept_all`` is the conservative answer the relations alone give, always a superset of ``kept``.
+        # A pair falls back to the relations when the translated SQL cannot account for it: no query could be
+        # translated, or none of them names any table on a shortest path between the two. Keeping nothing for
+        # such a pair would break the join, so every shortest path is kept instead, exactly as before.
+        fallback_pairs = set()
+        for path in closure["join_paths"]:
+            candidates = path.get("paths") or []
+            if not candidates or all(not candidate[1:-1] for candidate in candidates):
+                continue  # joined directly; there is no bridge to account for
+            pair = tuple(sorted((path["from"], path["to"])))
+            supporting = {(dashboard_oid, widget_id) for (dashboard_oid, _t, _k, _a, _b), widget_ids in needed_by.get(pair, {}).items() for widget_id in widget_ids}
+            accounted = any(
+                sql is not None and any(all(_sql_names_table(sql, index["tables"][table_oid]) for table_oid in candidate[1:-1]) for candidate in candidates)
+                for sql in (widget_sql(dashboard_oid, widget_id) for dashboard_oid, widget_id in sorted(supporting))
+            )
+            if not accounted:
+                fallback_pairs.add(pair)
+
+        kept: dict[str, set[str]] = {}
+        for table_oid, column_oid in used:
+            kept.setdefault(table_oid, set()).add(column_oid)
+        for table_oid in sql_tables:
+            kept.setdefault(table_oid, set())
+        for path in closure["join_paths"]:
+            pair = tuple(sorted((path["from"], path["to"])))
+            if pair not in fallback_pairs:
+                continue
+            for (t, c), reasons in closure["retained"].items():
+                if any(r.get("required_by") == pair for r in reasons):
+                    kept.setdefault(t, set()).add(c)
+            for t, reasons in closure["tables"].items():
+                if any(r.get("required_by") == pair for r in reasons):
+                    kept.setdefault(t, set())
+        # Both key columns of every relation between kept tables, so the perspective inherits the relation.
+        for group in index.get("relations") or []:
+            if len({table_oid for table_oid, _ in group}) >= 2 and all(table_oid in kept for table_oid, _ in group):
+                for table_oid, column_oid in group:
+                    kept[table_oid].add(column_oid)
+
         kept_all: dict[str, set[str]] = {}
         for table_oid, column_oid in list(used) + list(closure["retained"]):
             kept_all.setdefault(table_oid, set()).add(column_oid)
         for table_oid in closure["tables"]:
             kept_all.setdefault(table_oid, set())
-
-        kept: dict[str, set[str]] = {}
-        for table_oid, column_oid in used:
-            kept.setdefault(table_oid, set()).add(column_oid)
-        for path in closure["join_paths"]:
-            pair = tuple(sorted((path["from"], path["to"])))
-            if pair in paths_in_use:
-                for p in paths_in_use[pair]:
-                    for t in p:
-                        kept.setdefault(t, set())
-                    for t, c in path_columns(p):
-                        kept.setdefault(t, set()).add(c)
-            else:
-                for (t, c), reasons in closure["retained"].items():
-                    if any(r.get("required_by") == pair for r in reasons):
-                        kept.setdefault(t, set()).add(c)
-                for t, reasons in closure["tables"].items():
-                    if any(r.get("required_by") == pair for r in reasons):
-                        kept.setdefault(t, set())
+        for table_oid, column_oids in kept.items():
+            kept_all.setdefault(table_oid, set()).update(column_oids)
 
         titles = {oid: (exports.get(oid) or listing.get(oid) or {}).get("title") for oid in matches}
         required_columns = []

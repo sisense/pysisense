@@ -6,6 +6,23 @@ Sisense *environments* — a different thing entirely.)
 
 ---
 
+## From 2.3 to 2.4
+
+`analyze_perspective_requirements` changes where it gets its answer. No method was removed or renamed,
+and no key was removed.
+
+| Symptom after upgrading | Cause | Fix |
+|---|---|---|
+| `perspective_tables` keeps a different set of tables than 2.3 did for the same model | The tables a query needs now come from its translated SQL rather than from walking the relations and assuming the shortest path. A widget names only the fields on it; the tables the engine joins through are decided at query time. Where the engine's route differs from the shortest one, 2.3 kept the wrong tables. | Nothing to change. The new set is what the queries actually use. A pair the SQL cannot account for still falls back to the relations with every shortest path kept, so nothing regresses when translation is unavailable. |
+| `perspective_tables_all_paths` no longer matches "every equally short path" | It is now the relations-only answer: what the analysis would keep without consulting any SQL. Still always a superset of `perspective_tables`, and still counted by `tables_required_all_paths` / `columns_required_all_paths`. | Read it as the conservative fallback, which is how most callers already used it. |
+| `join_path_choices[].resolved` is `false` where 2.3 said `true`, with every `in_use` now `null` | A middle table appearing in the SQL proves it was the bridge only when nothing else in the query needed it. Where every candidate is required anyway (`changes_tables: false`), 2.3 marked routes in use that may simply have been in the query for their own reasons. | Trust `in_use` only when `changes_tables` is `true`. The pairs are still listed, so the ambiguity is still reported. |
+
+The method now translates every widget rather than only those behind an ambiguous pair, so it makes
+roughly one `POST /api/datasources/{model}/jaql/sql` call per widget. Translation only; nothing is
+executed, and results are cached per widget within a call.
+
+---
+
 ## From 2.2 to 2.3
 
 2.3.0 adds the `Git` facade and fixes how a dashboard is matched to a datasource. No method was
