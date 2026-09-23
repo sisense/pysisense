@@ -552,6 +552,56 @@ def _iter_dim_nodes(node: Any, datasource: Any, path: str):
             yield from _iter_dim_nodes(value, datasource, f"{path}[{index}]")
 
 
+def _datasource_name(datasource: Any) -> str | None:
+    """Return a datasource reference's title as written, for display rather than comparison.
+
+    ``_datasource_title`` lower-cases so two references can be compared; this keeps
+    the spelling Sisense recorded, which is what a caller reads in a result.
+
+    Parameters:
+        datasource (Any): A datasource dict, a title string, or anything else.
+
+    Returns:
+        str | None: The title with its original case, stripped, or ``None`` when there is none.
+    """
+    if isinstance(datasource, str):
+        return datasource.strip() or None
+    if isinstance(datasource, dict):
+        for key in ("title", "fullname"):
+            value = datasource.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().rsplit("/", 1)[-1].split(":", 1)[-1].strip() or None
+    return None
+
+
+def _datasource_titles(datasource: Any) -> set[str] | None:
+    """Return the comparable titles of one datasource reference or a collection of them.
+
+    Accepts anything ``_datasource_title`` accepts, or a list, tuple or set of
+    those, so a caller can name a data model together with the perspectives
+    built over it. Entries without a title are dropped.
+
+    Parameters:
+        datasource (Any): A datasource dict, a title string, a collection of either, or anything else.
+
+    Returns:
+        set[str] | None: The lower-cased titles, or ``None`` when there is nothing to compare against.
+    """
+    if datasource is None:
+        return None
+    values = list(datasource) if isinstance(datasource, (list, tuple, set, frozenset)) else [datasource]
+    titles = {title for title in (_datasource_title(value) for value in values) if title is not None}
+    return titles or None
+
+
+def _wanted_label(wanted: set[str] | None) -> str:
+    """Render the accepted datasource titles for a diagnostic message."""
+    if not wanted:
+        return "any datasource"
+    titles = sorted(wanted)
+    return repr(titles[0]) if len(titles) == 1 else " or ".join(repr(title) for title in titles)
+
+
 def _extract_dashboard_references(
     dashboard: dict[str, Any],
     dashboard_name: str | None = None,
@@ -576,14 +626,16 @@ def _extract_dashboard_references(
     When ``datasource`` is given, references that belong to a different
     datasource (a widget or filter pointing at another model) are skipped and
     reported instead of counted; a node without any datasource information
-    inherits its parent's and is kept.
+    inherits its parent's and is kept. Several datasources may be given as a
+    collection, for a data model together with the perspectives over it, and a
+    reference is kept when it belongs to any of them.
 
     Parameters:
         dashboard (dict[str, Any]): One dashboard as returned by the export endpoint.
         dashboard_name (str | None): Title recorded on each row; defaults to the dashboard's own title.
         known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model, used to resolve dims whose names contain dots and to adopt the model's spelling.
         logger (logging.Logger | None): Optional logger for step-by-step debug output.
-        datasource (Any): Title string or datasource dict to keep references for; ``None`` keeps every reference.
+        datasource (Any): Title string, datasource dict, or a collection of either, naming the datasources to keep references for; ``None`` keeps every reference.
 
     Returns:
         dict[str, Any]: ``{"rows", "issues", "skipped_widgets", "stats"}``.
@@ -598,7 +650,7 @@ def _extract_dashboard_references(
     name = dashboard_name if dashboard_name is not None else dashboard.get("title", "Unknown Dashboard")
     rows: list[dict[str, Any]] = result["rows"]
     issues: list[dict[str, Any]] = result["issues"]
-    wanted = _datasource_title(datasource)
+    wanted = _datasource_titles(datasource)
     dashboard_ds = dashboard.get("datasource") if isinstance(dashboard.get("datasource"), dict) else None
     visited: set[int] = set()
 
@@ -608,10 +660,10 @@ def _extract_dashboard_references(
             logger.debug(f"{kind} at {path}: {detail}")
 
     def belongs(node_ds: Any) -> bool:
-        if wanted is None:
+        if not wanted:
             return True
         title = _datasource_title(node_ds)
-        return title is None or title == wanted
+        return title is None or title in wanted
 
     def add(source: str, widget_id: str, node: dict[str, Any], node_ds: Any, path: str) -> None:
         visited.add(id(node))
@@ -661,8 +713,8 @@ def _extract_dashboard_references(
         widget_path = f"$.widgets[{index}]"
         widget_ds = widget.get("datasource") if isinstance(widget.get("datasource"), dict) else dashboard_ds
         if not belongs(widget_ds):
-            result["skipped_widgets"].append({"widget_id": widget_id, "title": widget.get("title"), "type": widget.get("type"), "datasource": _datasource_title(widget_ds)})
-            issue("info", "widget_other_datasource", widget_id, widget_path, f"widget datasource {_datasource_title(widget_ds)!r} is not {wanted!r}; skipped")
+            result["skipped_widgets"].append({"widget_id": widget_id, "title": widget.get("title"), "type": widget.get("type"), "datasource": _datasource_name(widget_ds)})
+            issue("info", "widget_other_datasource", widget_id, widget_path, f"widget datasource {_datasource_title(widget_ds)!r} is not {_wanted_label(wanted)}; skipped")
             for node, _ds, _path in _iter_dim_nodes(widget, widget_ds, widget_path):
                 visited.add(id(node))
             continue
@@ -737,12 +789,59 @@ def _extract_dashboard_columns(
         dashboard_name (str | None): Title recorded on each row; defaults to the dashboard's own title.
         known_columns (set[tuple[str, str]] | None): ``(table, column)`` pairs of the data model.
         logger (logging.Logger | None): Optional logger for step-by-step debug output.
-        datasource (Any): Title string or datasource dict to keep references for; ``None`` keeps every reference.
+        datasource (Any): Title string, datasource dict, or a collection of either, naming the datasources to keep references for; ``None`` keeps every reference.
 
     Returns:
         list[dict[str, Any]]: Rows with ``dashboard_name``, ``source`` (``"filter"``, ``"hierarchy"`` or ``"widget"``), ``widget_id``, ``table`` and ``column``.
     """
     return _extract_dashboard_references(dashboard, dashboard_name, known_columns, logger, datasource)["rows"]
+
+
+def _datasource_family(api_client: Any, logger: Any, datasource_title: str) -> list[str]:
+    """Return a data model and the perspectives over it, starting from either.
+
+    A perspective is a view over its root model and never appears in the dashboard
+    listing, which reports a dashboard's owner copy and resolves it to the root
+    model's title. Sweeping the whole family therefore decides which dashboards are
+    worth opening; which one a dashboard belongs to is settled by the copy that is read,
+    not by this list. Reads ``GET /api/v2/datamodels/schema`` and ``GET /api/v2/perspectives``.
+
+    Parameters:
+        api_client (Any): The shared ``SisenseClient``.
+        logger (Any): Optional logger for debug output.
+        datasource_title (str): A data model title or a perspective name.
+
+    Returns:
+        list[str]: ``datasource_title`` first, then the other members; just the title when
+            nothing else can be read or it belongs to no known model.
+    """
+    wanted = (datasource_title or "").strip().lower()
+    if not wanted:
+        return []
+    models = api_client.get("/api/v2/datamodels/schema")
+    perspectives = api_client.get("/api/v2/perspectives")
+    model_rows = models.json() if models is not None and models.status_code == 200 else []
+    perspective_rows = perspectives.json() if perspectives is not None and perspectives.status_code == 200 else []
+    model_rows = [m for m in model_rows if isinstance(m, dict)] if isinstance(model_rows, list) else []
+    perspective_rows = [p for p in perspective_rows if isinstance(p, dict) and not _is_default_perspective_row(p)] if isinstance(perspective_rows, list) else []
+
+    root_oid = next((m.get("oid") for m in model_rows if isinstance(m.get("title"), str) and m["title"].strip().lower() == wanted), None)
+    if root_oid is None:
+        root_oid = next((p.get("datamodelOid") for p in perspective_rows if isinstance(p.get("name"), str) and p["name"].strip().lower() == wanted), None)
+    if root_oid is None:
+        return [datasource_title]
+
+    family = [m["title"] for m in model_rows if m.get("oid") == root_oid and isinstance(m.get("title"), str)]
+    family += [p["name"] for p in perspective_rows if p.get("datamodelOid") == root_oid and isinstance(p.get("name"), str)]
+    ordered = [datasource_title] + [name for name in family if name.strip().lower() != wanted]
+    if logger:
+        logger.debug(f"Datasource family for '{datasource_title}': {ordered}")
+    return ordered
+
+
+def _is_default_perspective_row(perspective: dict[str, Any]) -> bool:
+    """Whether a ``/api/v2/perspectives`` row is the auto-generated ``Default`` entry."""
+    return bool(perspective.get("isDefault")) or perspective.get("parentOid") is None
 
 
 def _discover_dashboards_on_datasource(api_client: Any, logger: logging.Logger | None, datasource_title: str, deep: bool = False) -> dict[str, Any]:
