@@ -1860,6 +1860,37 @@ class TestAnalyzeUnderCoAuthoring:
         assert a["perspective_tables"] == [] and a["summary"]["dashboards_failed"] == 1
 
 
+class TestAnalyzeTablesComeFromTheSql:
+    """The translated SQL decides which tables a query needs; the relations are the fallback."""
+
+    _SQL_VIA_UNRELATED = """SELECT `t`.`name` FROM (SELECT `datamodel_id`, `name` FROM `dw`.`dim_datamodels`) AS `t`
+ INNER JOIN (SELECT `dashboard_id`, `datamodel_id` FROM `dw`.`fact_b`) AS `t0` ON `t`.`datamodel_id` = `t0`.`datamodel_id`
+ INNER JOIN (SELECT `dashboard_id`, `owner` FROM `dw`.`dim_dashboard`) AS `t1` ON `t0`.`dashboard_id` = `t1`.`dashboard_id`"""
+
+    def _export(self):
+        return _b_export([_b_widget("w1", ("dim_dashboard", "title")), _b_widget("w2", ("dim_datamodels", "name"))], filters=[("dim_dashboard", "owner")])
+
+    def test_the_table_the_sql_names_is_kept_and_the_other_candidate_is_not(self):
+        a = _make_analyzer_b(self._export(), sql=_SQL_VIA_FACT_A).analyze_perspective_requirements("dm-b", detailed=True)
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a"]
+
+    def test_a_different_sql_keeps_a_different_table_with_no_other_change(self):
+        a = _make_analyzer_b(self._export(), sql=self._SQL_VIA_UNRELATED).analyze_perspective_requirements("dm-b", detailed=True)
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_b"]
+
+    def test_all_paths_stays_the_relations_only_superset(self):
+        a = _make_analyzer_b(self._export(), sql=_SQL_VIA_FACT_A).analyze_perspective_requirements("dm-b", detailed=True)
+        kept = {t["table"] for t in a["perspective_tables"]}
+        every = {t["table"] for t in a["perspective_tables_all_paths"]}
+        assert kept < every and every == {"dim_dashboard", "dim_datamodels", "fact_a", "fact_b"}
+
+    def test_an_untranslatable_query_falls_back_to_the_relations(self):
+        # No SQL at all: the pair cannot be accounted for, so every shortest path is kept, as before.
+        a = _make_analyzer_b(self._export()).analyze_perspective_requirements("dm-b", detailed=True)
+        assert [t["table"] for t in a["perspective_tables"]] == ["dim_dashboard", "dim_datamodels", "fact_a", "fact_b"]
+        assert a["warnings"]["ambiguous_join_path"] == 1
+
+
 class TestAnalyzeScopeFromTheCopyRead:
     """The datasource a dashboard is scoped to comes from the copy that was read, not from the listing.
 
@@ -1988,10 +2019,13 @@ class TestAnalyzePerspectiveJoins:
         original_post = dm.api_client.post
         dm.api_client.post = lambda url, data=None, **kw: (posts.append((url, data)), original_post(url, data, **kw))[1]
         dm.analyze_perspective_requirements("dm-b")
-        assert len(posts) == 1, posts  # only the widget behind the ambiguous pair is translated
-        assert posts[0][0] == "/api/datasources/Model B/jaql/sql"
-        body = posts[0][1]
+        # Every widget is translated now, since the SQL is what says which tables a query really needs,
+        # and each is translated once: two widgets, two calls.
+        assert len(posts) == 2, posts
+        assert {url for url, _ in posts} == {"/api/datasources/Model B/jaql/sql"}
+        body = next(data for _url, data in posts if data["metadata"][0]["jaql"]["table"] == "dim_datamodels")
         assert body["datasource"] == "Model B"
+        # The dashboard filter travels with the widget's own field, as the scope panel.
         assert [(m["panel"], m["jaql"]["table"]) for m in body["metadata"]] == [("rows", "dim_datamodels"), ("scope", "dim_dashboard")]
 
     def test_translated_query_naming_no_candidate_keeps_all_paths(self):
