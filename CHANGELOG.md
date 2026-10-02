@@ -8,6 +8,20 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ### Fixed
 
+- **The first call after a few idle minutes no longer fails with "no response … connection
+  failed".** A NAT gateway or proxy between the client and Sisense drops idle keep-alive
+  connections without closing them; the pooled connection then dies with `RemoteDisconnected`
+  before the server saw the request. Two changes: every pooled socket now has TCP keepalive
+  (probe after 60 s idle, then every 30 s), which keeps the mapping alive so connections do not
+  go stale; and the retry policy allows one retry on connection errors and one on read errors
+  (`connect=1`, `read=1`, previously both 0). urllib3 applies read retries to idempotent methods
+  only, so a POST is never sent twice; POST is protected by the keepalive. Seen on an EC2 host
+  without a public IP behind an AWS NAT gateway (350 s idle timeout).
+
+**Downstream generators:** no introspection-surface changes.
+
+### Fixed
+
 - **`elasticubes_run_jaql_csv` failed on every call with HTTP 400 `"undefined" is not valid JSON`.**
   `POST /api/datasources/{name}/jaql/csv` does not read a JSON request body. Like the Sisense UI's
   CSV export, it reads the JAQL from a URL-encoded form field named `data`. The method sent the
