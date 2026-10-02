@@ -377,7 +377,7 @@ class SisenseClient:
         """
         return self._make_request("GET", endpoint, params=params, extra_headers=extra_headers)
 
-    def post(self, endpoint, data=None, extra_headers=None):
+    def post(self, endpoint, data=None, extra_headers=None, form=None):
         """
         Performs a POST request to the specified API endpoint.
 
@@ -385,12 +385,16 @@ class SisenseClient:
             endpoint (str): API endpoint (relative to the base URL).
             data (dict): Optional JSON data payload for the POST request.
             extra_headers (dict): Optional headers merged into the default request headers.
+            form (dict): Optional form fields sent as ``application/x-www-form-urlencoded``
+                instead of a JSON body. A few Sisense endpoints (for example the JAQL CSV
+                export) read their input from a form field rather than from JSON. Mutually
+                exclusive with ``data``.
 
         Returns:
             requests.Response or None: The HTTP response object, or None if the
             request fails.
         """
-        return self._make_request("POST", endpoint, data=data, extra_headers=extra_headers)
+        return self._make_request("POST", endpoint, data=data, extra_headers=extra_headers, form=form)
 
     def put(self, endpoint, data=None, extra_headers=None):
         """
@@ -433,7 +437,7 @@ class SisenseClient:
         """
         return self._make_request("DELETE", endpoint, extra_headers=extra_headers)
 
-    def _make_request(self, method, endpoint, params=None, data=None, extra_headers=None):
+    def _make_request(self, method, endpoint, params=None, data=None, extra_headers=None, form=None):
         """
         Makes an HTTP request to the API based on the specified method.
 
@@ -444,6 +448,8 @@ class SisenseClient:
             params (dict): Optional query parameters (for GET requests).
             data (dict): Optional JSON data payload (for POST, PUT, PATCH requests).
             extra_headers (dict): Optional headers merged into the default request headers.
+            form (dict): Optional form fields for a POST, sent URL-encoded with
+                ``Content-Type: application/x-www-form-urlencoded`` in place of a JSON body.
 
         Returns:
             requests.Response or None: The full response object if the request succeeds,
@@ -452,16 +458,27 @@ class SisenseClient:
         # Construct the full URL for the API request
         url = f"{self.base_url}{endpoint}"
         headers = dict(self.headers)
+        if form is not None:
+            if method != "POST":
+                raise ValueError("form bodies are only supported for POST requests")
+            if data is not None:
+                raise ValueError("pass either data (JSON body) or form (URL-encoded body), not both")
+            # The default headers declare a JSON body; a form body must say so instead,
+            # or the server tries to parse the URL-encoded string as JSON.
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
         if extra_headers:
             headers.update(extra_headers)
 
-        # Log the request details (method, URL, params, and data).
-        self.logger.debug(f"Making {method} request to {url} with data: {redact_secrets(data)} and params: {redact_secrets(params)}")
+        # Log the request details (method, URL, params, and body).
+        body_for_log = form if form is not None else data
+        self.logger.debug(f"Making {method} request to {url} with data: {redact_secrets(body_for_log)} and params: {redact_secrets(params)}")
 
         try:
             # Perform the appropriate HTTP request based on the method
             if method == "GET":
                 response = self.session.get(url, headers=headers, params=params, verify=self.verify, timeout=self.request_timeout)
+            elif method == "POST" and form is not None:
+                response = self.session.post(url, headers=headers, data=form, verify=self.verify, timeout=self.request_timeout)
             elif method == "POST":
                 response = self.session.post(url, headers=headers, json=data, verify=self.verify, timeout=self.request_timeout)
             elif method == "PUT":
