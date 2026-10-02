@@ -6,6 +6,10 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2.3.2] — 2026-10-02
+
 ### Fixed
 
 - **`elasticubes_run_jaql_csv` failed on every call with HTTP 400 `"undefined" is not valid JSON`.**
