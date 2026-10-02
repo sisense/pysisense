@@ -50,6 +50,8 @@ class _KeepAliveAdapter(HTTPAdapter):
     def init_poolmanager(self, *args, **kwargs):
         kwargs.setdefault("socket_options", _KEEPALIVE_SOCKET_OPTIONS)
         super().init_poolmanager(*args, **kwargs)
+
+
 VALID_OPERATING_SYSTEMS = frozenset({"linux", "windows"})
 # Values from a YAML config or kwarg that are treated as "not set" → default to linux
 _OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
