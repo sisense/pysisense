@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import socket
 import warnings
 from collections.abc import Mapping
 from logging.handlers import TimedRotatingFileHandler
@@ -11,6 +12,7 @@ from typing import Any
 import requests
 import urllib3
 from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPConnection
 from urllib3.util.retry import Retry
 
 from .utils import convert_to_dataframe, load_config, redact_secrets
@@ -23,6 +25,33 @@ DEFAULT_CONNECT_TIMEOUT = 5
 DEFAULT_RETRY_TOTAL = 3
 DEFAULT_RETRY_BACKOFF_FACTOR = 1
 DEFAULT_RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
+# One extra attempt when a pooled connection turns out to be dead. A NAT gateway
+# or proxy that drops an idle keep-alive connection without closing it makes the
+# next request fail with "Remote end closed connection without response" before
+# the server saw anything; the retry opens a fresh connection. urllib3 applies
+# read-error retries only to idempotent methods (GET, HEAD, PUT, DELETE,
+# OPTIONS, TRACE), never POST, so a mutation is never sent twice.
+DEFAULT_RETRY_CONNECT = 1
+DEFAULT_RETRY_READ = 1
+
+# TCP keepalive on every pooled connection, so idle connections keep the NAT or
+# proxy mapping alive instead of going stale. The main defense for POST, which
+# the read retry above does not cover. Probe after 60s idle, then every 30s,
+# give up after 3 missed probes. Constant names differ by platform.
+_KEEPALIVE_SOCKET_OPTIONS = list(HTTPConnection.default_socket_options) + [(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)]
+for _name, _value in (("TCP_KEEPIDLE", 60), ("TCP_KEEPALIVE", 60), ("TCP_KEEPINTVL", 30), ("TCP_KEEPCNT", 3)):
+    if hasattr(socket, _name) and not (_name == "TCP_KEEPALIVE" and hasattr(socket, "TCP_KEEPIDLE")):
+        _KEEPALIVE_SOCKET_OPTIONS.append((socket.IPPROTO_TCP, getattr(socket, _name), _value))
+
+
+class _KeepAliveAdapter(HTTPAdapter):
+    """HTTPAdapter whose connection pools set TCP keepalive on every socket."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        kwargs.setdefault("socket_options", _KEEPALIVE_SOCKET_OPTIONS)
+        super().init_poolmanager(*args, **kwargs)
+
+
 VALID_OPERATING_SYSTEMS = frozenset({"linux", "windows"})
 # Values from a YAML config or kwarg that are treated as "not set" → default to linux
 _OS_ABSENT_VALUES = frozenset({"", "none", "na", "n/a", "null", "undefined"})
@@ -237,18 +266,23 @@ class SisenseClient:
         if self.retries_enabled:
             retry_strategy = Retry(
                 total=DEFAULT_RETRY_TOTAL,
-                connect=0,  # Do not retry on connection errors.
-                read=0,  # Do not retry on read timeouts.
+                connect=DEFAULT_RETRY_CONNECT,  # Nothing was sent yet, so a second attempt is always safe.
+                read=DEFAULT_RETRY_READ,  # Dead pooled connection; idempotent methods only (urllib3 default).
                 backoff_factor=DEFAULT_RETRY_BACKOFF_FACTOR,
                 status_forcelist=DEFAULT_RETRY_STATUS_FORCELIST,
                 raise_on_status=False,  # Return the last response instead of raising once retries are exhausted.
             )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            self.session.mount("https://", adapter)
-            self.session.mount("http://", adapter)
-            self.logger.debug(f"HTTP retries enabled (total={DEFAULT_RETRY_TOTAL}, backoff_factor={DEFAULT_RETRY_BACKOFF_FACTOR}, status_forcelist={list(DEFAULT_RETRY_STATUS_FORCELIST)})")
+            self.logger.debug(
+                f"HTTP retries enabled (total={DEFAULT_RETRY_TOTAL}, connect={DEFAULT_RETRY_CONNECT}, read={DEFAULT_RETRY_READ}, "
+                f"backoff_factor={DEFAULT_RETRY_BACKOFF_FACTOR}, status_forcelist={list(DEFAULT_RETRY_STATUS_FORCELIST)})"
+            )
         else:
+            retry_strategy = 0
             self.logger.debug("HTTP retries disabled")
+        # Keepalive is mounted either way; it is about connection health, not retries.
+        adapter = _KeepAliveAdapter(max_retries=retry_strategy)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
         # Client-side request timeouts (requests-style (connect, read) tuple).
         # The read timeout bounds how long a single request waits for the
