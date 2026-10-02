@@ -149,6 +149,36 @@ class TestSisenseClientRetries:
         assert adapter.max_retries.total == 3
         assert adapter.max_retries.status_forcelist == (429, 500, 502, 503, 504)
 
+    def test_retries_cover_dead_pooled_connections_once(self):
+        # A NAT/proxy that silently drops an idle keep-alive connection makes the
+        # next request fail with RemoteDisconnected; one retry on a fresh
+        # connection is the fix. urllib3 applies read retries to idempotent
+        # methods only, so POST is still never sent twice.
+        client = SisenseClient(domain="myserver.com", token="tok")
+        retry = client.session.get_adapter("https://myserver.com").max_retries
+        assert retry.connect == 1
+        assert retry.read == 1
+        assert "POST" not in retry.allowed_methods
+        assert "GET" in retry.allowed_methods
+
+    def test_pooled_connections_use_tcp_keepalive(self):
+        import socket
+
+        client = SisenseClient(domain="myserver.com", token="tok")
+        adapter = client.session.get_adapter("https://myserver.com")
+        opts = adapter.poolmanager.connection_pool_kw["socket_options"]
+        assert (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1) in opts
+        # Still carries urllib3's own defaults (TCP_NODELAY) rather than replacing them.
+        assert (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) in opts
+
+    def test_keepalive_is_mounted_even_with_retries_disabled(self):
+        import socket
+
+        client = SisenseClient(domain="myserver.com", token="tok", retries=False)
+        adapter = client.session.get_adapter("https://myserver.com")
+        assert adapter.max_retries.total == 0
+        assert (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1) in adapter.poolmanager.connection_pool_kw["socket_options"]
+
     def test_retries_false_kwarg_disables_retries(self):
         client = SisenseClient(domain="myserver.com", token="tok", retries=False)
         assert client.retries_enabled is False
