@@ -33,6 +33,10 @@ Runs a JAQL query via `POST /api/datasources/{name}/jaql` (validation-tab style)
 
 Runs a JAQL query returning CSV via `POST /api/datasources/{name}/jaql/csv`.
 
+The CSV endpoint reads the JAQL from a URL-encoded form field named `data`, not from a JSON
+body (the same way the Sisense UI's CSV export submits it). The method handles that encoding;
+pass the same JAQL dict you would give `elasticube_run_jaql_query`.
+
 **Returns:**
 
 - `dict` or `str`: JSON result, raw CSV text, or `{"error": "..."}` on failure.

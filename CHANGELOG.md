@@ -6,7 +6,24 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **`elasticubes_run_jaql_csv` failed on every call with HTTP 400 `"undefined" is not valid JSON`.**
+  `POST /api/datasources/{name}/jaql/csv` does not read a JSON request body. Like the Sisense UI's
+  CSV export, it reads the JAQL from a URL-encoded form field named `data`. The method sent the
+  payload as JSON, so the server found no `data` field and refused the request. The JAQL dict is now
+  serialised into that form field. Verified live against a Sisense Linux instance: the same JAQL
+  that returned 400 as a JSON body returns `text/csv` rows as a form field. Callers pass the same
+  dict as before; only the wire encoding changed.
+
+- **`SisenseClient.post` accepts an optional `form=` argument** for the few endpoints that read
+  URL-encoded form input instead of JSON. It sets `Content-Type: application/x-www-form-urlencoded`
+  for that request only, is mutually exclusive with `data=`, and is redacted in debug logs like a
+  JSON body. Existing calls are unchanged.
+
+**Downstream generators:** no introspection-surface changes. No methods renamed, no params gained
+TypedDict contracts or `Literal` enums, no return-value shape changes. `elasticubes_run_jaql_csv`
+keeps its signature and return type; only its docstring text changed.
 
 ## [2.3.1] — 2026-09-23
 

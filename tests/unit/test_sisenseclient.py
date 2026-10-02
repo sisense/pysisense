@@ -207,6 +207,51 @@ class TestSisenseClientDebugLogRedaction:
         assert "hunter2" not in caplog.text
         assert "***REDACTED***" in caplog.text
 
+    def test_post_with_form_sends_urlencoded_body_not_json(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok")
+
+        ok = MagicMock(status_code=200)
+        with patch.object(client.session, "post", return_value=ok) as post:
+            client.post("/api/datasources/m/jaql/csv", form={"data": "{}"})
+
+        kwargs = post.call_args.kwargs
+        assert kwargs["data"] == {"data": "{}"}
+        assert "json" not in kwargs
+        assert kwargs["headers"]["Content-Type"] == "application/x-www-form-urlencoded"
+        assert kwargs["headers"]["Authorization"] == "Bearer tok"
+
+    def test_post_without_form_still_sends_json_body(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok")
+
+        ok = MagicMock(status_code=200)
+        with patch.object(client.session, "post", return_value=ok) as post:
+            client.post("/api/users", data={"userName": "bob"})
+
+        kwargs = post.call_args.kwargs
+        assert kwargs["json"] == {"userName": "bob"}
+        assert "data" not in kwargs
+        assert kwargs["headers"]["Content-Type"] == "application/json"
+
+    def test_post_rejects_both_data_and_form(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok")
+        with pytest.raises(ValueError, match="not both"):
+            client.post("/api/x", data={"a": 1}, form={"b": "2"})
+
+    def test_form_body_is_redacted_in_debug_log(self, tmp_path, monkeypatch, caplog):
+        monkeypatch.chdir(tmp_path)
+        client = SisenseClient(domain="x.com", token="tok", debug=True)
+        caplog.set_level(logging.DEBUG, logger="SisenseClient")
+
+        ok = MagicMock(status_code=200)
+        with patch.object(client.session, "post", return_value=ok):
+            client.post("/api/x", form={"password": "hunter2", "data": "{}"})
+
+        assert "hunter2" not in caplog.text
+        assert "***REDACTED***" in caplog.text
+
     def test_non_json_error_body_not_logged_at_error_level(self, tmp_path, monkeypatch, caplog):
         monkeypatch.chdir(tmp_path)
         client = SisenseClient(domain="x.com", token="tok", debug=False)
