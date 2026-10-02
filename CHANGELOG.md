@@ -6,6 +6,10 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [2.3.3] — 2026-10-02
+
 ### Fixed
 
 - **The first call after a few idle minutes no longer fails with "no response … connection
