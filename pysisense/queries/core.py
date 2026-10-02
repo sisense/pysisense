@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..utils import _extract_error_message
@@ -54,14 +55,19 @@ class QueriesCoreMixin:
     ) -> dict[str, Any] | str:
         """Run a JAQL query and return CSV output.
 
-        Sends ``POST /api/datasources/{datasource_name}/jaql/csv``.
+        Sends ``POST /api/datasources/{datasource_name}/jaql/csv``. Unlike the
+        JSON endpoint, the CSV endpoint does not read a JSON request body: it
+        reads the JAQL from a URL-encoded form field named ``data``, the same
+        way the Sisense UI's CSV export submits it. The payload is serialised
+        into that field here; callers pass an ordinary JAQL dict.
 
         Parameters
         ----------
         datasource_name : str
             Datasource / elasticube name.
         jaql_payload : dict[str, Any]
-            JAQL query body.
+            JAQL query body, the same shape accepted by
+            :meth:`elasticube_run_jaql_query`.
 
         Returns
         -------
@@ -72,7 +78,8 @@ class QueriesCoreMixin:
         endpoint = f"/api/datasources/{datasource_name}/jaql/csv"
         context = f"JAQL CSV query on '{datasource_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
-        response = self.api_client.post(endpoint, data=jaql_payload)
+        # Sent as a form field, not a JSON body; see the docstring.
+        response = self.api_client.post(endpoint, form={"data": json.dumps(jaql_payload)})
 
         if response is None or not response.ok:
             failure = _extract_error_message(response, f"Failed to run {context}", self.api_client)
