@@ -6,8 +6,14 @@ from typing import Any
 
 from ..sisenseclient import SisenseClient
 from .base import MigrationBaseMixin
+from .blox import BloxMigrationMixin
+from .custom_code import CustomCodeMigrationMixin
 from .dashboards import DashboardsMigrationMixin
 from .datamodels import DatamodelsMigrationMixin
+from .datasecurity import DatasecurityMigrationMixin
+from .filters import FiltersMigrationMixin
+from .folder import FolderMigrationMixin
+from .formulas import FormulasMigrationMixin
 from .groups import GroupsMigrationMixin
 from .users import UsersMigrationMixin
 
@@ -18,13 +24,21 @@ class Migration(
     UsersMigrationMixin,
     DashboardsMigrationMixin,
     DatamodelsMigrationMixin,
+    CustomCodeMigrationMixin,
+    FolderMigrationMixin,
+    BloxMigrationMixin,
+    DatasecurityMigrationMixin,
+    FormulasMigrationMixin,
+    FiltersMigrationMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
 
     Connects to a source and a target Sisense instance (via config files,
-    config dicts, or injected clients) and migrates groups, users, dashboards, and data
-    models from one to the other. Does not operate on a single instance —
-    use AccessManagement or Dashboard for single-environment changes.
+    config dicts, or injected clients) and migrates groups, users, dashboards,
+    data models, custom-code notebooks, folders, Blox actions, data security
+    rules, saved formulas, and saved filters from one to the other. Does not
+    operate on a single instance — use AccessManagement, Dashboard, DataModel,
+    CustomCode, Folder, Blox, or Metadata for single-environment changes.
 
     Modules
     -------
@@ -44,6 +58,29 @@ class Migration(
     datamodels :
         Data model migration — copy data model schemas and connection
         definitions from source to target; supports bulk migration.
+    custom_code :
+        Notebook migration — copy custom-code notebooks from source to
+        target with skip, overwrite, or duplicate conflict handling.
+    folder :
+        Folder migration — recreate the folder hierarchy from source on the
+        target with skip, overwrite, or duplicate conflict handling.
+    blox :
+        Blox action migration — copy custom Blox actions from source to
+        target with skip, overwrite, or duplicate conflict handling.
+        Target must be a Linux deployment.
+    datasecurity :
+        Data security (row-level security) migration — copy datasecurity
+        rules for data models that already exist on the target, remapping
+        rule shares to target users and groups by email/name. Migrate data
+        models before data security.
+    formulas :
+        Saved formula migration — copy saved formula measures for data
+        models that already exist on the target, with skip or
+        duplicate-on-create conflict handling.
+    filters :
+        Saved filter migration — copy saved filter dimensions for data
+        models that already exist on the target, with skip or
+        duplicate-on-create conflict handling.
     """
 
     def __init__(

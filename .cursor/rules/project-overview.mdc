@@ -52,7 +52,7 @@ uv run pre-commit install --hook-type commit-msg
 | `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
-| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models) |
+| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models, custom-code notebooks, folders, Blox actions, data security, saved formulas, saved filters) |
 | `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, group, user, data model, data security, saved formula, saved filter, and dashboard migration |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
@@ -102,15 +102,21 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
 | | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
 | | `base.py` | `_emit`, `_run_concurrently` (shared concurrency scheduler) and internal helpers (private); also used by `MergeTool` |
-| `mergetool/` | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
+| | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
 | | `folder.py` | `migrate_folders`, `migrate_all_folders` |
 | | `blox.py` | `migrate_blox_actions`, `migrate_all_blox_actions` |
-| | `groups.py` | `migrate_groups`, `migrate_all_groups` |
-| | `users.py` | `migrate_users`, `migrate_all_users` |
-| | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
 | | `datasecurity.py` | `migrate_datasecurity`, `migrate_all_datasecurity` |
 | | `formulas.py` | `migrate_saved_formulas`, `migrate_all_saved_formulas` |
 | | `filters.py` | `migrate_saved_filters`, `migrate_all_saved_filters` |
+| `mergetool/` | `custom_code.py` | thin subclass of `migration/custom_code.py` (same methods) |
+| | `folder.py` | thin subclass of `migration/folder.py` (same methods) |
+| | `blox.py` | thin subclass of `migration/blox.py` (same methods) |
+| | `groups.py` | `migrate_groups`, `migrate_all_groups` |
+| | `users.py` | `migrate_users`, `migrate_all_users` |
+| | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
+| | `datasecurity.py` | thin subclass of `migration/datasecurity.py` (same methods) |
+| | `formulas.py` | thin subclass of `migration/formulas.py` (same methods) |
+| | `filters.py` | thin subclass of `migration/filters.py` (same methods) |
 | | `dashboards.py` | `migrate_dashboards`, `migrate_all_dashboards` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |

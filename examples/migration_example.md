@@ -227,9 +227,224 @@ print(json.dumps(migration_summary, indent=4))
 
 ---
 
+## Example 10: Migrate Specific Notebooks by ID
+
+```python
+notebook_ids = [
+    "notebook-id-1",
+    "notebook-id-2",
+]
+results = migration.migrate_notebooks(
+    notebook_ids=notebook_ids,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 11: Migrate Specific Notebooks by Name
+
+```python
+notebook_names = [
+    "My Transformation Notebook",
+    "ETL Pipeline",
+]
+results = migration.migrate_notebooks(
+    notebook_names=notebook_names,
+    action="overwrite",  # Deletes existing on target then recreates from source
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 12: Migrate All Notebooks
+
+```python
+results = migration.migrate_all_notebooks(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    concurrency=5,  # Notebooks are independent — migrate up to 5 at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 13: Migrate Specific Folders by Name (with subtree)
+
+```python
+folder_names = [
+    "Analytics",
+    "Finance Reports",
+]
+results = migration.migrate_folders(
+    folder_names=folder_names,
+    action="skip",  # Child folders are included automatically
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 14: Migrate Specific Folders by ID (with subtree)
+
+```python
+folder_ids = [
+    "folder-oid-1",
+    "folder-oid-2",
+]
+results = migration.migrate_folders(
+    folder_ids=folder_ids,
+    action="overwrite",  # Deletes existing folder on target then recreates
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 15: Migrate All Folders
+
+```python
+results = migration.migrate_all_folders(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 16: Migrate Folders Concurrently
+
+Folders in the same hierarchy depth level are independent of each other (their parent was already migrated in the previous level), so they can be created concurrently. Different depths are still processed strictly in order.
+
+```python
+results = migration.migrate_all_folders(
+    action="skip",
+    concurrency=5,  # Up to 5 folders per depth level created/deleted at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 17: Using an emit callback for progress tracking
+
+```python
+def on_progress(event: dict) -> None:
+    print(f"[{event.get('type', '').upper()}] {event.get('step')} — {event.get('message')}")
+
+
+results = migration.migrate_all_folders(action="skip", emit=on_progress)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 18: Migrate Specific Blox Actions by Type
+
+```python
+action_types = [
+    "Send Email Notification",
+    "Refresh Dashboard",
+]
+results = migration.migrate_blox_actions(
+    action_types=action_types,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 19: Migrate All Blox Actions
+
+```python
+results = migration.migrate_all_blox_actions(
+    action="overwrite",  # Deletes existing action on target then recreates from source
+    concurrency=5,  # Blox actions are independent — migrate up to 5 at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 20: Migrate Datasecurity for Specific Data Models
+
+Migrate data models before data security — rules can only be written onto a data model that already exists on the target.
+
+```python
+results = migration.migrate_datasecurity(
+    datamodel_names=["Sample ECommerce"],
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 21: Migrate Datasecurity for All Data Models
+
+```python
+results = migration.migrate_all_datasecurity()
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 22: Migrate Saved Formulas for Specific Data Models
+
+Migrate data models before saved formulas — formulas can only be created on a datasource that already exists on the target.
+
+```python
+results = migration.migrate_saved_formulas(
+    datamodel_names=["Sample ECommerce"],
+    action="skip",  # Options: "skip", "overwrite", "duplicate" ("overwrite" behaves like "duplicate" — no update/delete endpoint exists)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 23: Migrate Saved Formulas for All Data Models
+
+```python
+results = migration.migrate_all_saved_formulas()
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 24: Migrate Saved Filters for Specific Data Models
+
+Migrate data models before saved filters — filters can only be created on a datasource that already exists on the target.
+
+```python
+results = migration.migrate_saved_filters(
+    datamodel_names=["Sample ECommerce"],
+    action="skip",  # Options: "skip", "overwrite", "duplicate" ("overwrite" behaves like "duplicate" — no update/delete endpoint exists)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 25: Migrate Saved Filters for All Data Models
+
+```python
+results = migration.migrate_all_saved_filters()
+print(json.dumps(results, indent=4))
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
+- Notebook, folder, and Blox action migrations take an `action` parameter (`"skip"`, `"overwrite"`, `"duplicate"`); saved formula and filter migrations support `"skip"` and `"duplicate"` only. All six return `ok`, `status`, `succeeded`, `skipped`, `failed`, and counts.
+- Notebook, folder, and Blox action migrations accept `concurrency` to process several items in parallel. Folders are processed one hierarchy level at a time, so a parent always exists before its children.
+- `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating: use with caution.
+- Blox action migration requires the target to be a Linux deployment.
+- Data security, saved formulas, and saved filters need the data model to already exist on the target: migrate data models first.
 - For more details, refer to the documentation in the `docs/` folder.
 
 ---

@@ -259,6 +259,61 @@ class TestMigrationPublicMethodsExist:
 
 
 # ---------------------------------------------------------------------------
+# Methods moved in from MergeTool
+# ---------------------------------------------------------------------------
+
+# Content types that only MergeTool covered before. Their implementation now
+# lives in pysisense/migration/, and MergeTool inherits it unchanged, so the
+# behaviour tests in test_mergetool_*.py cover both classes.
+_MOVED_FROM_MERGETOOL = [
+    "migrate_notebooks",
+    "migrate_all_notebooks",
+    "migrate_folders",
+    "migrate_all_folders",
+    "migrate_blox_actions",
+    "migrate_all_blox_actions",
+    "migrate_datasecurity",
+    "migrate_all_datasecurity",
+    "migrate_saved_formulas",
+    "migrate_all_saved_formulas",
+    "migrate_saved_filters",
+    "migrate_all_saved_filters",
+]
+
+# Methods both classes had before, with different signatures. Migration must
+# keep its own versions so existing callers see no change.
+_OVERLAPPING = [
+    "migrate_groups",
+    "migrate_all_groups",
+    "migrate_users",
+    "migrate_all_users",
+    "migrate_dashboards",
+    "migrate_all_dashboards",
+    "migrate_datamodels",
+    "migrate_all_datamodels",
+]
+
+
+class TestMethodsMovedFromMergeTool:
+    @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
+    def test_migration_exposes_the_method(self, name):
+        assert callable(getattr(Migration, name, None))
+
+    @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
+    def test_mergetool_runs_the_same_implementation(self, name):
+        from pysisense.mergetool import MergeTool
+
+        assert getattr(MergeTool, name) is getattr(Migration, name)
+
+    @pytest.mark.parametrize("name", _OVERLAPPING)
+    def test_overlapping_methods_keep_the_migration_version(self, name):
+        from pysisense.mergetool import MergeTool
+
+        assert getattr(Migration, name) is not getattr(MergeTool, name)
+        assert getattr(Migration, name).__module__.startswith("pysisense.migration.")
+
+
+# ---------------------------------------------------------------------------
 # _export_dashboard — auth-aware fallback
 # ---------------------------------------------------------------------------
 
