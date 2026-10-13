@@ -108,7 +108,8 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `datasecurity.py` | `migrate_datasecurity`, `migrate_all_datasecurity` |
 | | `formulas.py` | `migrate_saved_formulas`, `migrate_all_saved_formulas` |
 | | `filters.py` | `migrate_saved_filters`, `migrate_all_saved_filters` |
-| `mergetool/` | `custom_code.py` | thin subclass of `migration/custom_code.py` (same methods) |
+| `mergetool/` | `base.py` | `MergeToolConcurrencyMixin`: deprecated alias of `migration/base.py`'s `MigrationBaseMixin` (private) |
+| | `custom_code.py` | thin subclass of `migration/custom_code.py` (same methods) |
 | | `folder.py` | thin subclass of `migration/folder.py` (same methods) |
 | | `blox.py` | thin subclass of `migration/blox.py` (same methods) |
 | | `groups.py` | `migrate_groups`, `migrate_all_groups` |

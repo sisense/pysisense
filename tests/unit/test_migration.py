@@ -294,6 +294,35 @@ _OVERLAPPING = [
 ]
 
 
+class TestMergeToolConcurrencyMixinDeprecated:
+    def test_alias_is_still_importable_and_marked_deprecated(self):
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+
+        assert MergeToolConcurrencyMixin.__deprecated__ == "use MigrationBaseMixin"
+
+    def test_alias_still_provides_run_concurrently(self):
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+        from pysisense.migration.base import MigrationBaseMixin
+
+        assert issubclass(MergeToolConcurrencyMixin, MigrationBaseMixin)
+        assert callable(getattr(MergeToolConcurrencyMixin, "_run_concurrently", None))
+
+    def test_subclassing_the_alias_warns(self):
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+
+        with pytest.warns(DeprecationWarning, match="use MigrationBaseMixin"):
+
+            class _Legacy(MergeToolConcurrencyMixin):
+                pass
+
+    def test_mergetool_itself_does_not_use_the_alias(self):
+        # Inheriting the deprecated class would warn on every import of pysisense.
+        from pysisense.mergetool import MergeTool
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+
+        assert MergeToolConcurrencyMixin not in MergeTool.__mro__
+
+
 class TestMethodsMovedFromMergeTool:
     @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
     def test_migration_exposes_the_method(self, name):
