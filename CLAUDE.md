@@ -140,9 +140,8 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `users.py` | `migrate_users`, `migrate_all_users` |
 | | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
 | | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
-| | `base.py` | `_emit` and internal helpers (private) |
-| `mergetool/` | `base.py` | `_run_concurrently` (private) — shared concurrency scheduler used by the other mergetool mixins |
-| | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
+| | `base.py` | `_emit`, `_run_concurrently` (shared concurrency scheduler) and internal helpers (private); also used by `MergeTool` |
+| `mergetool/` | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
 | | `folder.py` | `migrate_folders`, `migrate_all_folders` |
 | | `blox.py` | `migrate_blox_actions`, `migrate_all_blox_actions` |
 | | `groups.py` | `migrate_groups`, `migrate_all_groups` |

@@ -29,8 +29,9 @@ class Migration(
     Modules
     -------
     base :
-        Progress emission — internal helper for reporting migration events
-        to a caller-provided callback.
+        Shared internal helpers — progress emission to a caller-provided
+        callback, and a concurrency scheduler for migrating independent
+        items in parallel.
     groups :
         Group migration — copy specific groups or all groups from source to
         target using the bulk group endpoint.

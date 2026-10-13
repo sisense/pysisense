@@ -6,7 +6,6 @@ from typing import Any
 
 from ..migration.base import MigrationBaseMixin
 from ..sisenseclient import SisenseClient
-from .base import MergeToolConcurrencyMixin
 from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
 from .dashboards import DashboardMergeMixin
@@ -21,7 +20,6 @@ from .users import UsersMergeMixin
 
 class MergeTool(
     MigrationBaseMixin,
-    MergeToolConcurrencyMixin,
     CustomCodeMergeMixin,
     FolderMergeMixin,
     BloxMergeMixin,
