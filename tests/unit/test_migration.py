@@ -259,6 +259,90 @@ class TestMigrationPublicMethodsExist:
 
 
 # ---------------------------------------------------------------------------
+# Methods moved in from MergeTool
+# ---------------------------------------------------------------------------
+
+# Content types that only MergeTool covered before. Their implementation now
+# lives in pysisense/migration/, and MergeTool inherits it unchanged, so the
+# behaviour tests in test_mergetool_*.py cover both classes.
+_MOVED_FROM_MERGETOOL = [
+    "migrate_notebooks",
+    "migrate_all_notebooks",
+    "migrate_folders",
+    "migrate_all_folders",
+    "migrate_blox_actions",
+    "migrate_all_blox_actions",
+    "migrate_datasecurity",
+    "migrate_all_datasecurity",
+    "migrate_saved_formulas",
+    "migrate_all_saved_formulas",
+    "migrate_saved_filters",
+    "migrate_all_saved_filters",
+]
+
+# Methods both classes had before, with different signatures. Migration must
+# keep its own versions so existing callers see no change.
+_OVERLAPPING = [
+    "migrate_groups",
+    "migrate_all_groups",
+    "migrate_users",
+    "migrate_all_users",
+    "migrate_dashboards",
+    "migrate_all_dashboards",
+    "migrate_datamodels",
+    "migrate_all_datamodels",
+]
+
+
+class TestMergeToolConcurrencyMixinDeprecated:
+    def test_alias_is_still_importable_and_marked_deprecated(self):
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+
+        assert MergeToolConcurrencyMixin.__deprecated__ == "use MigrationBaseMixin"
+
+    def test_alias_still_provides_run_concurrently(self):
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+        from pysisense.migration.base import MigrationBaseMixin
+
+        assert issubclass(MergeToolConcurrencyMixin, MigrationBaseMixin)
+        assert callable(getattr(MergeToolConcurrencyMixin, "_run_concurrently", None))
+
+    def test_subclassing_the_alias_warns(self):
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+
+        with pytest.warns(DeprecationWarning, match="use MigrationBaseMixin"):
+
+            class _Legacy(MergeToolConcurrencyMixin):
+                pass
+
+    def test_mergetool_itself_does_not_use_the_alias(self):
+        # Inheriting the deprecated class would warn on every import of pysisense.
+        from pysisense.mergetool import MergeTool
+        from pysisense.mergetool.base import MergeToolConcurrencyMixin
+
+        assert MergeToolConcurrencyMixin not in MergeTool.__mro__
+
+
+class TestMethodsMovedFromMergeTool:
+    @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
+    def test_migration_exposes_the_method(self, name):
+        assert callable(getattr(Migration, name, None))
+
+    @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
+    def test_mergetool_runs_the_same_implementation(self, name):
+        from pysisense.mergetool import MergeTool
+
+        assert getattr(MergeTool, name) is getattr(Migration, name)
+
+    @pytest.mark.parametrize("name", _OVERLAPPING)
+    def test_overlapping_methods_keep_the_migration_version(self, name):
+        from pysisense.mergetool import MergeTool
+
+        assert getattr(Migration, name) is not getattr(MergeTool, name)
+        assert getattr(Migration, name).__module__.startswith("pysisense.migration.")
+
+
+# ---------------------------------------------------------------------------
 # _export_dashboard — auth-aware fallback
 # ---------------------------------------------------------------------------
 

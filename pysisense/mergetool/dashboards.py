@@ -7,7 +7,7 @@ from typing import Any, Literal
 from ..access_management import AccessManagement
 from ..dashboard import Dashboard
 from ..folder import Folder
-from .folder import _build_oid_to_folder, _build_path_map
+from ..migration.folder import _build_oid_to_folder, _build_path_map
 
 _LOCAL_DATASOURCE_ADDRESS = "LocalHost"
 
