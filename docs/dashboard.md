@@ -24,11 +24,11 @@ Initializes the `Dashboard` class.
 
 ### `get_all_dashboards()`
 
-Fetches all dashboards accessible to the authenticated user.
+Fetches every dashboard on the server via the admin listing (`GET /api/v1/dashboards/admin?dashboardType=owner`), which requires elevated access. The listing is read 50 dashboards at a time (`limit`/`skip`) until a page comes back short, so large instances are returned in full; a dashboard returned by an earlier page is not repeated.
 
 **Returns:**
 
--   `list`: List of dashboard metadata.
+-   `list`: List of dashboard metadata, or the standard error dict `{"ok": False, "error": "..."}` on failure. A failure on any page returns the error, never a partial list.
 
 * * * * *
 
@@ -308,7 +308,7 @@ Checks whether the dashboard can be owned by the current user via ``GET /api/v1/
 
 * * * * *
 
-### `import_dashboards_bulk(dashboards, action="skip")`
+### `import_dashboards_bulk(dashboards, action="skip", republish=False)`
 
 Imports one or more dashboards via `POST /api/v1/dashboards/import/bulk`. Dashboards are typically the payloads returned by `export_dashboard`. The server matches dashboards by `oid`: when a dashboard with the same `oid` already exists, `action` controls whether it is left unchanged, replaced, or a new copy is created.
 
@@ -316,6 +316,7 @@ Imports one or more dashboards via `POST /api/v1/dashboards/import/bulk`. Dashbo
 
 - `dashboards` (list): Dashboard objects to import.
 - `action` (str, optional): Conflict behavior — `"skip"`, `"overwrite"`, or `"duplicate"`. Default is `"skip"`.
+- `republish` (bool, optional): When `True`, also sends `republish=true` so the imported dashboards are republished to the users they are shared with. Default is `False`.
 
 **Returns:**
 

@@ -41,7 +41,7 @@ class FormulasMigrationMixin:
         creates them on the target via the metadata measure endpoint.
         Conflict detection is based on a formula's ``title``. Requires the
         target data model to already exist — run
-        ``migrate_datamodels``/``migrate_all_datamodels`` first.
+        ``migrate_datamodels_v2``/``migrate_all_datamodels_v2`` first.
 
         Parameters
         ----------
@@ -261,7 +261,7 @@ class FormulasMigrationMixin:
 
         Fetches every data model from the source environment and delegates
         to ``migrate_saved_formulas``. Data models not yet present on the
-        target are skipped — run ``migrate_all_datamodels`` first.
+        target are skipped — run ``migrate_all_datamodels_v2`` first.
 
         Parameters
         ----------

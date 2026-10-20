@@ -1,8 +1,16 @@
 """Unit tests for pysisense.mergetool.users.UsersMergeMixin."""
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.mergetool import MergeTool
+
+# These tests cover behaviour through deprecated methods; the deprecations
+# themselves are tested in test_migration_v2.py.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:use migrate_:DeprecationWarning"),
+]
 
 _SOURCE_USER_JOHN = {
     "_id": "src_user_1",

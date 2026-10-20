@@ -91,8 +91,8 @@ Rules that follow from this:
 | `metadata/` | `Metadata` | Datasource metadata: measures, dimensions, queries, datasource list |
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
-| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models, custom-code notebooks, folders, Blox actions, data security, saved formulas, saved filters) |
-| `mergetool/` | `MergeTool` | Cross-environment custom-code notebook, folder, Blox action, group, user, data model, data security, saved formula, saved filter, and dashboard migration |
+| `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models, custom-code notebooks, folders, Blox actions, data security, saved formulas, saved filters); `*_v2` methods for groups/users/models/dashboards replace the deprecated originals |
+| `mergetool/` | `MergeTool` | **Deprecated** (removed in the next major): every method is `@deprecated("use Migration.<method>")` and calls that `Migration` method with the same signature |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
@@ -136,28 +136,24 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `shares.py` | `get_datamodel_shares`, `add_datamodel_shares`, `get_datamodel_permissions_extract`, `get_datamodel_permissions_live`, `update_datamodel_permissions_extract`, `update_datamodel_permissions_live` |
 | | `data.py` | `get_data`, `get_row_count` |
 | | `perspectives.py` | `get_perspectives` (list all, filter by root model, or look up by name/ID), `create_perspective` (names in, `PerspectiveTableSpec` list; kept tables/columns only), `delete_perspective` (refuses the built-in Default), `analyze_perspective_requirements` (read-only summary of what a perspective must keep; `detailed=True` for per-dashboard/column/dependency/issue detail) |
-| `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` |
-| | `users.py` | `migrate_users`, `migrate_all_users` |
-| | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` |
-| | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
+| `migration/` | `groups.py` | `migrate_groups`, `migrate_all_groups` (deprecated → `*_v2`) |
+| | `users.py` | `migrate_users`, `migrate_all_users` (deprecated → `*_v2`) |
+| | `dashboards.py` | `migrate_dashboard_shares`, `migrate_dashboards`, `migrate_all_dashboards` (the last two deprecated → `*_v2`) |
+| | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` (deprecated → `*_v2`) |
 | | `base.py` | `_emit`, `_run_concurrently` (shared concurrency scheduler) and internal helpers (private); also used by `MergeTool` |
+| | `groups_v2.py` | `migrate_groups_v2`, `migrate_all_groups_v2` |
+| | `users_v2.py` | `migrate_users_v2`, `migrate_all_users_v2` |
+| | `datamodels_v2.py` | `migrate_datamodels_v2`, `migrate_all_datamodels_v2` |
+| | `dashboards_v2.py` | `migrate_dashboards_v2`, `migrate_all_dashboards_v2` |
 | | `custom_code.py` | `migrate_notebooks`, `migrate_all_notebooks` |
 | | `folder.py` | `migrate_folders`, `migrate_all_folders` |
 | | `blox.py` | `migrate_blox_actions`, `migrate_all_blox_actions` |
 | | `datasecurity.py` | `migrate_datasecurity`, `migrate_all_datasecurity` |
 | | `formulas.py` | `migrate_saved_formulas`, `migrate_all_saved_formulas` |
 | | `filters.py` | `migrate_saved_filters`, `migrate_all_saved_filters` |
-| `mergetool/` | `base.py` | `MergeToolConcurrencyMixin`: deprecated alias of `migration/base.py`'s `MigrationBaseMixin` (private) |
-| | `custom_code.py` | thin subclass of `migration/custom_code.py` (same methods) |
-| | `folder.py` | thin subclass of `migration/folder.py` (same methods) |
-| | `blox.py` | thin subclass of `migration/blox.py` (same methods) |
-| | `groups.py` | `migrate_groups`, `migrate_all_groups` |
-| | `users.py` | `migrate_users`, `migrate_all_users` |
-| | `datamodels.py` | `migrate_datamodels`, `migrate_all_datamodels` |
-| | `datasecurity.py` | thin subclass of `migration/datasecurity.py` (same methods) |
-| | `formulas.py` | thin subclass of `migration/formulas.py` (same methods) |
-| | `filters.py` | thin subclass of `migration/filters.py` (same methods) |
-| | `dashboards.py` | `migrate_dashboards`, `migrate_all_dashboards` |
+| `mergetool/` | `base.py` | `MergeToolDelegationMixin._as_migration` (private: a `Migration` on the same clients); `MergeToolConcurrencyMixin`: deprecated alias of `MigrationBaseMixin` |
+| | `custom_code.py`, `folder.py`, `blox.py`, `datasecurity.py`, `formulas.py`, `filters.py` | `@deprecated` methods that call the same-named `Migration` method |
+| | `groups.py`, `users.py`, `datamodels.py`, `dashboards.py` | `@deprecated` methods: `migrate_<x>` / `migrate_all_<x>` call `Migration.migrate_<x>_v2` / `migrate_all_<x>_v2` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
 | `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |
@@ -556,7 +552,8 @@ Enum-valued string params always use `Literal[...]` (e.g. `Literal["extract", "l
 Every method rename keeps the old name as a deprecated alias **for one minor version**,
 always decorated with `@typing_extensions.deprecated("use <new_name>")` (PEP 702) so
 `__deprecated__` is introspectable — never docstring-prose-only. Keep a one-line
-deprecation note in the docstring for humans.
+deprecation note in the docstring for humans. When the replacement lives on another facade, name it:
+`"use <Facade>.<new_name>"` (e.g. `"use Migration.migrate_groups_v2"`).
 
 ### Facade registry
 

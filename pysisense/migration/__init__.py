@@ -9,13 +9,17 @@ from .base import MigrationBaseMixin
 from .blox import BloxMigrationMixin
 from .custom_code import CustomCodeMigrationMixin
 from .dashboards import DashboardsMigrationMixin
+from .dashboards_v2 import DashboardsV2MigrationMixin
 from .datamodels import DatamodelsMigrationMixin
+from .datamodels_v2 import DatamodelsV2MigrationMixin
 from .datasecurity import DatasecurityMigrationMixin
 from .filters import FiltersMigrationMixin
 from .folder import FolderMigrationMixin
 from .formulas import FormulasMigrationMixin
 from .groups import GroupsMigrationMixin
+from .groups_v2 import GroupsV2MigrationMixin
 from .users import UsersMigrationMixin
+from .users_v2 import UsersV2MigrationMixin
 
 
 class Migration(
@@ -30,6 +34,10 @@ class Migration(
     DatasecurityMigrationMixin,
     FormulasMigrationMixin,
     FiltersMigrationMixin,
+    GroupsV2MigrationMixin,
+    UsersV2MigrationMixin,
+    DatamodelsV2MigrationMixin,
+    DashboardsV2MigrationMixin,
 ):
     """Copy Sisense content between two separate Sisense environments.
 
@@ -49,15 +57,24 @@ class Migration(
     groups :
         Group migration — copy specific groups or all groups from source to
         target using the bulk group endpoint.
+        Deprecated: replaced by the groups_v2 methods, which take different
+        parameters and return the standard result.
     users :
         User migration — copy specific users or all users from source to
         target, preserving role and group assignments.
+        Deprecated: replaced by the users_v2 methods, which take different
+        parameters and return the standard result.
     dashboards :
         Dashboard migration — copy dashboards and their share entries across
         environments; migrate all dashboards in bulk.
+        migrate_dashboards and migrate_all_dashboards are deprecated:
+        replaced by the dashboards_v2 methods. migrate_dashboard_shares is
+        not deprecated.
     datamodels :
         Data model migration — copy data model schemas and connection
         definitions from source to target; supports bulk migration.
+        Deprecated: replaced by the datamodels_v2 methods, which take different
+        parameters and return the standard result.
     custom_code :
         Notebook migration — copy custom-code notebooks from source to
         target with skip, overwrite, or duplicate conflict handling.
@@ -81,6 +98,26 @@ class Migration(
         Saved filter migration — copy saved filter dimensions for data
         models that already exist on the target, with skip or
         duplicate-on-create conflict handling.
+    groups_v2 :
+        Group migration with conflict handling — copy groups from source to
+        target with skip, overwrite, or duplicate handling, returning the
+        standard result. Migrate groups before users.
+    users_v2 :
+        User migration with conflict handling — copy users from source to
+        target with skip, overwrite, or duplicate handling, resolving roles
+        (including multi-tenant and Windows role names) and groups to target
+        IDs.
+    datamodels_v2 :
+        Data model migration with conflict handling — export schemas from
+        source and import them into target with skip, overwrite (matched by
+        title), or duplicate handling, remapping connections via a provider
+        map and optionally migrating shares.
+    dashboards_v2 :
+        Dashboard migration with conflict handling — export dashboards from
+        source and import them one at a time with skip, overwrite, or
+        duplicate handling, remapping owner and shares, placing each
+        dashboard in its matching target folder, and optionally
+        republishing.
     """
 
     def __init__(

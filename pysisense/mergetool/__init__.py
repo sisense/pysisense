@@ -6,6 +6,7 @@ from typing import Any
 
 from ..migration.base import MigrationBaseMixin
 from ..sisenseclient import SisenseClient
+from .base import MergeToolDelegationMixin
 from .blox import BloxMergeMixin
 from .custom_code import CustomCodeMergeMixin
 from .dashboards import DashboardMergeMixin
@@ -20,6 +21,7 @@ from .users import UsersMergeMixin
 
 class MergeTool(
     MigrationBaseMixin,
+    MergeToolDelegationMixin,
     CustomCodeMergeMixin,
     FolderMergeMixin,
     BloxMergeMixin,
@@ -39,6 +41,12 @@ class MergeTool(
     formulas, saved filters, and dashboards from one to the other. Does not
     operate on a single instance — use CustomCode, Folder, Blox,
     AccessManagement, DataModel, or Metadata for single-environment changes.
+
+    Deprecated: every method warns and points at the Migration method that
+    runs the same code. Group, user, data model, and dashboard methods map to
+    Migration's ``*_v2`` methods (for example ``migrate_groups`` to
+    ``migrate_groups_v2``); the other methods keep their names. MergeTool is
+    removed in the next major release.
 
     Modules
     -------

@@ -6,6 +6,79 @@ Sisense *environments* — a different thing entirely.)
 
 ---
 
+## Unreleased: the `*_v2` migration methods
+
+`Migration` gains `*_v2` versions of its group, user, data model, and dashboard methods. The old
+methods still work exactly as before and emit a `DeprecationWarning`. Every `MergeTool` method is
+deprecated too. Nothing was removed. In the next major release the old `Migration` methods and
+`MergeTool` are removed, and the `*_v2` methods take the plain names (the `_v2` names stay for a
+while as deprecated aliases).
+
+| Symptom after upgrading | Cause | Fix |
+|---|---|---|
+| `DeprecationWarning: use migrate_groups_v2` (or another `*_v2`) from a `Migration` call | The old method is replaced by its `*_v2` version. | Call the `*_v2` method. Its parameters and result differ: see the second table below. |
+| `DeprecationWarning: use Migration.<method>` from a `MergeTool` call | `MergeTool` is deprecated. | Create a `Migration` instead and call the method the warning names. Same parameters, same result. |
+
+### From `MergeTool`: same code, switch the class
+
+Both classes take the same constructor arguments. Every `MergeTool` method runs the same code as
+the `Migration` method below:
+
+| `MergeTool` | `Migration` |
+|---|---|
+| `migrate_groups` | `migrate_groups_v2` |
+| `migrate_all_groups` | `migrate_all_groups_v2` |
+| `migrate_users` | `migrate_users_v2` |
+| `migrate_all_users` | `migrate_all_users_v2` |
+| `migrate_dashboards` | `migrate_dashboards_v2` |
+| `migrate_all_dashboards` | `migrate_all_dashboards_v2` |
+| `migrate_datamodels` | `migrate_datamodels_v2` |
+| `migrate_all_datamodels` | `migrate_all_datamodels_v2` |
+| `migrate_notebooks` | `migrate_notebooks` (same name) |
+| `migrate_all_notebooks` | `migrate_all_notebooks` (same name) |
+| `migrate_folders` | `migrate_folders` (same name) |
+| `migrate_all_folders` | `migrate_all_folders` (same name) |
+| `migrate_blox_actions` | `migrate_blox_actions` (same name) |
+| `migrate_all_blox_actions` | `migrate_all_blox_actions` (same name) |
+| `migrate_datasecurity` | `migrate_datasecurity` (same name) |
+| `migrate_all_datasecurity` | `migrate_all_datasecurity` (same name) |
+| `migrate_saved_formulas` | `migrate_saved_formulas` (same name) |
+| `migrate_all_saved_formulas` | `migrate_all_saved_formulas` (same name) |
+| `migrate_saved_filters` | `migrate_saved_filters` (same name) |
+| `migrate_all_saved_filters` | `migrate_all_saved_filters` (same name) |
+
+```python
+from pysisense import Migration
+
+migration = Migration(source_config="source.yaml", target_config="target.yaml")
+migration.migrate_all_groups_v2()
+migration.migrate_all_folders()
+```
+
+### From the old `Migration` methods: different parameters
+
+| Old call | New call | What changes |
+|---|---|---|
+| `migrate_groups(group_name_list)` | `migrate_groups_v2(group_names=..., action="skip", emit=None)` | The list is renamed `group_names`, and `None` means every group. The target is checked first: existing groups are skipped by default, where the old method sent one bulk request that Sisense rejected as a whole if any group existed. The result is the standard dict; it no longer returns `[]` or a message list. |
+| `migrate_all_groups(emit=None)` | `migrate_all_groups_v2(action="skip", emit=None)` | As above. When the source tenants cannot be read, groups are migrated without tenant filtering, where the old method stopped. `source_count` counts eligible groups; `eligible_count` and `skipped_multi_tenant_count` move into `meta`, and `success_count` becomes `succeeded_count`. |
+| `migrate_users(user_name_list)` | `migrate_users_v2(user_emails=..., action="skip", ignore_custom_roles=False, emit=None)` | The list is renamed `user_emails`. Existing users are skipped by default. Role names are adapted to the target (`super`/`admin` → `tenantAdmin` on a multi-tenant target, `tenantAdmin` → `admin` on Windows) instead of matched exactly, and `userName` is sent. |
+| `migrate_all_users(emit=None)` | `migrate_all_users_v2(action="skip", ignore_custom_roles=False, emit=None)` | As above. `super` users are still left out. When the source tenants cannot be read, users are migrated without tenant filtering. |
+| `migrate_dashboards(dashboard_ids, dashboard_names, action=None, republish=False, migrate_share=False, change_ownership=False, emit=None)` | `migrate_dashboards_v2(dashboard_ids, dashboard_names, action="skip", concurrency=1, emit=None, republish=False, migrate_share=True, change_ownership=True)` | Dashboards are imported one at a time instead of in one bulk request. **Owner and shares move by default**: pass `migrate_share=False, change_ownership=False` for the old default. Each dashboard is also moved into its matching target folder, and its datasource addresses are set to `LocalHost`. Items carry `title`, `oid`, `source_oid` instead of `source_id`/`target_id`. `meta` has export/import counters plus owner, share and folder counters; there is no `bulk_status_code`, since there is no single bulk request. |
+| `migrate_all_dashboards(action=None, republish=False, migrate_share=False, change_ownership=False, batch_size=10, sleep_time=10, emit=None)` | `migrate_all_dashboards_v2(action="skip", concurrency=1, emit=None, republish=False, migrate_share=True, change_ownership=True)` | As above. `batch_size` and `sleep_time` are gone: dashboards go one at a time, or `concurrency` at a time. |
+| `migrate_datamodels(datamodel_ids, datamodel_names, provider_connection_map, dependencies, shares, action=None, new_title=None, emit=None)` | `migrate_datamodels_v2(datamodel_ids, datamodel_names, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None, new_title=None)` | **The positional order changed: pass arguments by keyword.** Existing models are skipped by default. `overwrite` finds the target model by title instead of by the source model's ID. Items carry `source_oid` instead of `source_id`. `meta` keeps `dependencies`, `api_dependencies`, `shares_requested` and the export/import/share counters; `failure_reasons` is gone, since each failed item carries its own `reason`. |
+| `migrate_all_datamodels(dependencies, shares, batch_size=10, sleep_time=5, action=None, emit=None)` | `migrate_all_datamodels_v2(action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None)` | As above, and `provider_connection_map` is now available here. `batch_size` and `sleep_time` are gone. |
+
+`migrate_dashboard_shares` is not deprecated.
+
+Every `*_v2` method returns the standard migration result: `ok`, `status`, `succeeded`, `skipped`,
+`failed`, `source_count`, `succeeded_count`, `skipped_count`, `failed_count`, and `error` when the
+run could not start. The counters the old methods returned at the top level (`eligible_count`,
+`skipped_super_count`, `skipped_multi_tenant_count`, `missing_role_mappings_count`,
+`missing_group_mappings_count`, export/import/share counters, `warnings`) are in the `meta` dict:
+read `result["meta"]["eligible_count"]` instead of `result["eligible_count"]`.
+
+---
+
 ## From 2.3.0 to 2.3.1
 
 `analyze_perspective_requirements` changes where it gets its answer. No method was removed or renamed,

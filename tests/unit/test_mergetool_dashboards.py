@@ -5,6 +5,13 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.mergetool import MergeTool
 
+# These tests cover behaviour through deprecated methods; the deprecations
+# themselves are tested in test_migration_v2.py.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:use migrate_:DeprecationWarning"),
+]
+
 _SOURCE_DASHBOARD_SALES = {"oid": "dash1", "title": "Sales", "owner": "src_user_1", "parentFolder": "src_folder_1"}
 _SOURCE_DASHBOARD_MARKETING = {"oid": "dash2", "title": "Marketing", "owner": "src_user_1", "parentFolder": None}
 

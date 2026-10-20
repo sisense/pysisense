@@ -1,8 +1,16 @@
 """Unit tests for pysisense.mergetool.groups.GroupsMergeMixin."""
 
+import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.mergetool import MergeTool
+
+# These tests cover behaviour through deprecated methods; the deprecations
+# themselves are tested in test_migration_v2.py.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:use migrate_:DeprecationWarning"),
+]
 
 _SALES_GROUP = {"_id": "group000000000000000001", "name": "Sales", "tenantId": "tenant-system"}
 _FINANCE_GROUP = {"_id": "group000000000000000002", "name": "Finance", "tenantId": "tenant-system"}

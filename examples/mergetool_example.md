@@ -2,6 +2,12 @@
 
 This guide demonstrates how to use the `MergeTool` class from the `pysisense` package to migrate custom-code notebooks between Sisense environments.
 
+> **Deprecated:** `MergeTool` is removed in the next major release and every example below emits a
+> `DeprecationWarning`. Make the same calls on `Migration` instead: `migrate_groups`,
+> `migrate_users`, `migrate_datamodels`, `migrate_dashboards` and their `migrate_all_*` versions
+> become `migrate_*_v2` (see `examples/migration_example.md`, Examples 26–37); every other method
+> keeps its name (Examples 10–25 there).
+
 ---
 
 ## Prerequisites

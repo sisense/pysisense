@@ -29,6 +29,8 @@ migration = Migration(source_yaml=source_yaml_path, target_yaml=target_yaml_path
 
 ## Example 1: Migrate Specific Groups
 
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_groups_v2` (Examples 26–37).
+
 Migrate specific groups from source to target.
 
 ```python
@@ -41,6 +43,8 @@ print(json.dumps(migration_results, indent=4))
 
 ## Example 2: Migrate All Groups
 
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_all_groups_v2` (Examples 26–37).
+
 Migrate all groups from source to target.
 
 ```python
@@ -51,6 +55,8 @@ print(json.dumps(migration_results, indent=4))
 ---
 
 ## Example 3: Migrate Specific Users
+
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_users_v2` (Examples 26–37).
 
 Migrate specific users from source to target.
 
@@ -63,6 +69,8 @@ print(json.dumps(migration_results, indent=4))
 ---
 
 ## Example 4: Migrate All Users
+
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_all_users_v2` (Examples 26–37).
 
 Migrate all users from source to target.
 
@@ -91,6 +99,8 @@ print(json.dumps(share_migration_results, indent=4))
 ---
 
 ## Example 6: Migrate Specific Dashboards
+
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_dashboards_v2` (Examples 26–37).
 
 Migrate dashboards by name or ID.
 
@@ -126,6 +136,8 @@ print(json.dumps(migration_results_by_id, indent=4))
 
 ## Example 7: Migrate All Dashboards in Batches
 
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_all_dashboards_v2` (Examples 26–37).
+
 Migrate all dashboards from source to target environment in batches.
 
 ```python
@@ -143,6 +155,8 @@ print(json.dumps(migration_results, indent=4))
 ---
 
 ## Example 8: Migrate DataModels
+
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_datamodels_v2` (Examples 26–37).
 
 Migrate one or more datamodels from source to target.
 
@@ -206,6 +220,8 @@ print(json.dumps(migration_results, indent=4))
 ---
 
 ## Example 9: Migrate All DataModels in Batches
+
+> **Deprecated:** this method warns and is removed in the next major release. Use `migrate_all_datamodels_v2` (Examples 26–37).
 
 Migrate all datamodels from source to target environment in batches.
 
@@ -437,9 +453,197 @@ print(json.dumps(results, indent=4))
 
 ---
 
+## The *_v2 Methods (Examples 26–37)
+
+`migrate_groups_v2`, `migrate_users_v2`, `migrate_datamodels_v2` and `migrate_dashboards_v2` (and their `migrate_all_*_v2` versions) replace Examples 1–4 and 6–9. They check the target before writing (`action="skip"` by default) and return the standard result: `ok`, `status`, `succeeded`, `skipped`, `failed` and the counts.
+
+---
+
+## Example 26: Migrate Specific Groups by Name
+
+```python
+group_names = [
+    "Sales Team",
+    "Finance Team",
+]
+results = migration.migrate_groups_v2(
+    group_names=group_names,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 27: Migrate All Groups
+
+```python
+results = migration.migrate_all_groups_v2(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 28: Migrate Specific Users by Email
+
+Migrate groups before users — user payloads reference target group IDs.
+
+```python
+user_emails = [
+    "alice@example.com",
+    "bob@example.com",
+]
+results = migration.migrate_users_v2(
+    user_emails=user_emails,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 29: Migrate All Users
+
+```python
+results = migration.migrate_all_users_v2(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    ignore_custom_roles=False,  # Set True to strip a "custom_" prefix when matching roles
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 30: Migrate Specific Data Models by Name
+
+```python
+datamodel_names = [
+    "Sample ECommerce",
+    "Marketing Live Model",
+]
+results = migration.migrate_datamodels_v2(
+    datamodel_names=datamodel_names,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    dependencies="all",  # Or a list like ["dataSecurity", "formulas"]
+    provider_connection_map={"Athena": "target-connection-oid"},
+    shares=False,
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 31: Migrate Specific Data Models by ID
+
+```python
+datamodel_ids = [
+    "datamodel-oid-1",
+    "datamodel-oid-2",
+]
+results = migration.migrate_datamodels_v2(
+    datamodel_ids=datamodel_ids,
+    action="overwrite",  # Replaces the existing model on target with the source schema
+    shares=True,  # Also remap and migrate shares (users/groups matched by email/name)
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 32: Migrate All Data Models
+
+```python
+results = migration.migrate_all_datamodels_v2(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    concurrency=5,  # Data models are independent — migrate up to 5 at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 33: Migrate Specific Dashboards by ID
+
+Migrate groups, users, folders, and data models before dashboards — dashboard owner/share remapping and folder placement depend on the first three, and dashboard widgets reference the data models by title.
+
+```python
+dashboard_ids = [
+    "dashboard-oid-1",
+    "dashboard-oid-2",
+]
+results = migration.migrate_dashboards_v2(
+    dashboard_ids=dashboard_ids,
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 34: Migrate Specific Dashboards by Name
+
+```python
+dashboard_names = [
+    "Sales Overview",
+    "Marketing KPIs",
+]
+results = migration.migrate_dashboards_v2(
+    dashboard_names=dashboard_names,
+    action="overwrite",  # Replaces the existing dashboard (matched by oid) with the source version
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 35: Migrate All Dashboards
+
+```python
+results = migration.migrate_all_dashboards_v2(
+    action="skip",  # Options: "skip", "overwrite", "duplicate"
+    concurrency=5,  # Dashboards are independent — migrate up to 5 at once
+)
+print(json.dumps(results, indent=4))
+```
+
+---
+
+## Example 36: Dashboards without Shares or Owner, Republished
+
+`migrate_share=False` leaves the imported dashboards unshared, `change_ownership=False` keeps the token user as owner, and `republish=True` republishes them to their users.
+
+```python
+results = migration.migrate_dashboards_v2(
+    dashboard_names=["Sample ECommerce Overview"],
+    action="overwrite",
+    republish=True,
+    migrate_share=False,
+    change_ownership=False,
+)
+print(results["succeeded"], results["failed"])
+```
+
+---
+
+## Example 37: Duplicate a Data Model Under a New Title
+
+```python
+results = migration.migrate_datamodels_v2(
+    datamodel_names=["Sample ECommerce"],
+    action="duplicate",
+    new_title="Sample ECommerce Copy",
+)
+print(results["succeeded"])
+```
+
+---
+
 ## Notes
 
 - Adjust parameters as needed for your environment.
+- Prefer the `*_v2` methods for groups, users, data models and dashboards: the older methods warn and are removed in the next major release. `migrate_dashboard_shares` is not deprecated.
 - Notebook, folder, and Blox action migrations take an `action` parameter (`"skip"`, `"overwrite"`, `"duplicate"`); saved formula and filter migrations support `"skip"` and `"duplicate"` only. All six return `ok`, `status`, `succeeded`, `skipped`, `failed`, and counts.
 - Notebook, folder, and Blox action migrations accept `concurrency` to process several items in parallel. Folders are processed one hierarchy level at a time, so a parent always exists before its children.
 - `"overwrite"` on a folder deletes it and all its dashboards on the target before recreating: use with caution.

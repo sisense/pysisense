@@ -5,6 +5,13 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.migration import Migration
 
+# These tests cover behaviour through deprecated methods; the deprecations
+# themselves are tested in test_migration_v2.py.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:use migrate_:DeprecationWarning"),
+]
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -329,10 +336,12 @@ class TestMethodsMovedFromMergeTool:
         assert callable(getattr(Migration, name, None))
 
     @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
-    def test_mergetool_runs_the_same_implementation(self, name):
+    def test_mergetool_version_keeps_the_migration_signature(self, name):
+        import inspect
+
         from pysisense.mergetool import MergeTool
 
-        assert getattr(MergeTool, name) is getattr(Migration, name)
+        assert inspect.signature(getattr(MergeTool, name)) == inspect.signature(getattr(Migration, name))
 
     @pytest.mark.parametrize("name", _OVERLAPPING)
     def test_overlapping_methods_keep_the_migration_version(self, name):

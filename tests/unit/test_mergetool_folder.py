@@ -7,6 +7,13 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.mergetool import MergeTool
 
+# These tests cover behaviour through deprecated methods; the deprecations
+# themselves are tested in test_migration_v2.py.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:use migrate_:DeprecationWarning"),
+]
+
 _SRC_ROOT = {"oid": "src_root", "name": "Sales", "parentId": None}
 _SRC_Q1 = {"oid": "src_q1", "name": "Q1", "parentId": "src_root"}
 _SRC_Q2 = {"oid": "src_q2", "name": "Q2", "parentId": "src_root"}

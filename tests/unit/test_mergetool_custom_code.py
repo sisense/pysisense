@@ -5,6 +5,13 @@ from helpers import FakeApiClient, FakeLogger, FakeResponse
 
 from pysisense.mergetool import MergeTool
 
+# These tests cover behaviour through deprecated methods; the deprecations
+# themselves are tested in test_migration_v2.py.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:use migrate_:DeprecationWarning"),
+]
+
 _NOTEBOOK_A = {"id": "nb1", "displayName": "ETL Pipeline"}
 _NOTEBOOK_B = {"id": "nb2", "displayName": "Transform"}
 

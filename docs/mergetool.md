@@ -1,6 +1,13 @@
 MergeTool Class Documentation
 ==============================
 
+> **Deprecated.** `MergeTool` is removed in the next major release, and every method below emits a
+> `DeprecationWarning`. Each one runs the same code as a `Migration` method, with the same parameters
+> and result, so switching is a change of class and, for four of them, of name:
+> `migrate_groups` → `Migration.migrate_groups_v2`, and likewise for users, data models, and
+> dashboards (including the `migrate_all_*` versions). The other methods keep their names. See
+> [`Migration`](migration.md) and the [upgrade guide](upgrading.md).
+
 The `MergeTool` class migrates custom-code notebooks, folders, Blox actions, groups, users, data models, data security rules, saved formulas, saved filters, and dashboards between two Sisense environments. It follows the same initialization pattern as `Migration` and supports skip, overwrite, and duplicate conflict strategies.
 
 Initialization
@@ -39,6 +46,8 @@ Notebook Migration
 
 ### `migrate_notebooks(self, notebook_ids=None, notebook_names=None, action="skip", concurrency=1, emit=None)`
 
+**Deprecated:** use `Migration.migrate_notebooks`, which takes the same parameters and returns the same result.
+
 Migrates specific custom-code notebooks from the source to the target environment. Each notebook is exported from the source and created (or replaced) on the target. Conflict detection is based on `displayName`.
 
 #### Parameters:
@@ -67,6 +76,8 @@ Migrates specific custom-code notebooks from the source to the target environmen
 
 ### `migrate_all_notebooks(self, action="skip", concurrency=1, emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_notebooks`, which takes the same parameters and returns the same result.
+
 Migrates all custom-code notebooks from the source to the target environment.
 
 #### Parameters:
@@ -87,6 +98,8 @@ Folder Migration
 ----------------
 
 ### `migrate_folders(self, folder_ids=None, folder_names=None, action="skip", concurrency=1, emit=None)`
+
+**Deprecated:** use `Migration.migrate_folders`, which takes the same parameters and returns the same result.
 
 Migrates specific folders and their full subtrees from the source to the target environment. Resolves the requested root folders by OID or display name, expands each to its complete descendant tree, then recreates the hierarchy on the target in depth-first order (parents before children). Conflict detection is path-based (`parent/child` full path), so identically-named folders in different branches are handled independently.
 
@@ -128,6 +141,8 @@ Folders whose parent is not part of the migration are created at the root level 
 
 ### `migrate_all_folders(self, action="skip", concurrency=1, emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_folders`, which takes the same parameters and returns the same result.
+
 Migrates all folders from the source to the target environment, preserving the full hierarchy.
 
 #### Parameters:
@@ -148,6 +163,8 @@ Blox Action Migration
 ----------------------
 
 ### `migrate_blox_actions(self, action_types=None, action="skip", concurrency=1, emit=None)`
+
+**Deprecated:** use `Migration.migrate_blox_actions`, which takes the same parameters and returns the same result.
 
 Migrates specific Blox actions from the source to the target environment. Each action is fetched from the source, transformed into a save-ready payload, and created (or replaced) on the target. Conflict detection is based on the action's `type` field. Saving and deleting Blox actions is Linux-only, so the target environment must be a Linux deployment.
 
@@ -181,6 +198,8 @@ Migrates specific Blox actions from the source to the target environment. Each a
 
 ### `migrate_all_blox_actions(self, action="skip", concurrency=1, emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_blox_actions`, which takes the same parameters and returns the same result.
+
 Migrates all Blox actions from the source to the target environment.
 
 #### Parameters:
@@ -201,6 +220,8 @@ Group Migration
 ----------------
 
 ### `migrate_groups(self, group_names=None, action="skip", emit=None)`
+
+**Deprecated:** use `Migration.migrate_groups_v2`, which takes the same parameters and returns the same result.
 
 Migrates specific groups from the source to the target environment via the bulk group endpoint. Conflict detection is based on the group's `name` field.
 
@@ -232,6 +253,8 @@ Migrates specific groups from the source to the target environment via the bulk 
 
 ### `migrate_all_groups(self, action="skip", emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_groups_v2`, which takes the same parameters and returns the same result.
+
 Migrates all eligible groups from the source to the target environment. Excludes the built-in `Admins`, `All users in system`, and `Everyone` groups, and — when the source environment exposes tenant information — restricts migration to groups belonging to the system tenant. If `/api/v1/tenants` is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
 
 #### Parameters:
@@ -250,6 +273,8 @@ User Migration
 ---------------
 
 ### `migrate_users(self, user_emails=None, action="skip", ignore_custom_roles=False, emit=None)`
+
+**Deprecated:** use `Migration.migrate_users_v2`, which takes the same parameters and returns the same result.
 
 Migrates specific users from the source to the target environment via the bulk user endpoint. Resolves each user's role and group assignments to target environment IDs before creating them. Conflict detection is based on the user's `email` field.
 
@@ -285,6 +310,8 @@ Role resolution mirrors the legacy Win2Linux merge tool: when the target environ
 
 ### `migrate_all_users(self, action="skip", ignore_custom_roles=False, emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_users_v2`, which takes the same parameters and returns the same result.
+
 Migrates all eligible users from the source to the target environment. Excludes users with the built-in `super` role (the source and target super admin accounts are expected to already exist independently on each environment), and — when the source environment exposes tenant information — restricts migration to users belonging to the system tenant. If tenant information is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
 
 #### Parameters:
@@ -307,6 +334,8 @@ Data Model Migration
 ---------------------
 
 ### `migrate_datamodels(self, datamodel_ids=None, datamodel_names=None, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None)`
+
+**Deprecated:** use `Migration.migrate_datamodels_v2`, which takes the same parameters and returns the same result.
 
 Migrates specific data models from the source to the target environment. Each data model's schema is exported from the source and imported into the target via the schema import endpoint. Conflict detection is based on the data model's `title`. Embedded connection credentials are repointed via `provider_connection_map` when a matching provider entry is supplied, and stripped otherwise — they must be re-entered (or reconnected) on the target after migration.
 
@@ -352,6 +381,8 @@ Migrates specific data models from the source to the target environment. Each da
 
 ### `migrate_all_datamodels(self, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_datamodels_v2`, which takes the same parameters and returns the same result.
+
 Migrates all data models from the source to the target environment.
 
 #### Parameters:
@@ -381,6 +412,8 @@ Data Security Migration
 
 ### `migrate_datasecurity(self, datamodel_ids=None, datamodel_names=None, emit=None)`
 
+**Deprecated:** use `Migration.migrate_datasecurity`, which takes the same parameters and returns the same result.
+
 Migrates row-level datasecurity rules for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each rule's raw datasecurity payload is fetched from the source, its `shares` are remapped to target user/group ids (matched by email for users and by name for groups), and the resolved rules are written onto the target data model via `update_datasecurity` (EXTRACT) or `set_live_datasecurity_add_many` (LIVE).
 
 #### Parameters:
@@ -409,6 +442,8 @@ Migrates row-level datasecurity rules for specific data models from the source t
 
 ### `migrate_all_datasecurity(self, emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_datasecurity`, which takes the same parameters and returns the same result.
+
 Migrates datasecurity rules for all data models from the source to the target environment. Data models not yet present on the target are skipped.
 
 #### Parameters:
@@ -427,6 +462,8 @@ Saved Formula Migration
 -------------------------
 
 ### `migrate_saved_formulas(self, datamodel_ids=None, datamodel_names=None, action="skip", emit=None)`
+
+**Deprecated:** use `Migration.migrate_saved_formulas`, which takes the same parameters and returns the same result.
 
 Migrates saved formula measures for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each formula is fetched from the source via the metadata measures endpoint and created on the target. Conflict detection is based on the formula's `title`.
 
@@ -462,6 +499,8 @@ Migrates saved formula measures for specific data models from the source to the 
 
 ### `migrate_all_saved_formulas(self, action="skip", emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_saved_formulas`, which takes the same parameters and returns the same result.
+
 Migrates saved formula measures for all data models from the source to the target environment. Data models not yet present on the target are skipped.
 
 #### Parameters:
@@ -480,6 +519,8 @@ Saved Filter Migration
 ------------------------
 
 ### `migrate_saved_filters(self, datamodel_ids=None, datamodel_names=None, action="skip", emit=None)`
+
+**Deprecated:** use `Migration.migrate_saved_filters`, which takes the same parameters and returns the same result.
 
 Migrates saved filter dimensions for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each data model's dimensions are fetched from the source, filtered down to the ones carrying a saved filter definition (a truthy `filter` key), and recreated on the target via a raw metadata query. Conflict detection is based on the filter's `title`.
 
@@ -515,6 +556,8 @@ Migrates saved filter dimensions for specific data models from the source to the
 
 ### `migrate_all_saved_filters(self, action="skip", emit=None)`
 
+**Deprecated:** use `Migration.migrate_all_saved_filters`, which takes the same parameters and returns the same result.
+
 Migrates saved filter dimensions for all data models from the source to the target environment. Data models not yet present on the target are skipped.
 
 #### Parameters:
@@ -533,6 +576,8 @@ Dashboard Migration
 --------------------
 
 ### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action="skip", concurrency=1, emit=None)`
+
+**Deprecated:** use `Migration.migrate_dashboards_v2`, which takes the same parameters and returns the same result.
 
 Migrates specific dashboards from the source to the target environment. Each dashboard is exported from the source, has its embedded datasource references repointed to the target's local Elasticube, and is imported into the target via the bulk import endpoint, which matches dashboards by `oid` and applies `action` natively. After a successful import, the dashboard's owner and shares are remapped to target users/groups (matched by email/name), and the dashboard is moved into the target folder whose path matches its source parent folder — if that folder has already been migrated with `migrate_folders`.
 
@@ -571,6 +616,8 @@ Migrates specific dashboards from the source to the target environment. Each das
 * * * * *
 
 ### `migrate_all_dashboards(self, action="skip", concurrency=1, emit=None)`
+
+**Deprecated:** use `Migration.migrate_all_dashboards_v2`, which takes the same parameters and returns the same result.
 
 Migrates all dashboards from the source to the target environment.
 
