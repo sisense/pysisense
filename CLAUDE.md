@@ -92,7 +92,7 @@ Rules that follow from this:
 | `encryption/` | `Encryption` | Encrypt/decrypt connection parameters for cross-server datamodel migration |
 | `datamodel/` | `DataModel` | Schema provisioning, builds, connections, datasecurity |
 | `migration/` | `Migration` | Cross-environment migrations (users, groups, dashboards, models, custom-code notebooks, folders, Blox actions, data security, saved formulas, saved filters); `*_v2` methods for groups/users/models/dashboards replace the deprecated originals |
-| `mergetool/` | `MergeTool` | **Deprecated** (removed in the next major): every method is an alias of the `Migration` method that runs the same code and warns `use Migration.<method>` |
+| `mergetool/` | `MergeTool` | **Deprecated** (removed in the next major): every method is `@deprecated("use Migration.<method>")` and calls that `Migration` method with the same signature |
 | `plugins/` | `Plugins` | Plugin listing, enable/disable (single and bulk), state snapshots |
 | `queries/` | `Queries` | JAQL and SQL query execution against datasources/elasticubes |
 | `report_manager/` | `ReportManager` | Scheduled report CRUD and on-demand run (on-demand plugin) |
@@ -151,9 +151,9 @@ Each module (except `sisenseclient.py` and `utils.py`) is a **package directory*
 | | `datasecurity.py` | `migrate_datasecurity`, `migrate_all_datasecurity` |
 | | `formulas.py` | `migrate_saved_formulas`, `migrate_all_saved_formulas` |
 | | `filters.py` | `migrate_saved_filters`, `migrate_all_saved_filters` |
-| `mergetool/` | `base.py` | `_deprecated_migration_alias` (private helper); `MergeToolConcurrencyMixin`: deprecated alias of `MigrationBaseMixin` |
-| | `custom_code.py`, `folder.py`, `blox.py`, `datasecurity.py`, `formulas.py`, `filters.py` | deprecated aliases of the same-named `Migration` methods |
-| | `groups.py`, `users.py`, `datamodels.py`, `dashboards.py` | deprecated aliases: `migrate_<x>` / `migrate_all_<x>` → `Migration.migrate_<x>_v2` / `migrate_all_<x>_v2` (the inherited `*_v2` names are deprecated too) |
+| `mergetool/` | `base.py` | `MergeToolDelegationMixin._as_migration` (private: a `Migration` on the same clients); `MergeToolConcurrencyMixin`: deprecated alias of `MigrationBaseMixin` |
+| | `custom_code.py`, `folder.py`, `blox.py`, `datasecurity.py`, `formulas.py`, `filters.py` | `@deprecated` methods that call the same-named `Migration` method |
+| | `groups.py`, `users.py`, `datamodels.py`, `dashboards.py` | `@deprecated` methods: `migrate_<x>` / `migrate_all_<x>` call `Migration.migrate_<x>_v2` / `migrate_all_<x>_v2` |
 | `plugins/` | `core.py` | `get_all_plugins`, `get_plugin`, `enable_plugin`, `disable_plugin`, `enable_plugins`, `disable_plugins` |
 | | `snapshots.py` | `save_snapshot`, `restore_snapshot` |
 | `queries/` | `core.py` | `elasticube_run_jaql_query`, `elasticubes_run_jaql_csv` |

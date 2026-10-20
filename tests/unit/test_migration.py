@@ -336,13 +336,11 @@ class TestMethodsMovedFromMergeTool:
         assert callable(getattr(Migration, name, None))
 
     @pytest.mark.parametrize("name", _MOVED_FROM_MERGETOOL)
-    def test_mergetool_version_wraps_the_migration_function(self, name):
+    def test_mergetool_version_keeps_the_migration_signature(self, name):
         import inspect
 
         from pysisense.mergetool import MergeTool
 
-        # The deprecated alias wraps the exact Migration function: same code, same signature.
-        assert inspect.unwrap(getattr(MergeTool, name)) is getattr(Migration, name)
         assert inspect.signature(getattr(MergeTool, name)) == inspect.signature(getattr(Migration, name))
 
     @pytest.mark.parametrize("name", _OVERLAPPING)

@@ -49,7 +49,8 @@ All notable changes to `pysisense` are documented here. The format follows
 - Methods deprecated (old → new): `Migration.<name>` → `Migration.<name>_v2` for the eight names
   above (**different signatures**; do not map calls across automatically). `MergeTool.<name>` →
   `Migration.<name>_v2` for the same eight, and `MergeTool.<name>` → `Migration.<name>` for the
-  other twelve (identical signatures). `MergeTool` also exposes the `*_v2` names, deprecated.
+  other twelve (identical signatures). Each `MergeTool` method is decorated with `@deprecated`
+  and keeps the exact signature of the `Migration` method it calls.
 - **New `__deprecated__` message form:** `MergeTool`'s markers read `"use Migration.<method>"`,
   naming the facade that holds the replacement. Until now every marker was `"use <method>"` on the
   same class. Tooling that resolves the replacement from the message must accept the dotted form.

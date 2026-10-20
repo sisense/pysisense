@@ -75,8 +75,6 @@ _FREE_FORM_OR_GRANDFATHERED = {
     "Encryption.encrypt.payload",
     "MergeTool.migrate_all_datamodels.provider_connection_map",
     "MergeTool.migrate_datamodels.provider_connection_map",
-    "MergeTool.migrate_all_datamodels_v2.provider_connection_map",
-    "MergeTool.migrate_datamodels_v2.provider_connection_map",
     "Metadata.post_metadata_query.query_payload",
     "Migration.migrate_all_datamodels_v2.provider_connection_map",
     "Migration.migrate_datamodels.provider_connection_map",

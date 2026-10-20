@@ -109,23 +109,41 @@ class TestMergeToolDeprecations:
         live = [name for name in _public_methods(MergeTool) if getattr(getattr(MergeTool, name), "__deprecated__", None) is None]
         assert live == []
 
-    @pytest.mark.parametrize("name", _REPLACED)
-    def test_old_name_maps_to_the_v2_method(self, name):
+    def test_mergetool_has_exactly_its_twenty_methods(self):
+        assert set(_public_methods(MergeTool)) == set(_REPLACED) | set(_SAME_NAME)
+
+    @pytest.mark.parametrize("name", _REPLACED + _SAME_NAME)
+    def test_each_method_is_decorated_and_keeps_the_migration_signature(self, name):
+        target = f"{name}_v2" if name in _REPLACED else name
         method = getattr(MergeTool, name)
-        assert method.__deprecated__ == f"use Migration.{name}_v2"
+        assert method.__deprecated__ == f"use Migration.{target}"
         assert method.__name__ == name
-        assert inspect.unwrap(method) is getattr(Migration, f"{name}_v2")
-        assert inspect.signature(method) == inspect.signature(getattr(Migration, f"{name}_v2"))
+        # The signature is copied by hand into mergetool/; this fails if a copy drifts.
+        assert inspect.signature(method) == inspect.signature(getattr(Migration, target))
 
-    @pytest.mark.parametrize("name", _SAME_NAME)
-    def test_same_name_methods_map_to_the_same_migration_method(self, name):
-        method = getattr(MergeTool, name)
-        assert method.__deprecated__ == f"use Migration.{name}"
-        assert inspect.unwrap(method) is getattr(Migration, name)
+    @pytest.mark.parametrize("name", _REPLACED + _SAME_NAME)
+    def test_each_method_forwards_every_argument_to_migration(self, name, monkeypatch):
+        target = f"{name}_v2" if name in _REPLACED else name
+        calls = []
+        sentinel = {"ok": True, "status": "noop"}
 
-    @pytest.mark.parametrize("name", [f"{n}_v2" for n in _REPLACED])
-    def test_inherited_v2_names_are_deprecated_too(self, name):
-        assert getattr(MergeTool, name).__deprecated__ == f"use Migration.{name}"
+        def recorder(self, **kwargs):
+            calls.append((self, kwargs))
+            return sentinel
+
+        monkeypatch.setattr(Migration, target, recorder)
+        src, tgt = _clients()
+        merge = MergeTool(source_client=src, target_client=tgt)
+        kwargs = {p: object() for p in inspect.signature(getattr(MergeTool, name)).parameters if p != "self"}
+
+        with pytest.warns(DeprecationWarning, match=f"use Migration.{target}"):
+            result = getattr(merge, name)(**kwargs)
+
+        assert result is sentinel
+        migration, received = calls[0]
+        assert received == kwargs
+        assert isinstance(migration, Migration)
+        assert migration.source_client is src and migration.target_client is tgt
 
     @pytest.mark.filterwarnings("ignore:use Migration\\.:DeprecationWarning")
     def test_calling_a_mergetool_method_warns_once_on_the_callers_line(self):
