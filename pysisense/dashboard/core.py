@@ -32,6 +32,9 @@ from ..utils import (
     _write_dashboard_copies,
 )
 
+# Page size for GET /api/v1/dashboards/admin listings.
+_DASHBOARD_PAGE_SIZE = 50
+
 
 class DashboardCoreMixin:
     # replace_datasource: how long to wait for Sisense to show a datasource change (writes are asynchronous)
@@ -42,25 +45,56 @@ class DashboardCoreMixin:
         """Retrieve all dashboards from the Sisense server.
 
         Sends ``GET /api/v1/dashboards/admin?dashboardType=owner`` using the
-        admin endpoint, which requires elevated access.
+        admin endpoint, which requires elevated access. The listing is read
+        page by page (``limit``/``skip``, 50 dashboards per page) until a page
+        comes back short, so large instances are returned in full. A
+        dashboard already returned by an earlier page is not repeated.
 
         Returns
         -------
         list[dict[str, Any]] | dict[str, Any]
             A list of dashboard objects on success, or ``{"error": "..."}`` on
-            failure.
+            failure. A failure on any page returns the error, never a partial
+            list.
         """
         endpoint = "/api/v1/dashboards/admin?dashboardType=owner"
-        self.logger.debug(f"Fetching all dashboards from: {endpoint}")
+        self.logger.debug(f"Fetching all dashboards from: {endpoint} ({_DASHBOARD_PAGE_SIZE} per page)")
 
-        response = self.api_client.get(endpoint)
+        dashboards: list[dict[str, Any]] = []
+        seen_oids: set[str] = set()
+        skip = 0
+        while True:
+            response = self.api_client.get(endpoint, params={"limit": _DASHBOARD_PAGE_SIZE, "skip": skip})
 
-        if response is None or response.status_code != 200:
-            failure = _extract_error_message(response, "Failed to retrieve dashboards", self.api_client)
-            self.logger.error(failure["error"])
-            return failure
+            if response is None or response.status_code != 200:
+                failure = _extract_error_message(response, f"Failed to retrieve dashboards (skip={skip})", self.api_client)
+                self.logger.error(failure["error"])
+                return failure
 
-        dashboards = response.json()
+            page = response.json()
+            if not isinstance(page, list):
+                # Not a page of dashboards: return the body as before on the first
+                # page, and stop on a later one.
+                if skip == 0:
+                    return page
+                break
+
+            added = 0
+            for dashboard in page:
+                oid = dashboard.get("oid") if isinstance(dashboard, dict) else None
+                if oid is not None and oid in seen_oids:
+                    continue
+                if oid is not None:
+                    seen_oids.add(oid)
+                dashboards.append(dashboard)
+                added += 1
+
+            # A short page is the last one. A page with nothing new means the
+            # server ignored skip, so asking again would only repeat it.
+            if len(page) < _DASHBOARD_PAGE_SIZE or added == 0:
+                break
+            skip += _DASHBOARD_PAGE_SIZE
+
         self.logger.info(f"Successfully retrieved {len(dashboards)} dashboards.")
         return dashboards
 

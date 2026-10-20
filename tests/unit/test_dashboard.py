@@ -92,6 +92,60 @@ class TestGetAllDashboards:
         assert "error" in result
 
 
+class _PagedClient(FakeApiClient):
+    """Serves the admin listing page by page from ``limit``/``skip``, like Sisense."""
+
+    def __init__(self, dashboards, fail_at_skip=None):
+        super().__init__(logger=FakeLogger())
+        self._dashboards = dashboards
+        self._fail_at_skip = fail_at_skip
+        self.pages = []
+
+    def get(self, url, params=None, **kwargs):
+        params = params or {}
+        self.pages.append((params.get("skip"), params.get("limit")))
+        skip, limit = params.get("skip", 0), params.get("limit", len(self._dashboards))
+        if skip == self._fail_at_skip:
+            return FakeResponse(500, {"message": "boom"})
+        return FakeResponse(200, self._dashboards[skip : skip + limit])
+
+
+def _dashboards(count):
+    return [{"oid": f"d{i}", "title": f"Dashboard {i}"} for i in range(count)]
+
+
+class TestGetAllDashboardsPaging:
+    def test_reads_every_page_until_a_short_one(self):
+        client = _PagedClient(_dashboards(110))
+        result = Dashboard(api_client=client).get_all_dashboards()
+        assert [d["oid"] for d in result] == [f"d{i}" for i in range(110)]
+        assert client.pages == [(0, 50), (50, 50), (100, 50)]
+
+    def test_an_exact_multiple_ends_on_an_empty_page(self):
+        client = _PagedClient(_dashboards(100))
+        result = Dashboard(api_client=client).get_all_dashboards()
+        assert len(result) == 100
+        assert client.pages == [(0, 50), (50, 50), (100, 50)]
+
+    def test_a_failure_on_a_later_page_returns_the_error_not_a_partial_list(self):
+        client = _PagedClient(_dashboards(120), fail_at_skip=50)
+        result = Dashboard(api_client=client).get_all_dashboards()
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_a_server_that_ignores_skip_does_not_loop_forever(self):
+        # Same full page on every request: the second page adds nothing new.
+        client = FakeApiClient(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, _dashboards(50))}, logger=FakeLogger())
+        result = Dashboard(api_client=client).get_all_dashboards()
+        assert len(result) == 50
+
+    def test_a_dashboard_repeated_across_pages_is_returned_once(self):
+        listing = _dashboards(50) + [{"oid": "d0", "title": "Dashboard 0"}] + _dashboards(53)[50:]
+        result = Dashboard(api_client=_PagedClient(listing)).get_all_dashboards()
+        assert [d["oid"] for d in result].count("d0") == 1
+        assert len(result) == 53
+
+
 # ---------------------------------------------------------------------------
 # get_dashboard_by_id
 # ---------------------------------------------------------------------------

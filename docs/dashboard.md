@@ -24,11 +24,11 @@ Initializes the `Dashboard` class.
 
 ### `get_all_dashboards()`
 
-Fetches all dashboards accessible to the authenticated user.
+Fetches every dashboard on the server via the admin listing (`GET /api/v1/dashboards/admin?dashboardType=owner`), which requires elevated access. The listing is read 50 dashboards at a time (`limit`/`skip`) until a page comes back short, so large instances are returned in full; a dashboard returned by an earlier page is not repeated.
 
 **Returns:**
 
--   `list`: List of dashboard metadata.
+-   `list`: List of dashboard metadata, or the standard error dict `{"ok": False, "error": "..."}` on failure. A failure on any page returns the error, never a partial list.
 
 * * * * *
 
