@@ -625,6 +625,7 @@ Migrates specific groups from the source to the target environment via the bulk 
     -   `failed` (list of `{name, reason}`)
     -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
     -   `error` (str): only when the run could not start
+    -   `meta` (dict): `existing_on_target_count` (selected groups already on the target) and `warnings` (list of str: unreadable target groups, failed deletes on overwrite, existing groups sent with `"duplicate"`)
 
 * * * * *
 
@@ -640,7 +641,7 @@ Migrates all eligible groups from the source to the target environment. Excludes
 
 #### Returns:
 
--   `dict`: Same structure as `migrate_groups_v2`.
+-   `dict`: Same structure as `migrate_groups_v2`. `meta` also carries `source_total_count` (every group on the source), `eligible_count`, `excluded_count` (built-in groups and groups without a name) and `skipped_multi_tenant_count`.
 
 * * * * *
 
@@ -679,6 +680,7 @@ Role names are adapted to the target before matching: when the target environmen
     -   `failed` (list of `{email, reason}`)
     -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
     -   `error` (str): only when the run could not start
+    -   `meta` (dict): `existing_on_target_count`, `missing_role_mappings_count` (users not created because their role has no target match), `missing_group_mappings_count` (group memberships dropped because the group is not on the target), `unmapped_role_names`, and `warnings`
 
 * * * * *
 
@@ -696,7 +698,7 @@ Migrates all eligible users from the source to the target environment. Excludes 
 
 #### Returns:
 
--   `dict`: Same structure as `migrate_users_v2`.
+-   `dict`: Same structure as `migrate_users_v2`. `meta` also carries `source_total_count` (every user on the source), `eligible_count`, `excluded_count` (users without an email), `skipped_super_count` and `skipped_multi_tenant_count`.
 
 **Note:** Migrate groups before users — user payloads reference target group IDs, and groups not yet present on the target will be silently omitted from the user's group list.
 
@@ -745,6 +747,7 @@ Migrates specific data models from the source to the target environment. Each da
     -   `failed` (list of `{title, source_oid, reason}`)
     -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
     -   `error` (str): only when the run could not start
+    -   `meta` (dict): `dependencies`/`api_dependencies` (what was exported), `shares_requested`, `export_requested`/`export_succeeded`/`export_failed`, `import_succeeded`/`import_failed`, `share_success_count`/`share_fail_count` (one per data model), and `warnings` for share problems that did not fail the data model
 
 #### Raises:
 
@@ -819,6 +822,7 @@ Migrates specific dashboards from the source to the target environment. Each das
     -   `failed` (list of `{title, source_oid, reason}`)
     -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
     -   `error` (str): only when the run could not start
+    -   `meta` (dict): `export_requested`/`export_succeeded`/`export_failed`, `import_succeeded`/`import_failed`, `owner_change_success_count`/`owner_change_fail_count`, `share_success_count`/`share_fail_count`, `folder_move_success_count`/`folder_move_fail_count`/`folder_not_found_count`, and `warnings` for owner, share and folder problems that did not fail the dashboard
 
 #### Raises:
 

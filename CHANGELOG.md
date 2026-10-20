@@ -17,8 +17,19 @@ All notable changes to `pysisense` are documented here. The format follows
   migration result (`ok`, `status`, `succeeded`, `skipped`, `failed`, the counts, and `error` when
   the run could not start). They also carry the options only the old methods had:
   `republish`, `migrate_share`, and `change_ownership` on dashboards, `new_title` on data models.
+  Each result also carries a `meta` dict with the counters the old methods reported (for example
+  `eligible_count`, `skipped_super_count`, `missing_role_mappings_count`, export/import/share
+  counters) and `warnings` for problems that did not fail an item.
 - **`Dashboard.import_dashboards_bulk`** takes an optional `republish` flag, which adds
   `republish=true` to the import request. The default leaves the request unchanged.
+
+### Changed
+
+- **`Dashboard.get_all_dashboards` reads the admin listing page by page** (`limit`/`skip`, 50 per
+  page) until a page comes back short, so large instances are returned in full instead of only
+  what one request returned. A dashboard returned by an earlier page is not repeated. A failure on
+  any page returns the error dict, never a partial list. The method sends `limit` and `skip` query
+  parameters it did not send before; its signature and return shape are unchanged.
 
 ### Deprecated
 

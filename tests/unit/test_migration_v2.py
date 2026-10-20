@@ -266,3 +266,156 @@ class TestRunThatCannotStart:
         result = getattr(Migration(source_client=src, target_client=FakeApiClient(logger=FakeLogger())), name)()
         assert result["ok"] is False
         assert isinstance(result.get("error"), str) and result["error"]
+
+
+# ---------------------------------------------------------------------------
+# meta counters on the *_v2 results
+# ---------------------------------------------------------------------------
+
+_SYSTEM_TENANTS = [{"_id": "t-system", "name": "system"}, {"_id": "t-acme", "name": "Acme"}]
+
+
+class TestGroupsV2Meta:
+    def _migration(self, tgt_groups, tenants=None):
+        src = FakeApiClient(
+            get_responses={
+                "/api/v1/groups": FakeResponse(
+                    200,
+                    [
+                        {"_id": "g1", "name": "Sales", "tenantId": "t-system"},
+                        {"_id": "g2", "name": "Finance", "tenantId": "t-system"},
+                        {"_id": "g3", "name": "Admins", "tenantId": "t-system"},
+                        {"_id": "g4", "name": "Acme Team", "tenantId": "t-acme"},
+                    ],
+                ),
+                "/api/v1/tenants": tenants if tenants is not None else FakeResponse(200, _SYSTEM_TENANTS),
+            },
+            logger=FakeLogger(),
+        )
+        tgt = FakeApiClient(
+            get_responses={"/api/v1/groups": FakeResponse(200, tgt_groups)},
+            post_responses={"/api/v1/groups/bulk": FakeResponse(201, [{"name": "Finance"}])},
+            logger=FakeLogger(),
+        )
+        return Migration(source_client=src, target_client=tgt)
+
+    def test_migrate_all_groups_reports_why_groups_were_left_out(self):
+        result = self._migration([{"_id": "t1", "name": "Sales"}]).migrate_all_groups_v2()
+        meta = result["meta"]
+        assert meta["source_total_count"] == 4
+        assert meta["eligible_count"] == 2
+        assert meta["excluded_count"] == 1
+        assert meta["skipped_multi_tenant_count"] == 1
+        assert meta["existing_on_target_count"] == 1
+        assert meta["warnings"] == []
+
+    def test_unreadable_tenants_are_reported(self):
+        result = self._migration([], tenants=FakeResponse(500, {"error": "boom"})).migrate_all_groups_v2()
+        assert any("tenants" in w for w in result["meta"]["warnings"])
+
+    def test_duplicate_reports_groups_that_already_exist(self):
+        result = self._migration([{"_id": "t1", "name": "Sales"}]).migrate_groups_v2(group_names=["Sales"], action="duplicate")
+        assert "1 groups already exist in the target environment." in result["meta"]["warnings"]
+
+
+class TestUsersV2Meta:
+    def test_counts_missing_roles_groups_and_skipped_users(self):
+        users = [
+            {"_id": "u1", "email": "ann@example.com", "tenantId": "t-system", "role": {"_id": "r_consumer", "name": "consumer"}, "groups": [{"name": "Ghost Group"}]},
+            {"_id": "u2", "email": "bob@example.com", "tenantId": "t-system", "role": {"_id": "r_custom", "name": "custom_x"}, "groups": []},
+            {"_id": "u3", "email": "root@example.com", "tenantId": "t-system", "role": {"_id": "r_super", "name": "super"}, "groups": []},
+            {"_id": "u4", "email": "acme@example.com", "tenantId": "t-acme", "role": {"_id": "r_consumer", "name": "consumer"}, "groups": []},
+        ]
+        src = FakeApiClient(
+            get_responses={
+                "/api/v1/users": FakeResponse(200, users),
+                "/api/roles": FakeResponse(200, [{"_id": "r_consumer", "name": "consumer"}, {"_id": "r_custom", "name": "custom_x"}, {"_id": "r_super", "name": "super"}]),
+                "/api/v1/tenants": FakeResponse(200, _SYSTEM_TENANTS),
+            },
+            logger=FakeLogger(),
+        )
+        tgt = FakeApiClient(
+            get_responses={"/api/v1/users": FakeResponse(200, []), "/api/roles": FakeResponse(200, [{"_id": "t_consumer", "name": "consumer"}]), "/api/v1/groups": FakeResponse(200, [])},
+            post_responses={"/api/v1/users/bulk": FakeResponse(201, [{"email": "ann@example.com"}])},
+            logger=FakeLogger(),
+        )
+        meta = Migration(source_client=src, target_client=tgt).migrate_all_users_v2()["meta"]
+        assert meta["source_total_count"] == 4
+        assert meta["eligible_count"] == 2
+        assert meta["skipped_super_count"] == 1
+        assert meta["skipped_multi_tenant_count"] == 1
+        assert meta["missing_role_mappings_count"] == 1
+        assert meta["unmapped_role_names"] == ["custom_x", "super"]  # every source role without a target match
+        assert meta["missing_group_mappings_count"] == 1
+        assert any("Ghost Group" in w for w in meta["warnings"])
+
+
+class TestDashboardsV2Meta:
+    def test_counts_each_step(self):
+        migration, _ = _dashboard_migration()
+        meta = migration.migrate_dashboards_v2(dashboard_ids=["dash1"])["meta"]
+        assert (meta["export_requested"], meta["export_succeeded"], meta["export_failed"]) == (1, 1, 0)
+        assert (meta["import_succeeded"], meta["import_failed"]) == (1, 0)
+        assert meta["owner_change_success_count"] == 1
+        assert meta["share_success_count"] == 1
+
+    def test_an_owner_missing_on_the_target_is_a_warning_not_a_failure(self):
+        migration, _ = _dashboard_migration()
+        migration.target_client._get["/api/v1/users"] = FakeResponse(200, [])
+        result = migration.migrate_dashboards_v2(dashboard_ids=["dash1"], migrate_share=False)
+        assert result["succeeded_count"] == 1
+        assert result["meta"]["owner_change_fail_count"] == 1
+        assert any("Owner of dashboard 'Sales'" in w for w in result["meta"]["warnings"])
+
+
+class TestDatamodelsV2Meta:
+    def _migration(self, shares_response):
+        model = {"oid": "dm1", "title": "Sample ECommerce", "type": "extract"}
+        src = FakeApiClient(
+            get_responses={
+                "/api/v2/datamodel-exports/schema": FakeResponse(200, {"oid": "dm1", "title": "Sample ECommerce", "datasets": []}),
+                "/api/elasticubes/localhost/Sample ECommerce/permissions": shares_response,
+                "/api/v1/users": FakeResponse(200, []),
+                "/api/v1/groups": FakeResponse(200, []),
+            },
+            post_responses={"/api/v2/ecm/": _ecm([model])},
+            logger=FakeLogger(),
+        )
+        tgt = FakeApiClient(
+            get_responses={"/api/v1/users": FakeResponse(200, []), "/api/v1/groups": FakeResponse(200, [])},
+            post_responses={"/api/v2/ecm/": _ecm([]), "/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "dm1"})},
+            logger=FakeLogger(),
+        )
+        return Migration(source_client=src, target_client=tgt)
+
+    def test_counts_each_step_and_records_the_request(self):
+        meta = self._migration(FakeResponse(200, [])).migrate_datamodels_v2(datamodel_ids=["dm1"], dependencies="formulas", shares=True)["meta"]
+        assert meta["dependencies"] == ["formulas"]
+        assert meta["api_dependencies"] == ["formulaManagement"]
+        assert meta["shares_requested"] is True
+        assert (meta["export_requested"], meta["export_succeeded"], meta["import_succeeded"]) == (1, 1, 1)
+
+    def test_a_share_read_failure_is_counted_and_warned(self):
+        result = self._migration(FakeResponse(500, {"error": "boom"})).migrate_datamodels_v2(datamodel_ids=["dm1"], shares=True)
+        assert result["succeeded_count"] == 1
+        assert result["meta"]["share_fail_count"] == 1
+        assert result["meta"]["warnings"]
+
+
+class TestMetaIsAlwaysPresent:
+    @pytest.mark.parametrize("name", ["migrate_all_groups_v2", "migrate_all_users_v2", "migrate_all_dashboards_v2", "migrate_all_datamodels_v2"])
+    def test_on_failure_and_on_noop(self, name):
+        failing = FakeApiClient(
+            get_responses={"/api/v1/groups": FakeResponse(500, {}), "/api/v1/users": FakeResponse(500, {}), "/api/v1/dashboards/admin": FakeResponse(500, {})},
+            post_responses={"/api/v2/ecm/": FakeResponse(500, {})},
+            logger=FakeLogger(),
+        )
+        empty = FakeApiClient(
+            get_responses={"/api/v1/groups": FakeResponse(200, []), "/api/v1/users": FakeResponse(200, []), "/api/v1/dashboards/admin": FakeResponse(200, [])},
+            post_responses={"/api/v2/ecm/": _ecm([])},
+            logger=FakeLogger(),
+        )
+        for src in (failing, empty):
+            result = getattr(Migration(source_client=src, target_client=FakeApiClient(logger=FakeLogger())), name)()
+            assert isinstance(result["meta"], dict)
+            assert isinstance(result["meta"]["warnings"], list)

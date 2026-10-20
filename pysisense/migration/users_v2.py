@@ -20,6 +20,13 @@ def _empty_summary(ok: bool = False, status: str = "failed") -> dict[str, Any]:
         "succeeded_count": 0,
         "skipped_count": 0,
         "failed_count": 0,
+        "meta": {
+            "existing_on_target_count": 0,
+            "missing_role_mappings_count": 0,
+            "missing_group_mappings_count": 0,
+            "unmapped_role_names": [],
+            "warnings": [],
+        },
     }
 
 
@@ -99,6 +106,7 @@ def _build_user_payload(
     user: dict[str, Any],
     role_id: str,
     group_name_to_id: dict[str, str],
+    missing_groups: list[str] | None = None,
 ) -> dict[str, Any]:
     group_ids: list[str] = []
     for group in user.get("groups") or []:
@@ -110,6 +118,8 @@ def _build_user_payload(
         target_group_id = group_name_to_id.get(name)
         if target_group_id:
             group_ids.append(target_group_id)
+        elif missing_groups is not None:
+            missing_groups.append(name)
 
     return {
         "email": user.get("email"),
@@ -176,6 +186,13 @@ class UsersV2MigrationMixin:
             - ``succeeded_count`` : int
             - ``skipped_count`` : int
             - ``failed_count`` : int
+            - ``error`` : str — only when the run could not start
+            - ``meta`` : dict — ``existing_on_target_count``,
+              ``missing_role_mappings_count`` (users not created because
+              their role has no target match), ``missing_group_mappings_count``
+              (group memberships dropped because the group is not on the
+              target), ``unmapped_role_names`` (list[str]) and ``warnings``
+              (list[str])
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting user migration from source to target."})
         self.logger.info("Starting user migration from source to target.")
@@ -224,6 +241,8 @@ class UsersV2MigrationMixin:
         self._emit(emit, {"type": "progress", "step": "fetch_target_mappings", "message": "Fetching users, roles, and groups from the target environment."})
         target_result = tgt_access._get_users_raw()
         target_users: list[dict[str, Any]] = [] if isinstance(target_result, dict) and "error" in target_result else target_result
+        if isinstance(target_result, dict) and "error" in target_result:
+            summary["meta"]["warnings"].append(f"Could not read users on the target ({target_result['error']}); every user was treated as new.")
         target_by_email: dict[str, dict[str, Any]] = {u["email"]: u for u in target_users if u.get("email")}
 
         source_roles_result = src_access.get_roles()
@@ -249,6 +268,8 @@ class UsersV2MigrationMixin:
             target_operating_system=self.target_client.operating_system,
         )
         if unmapped_role_names:
+            summary["meta"]["unmapped_role_names"] = sorted(unmapped_role_names)
+            summary["meta"]["warnings"].append(f"No matching target role for source role(s): {', '.join(sorted(unmapped_role_names))}.")
             self.logger.warning("No matching target role found for source role(s): %s", sorted(unmapped_role_names))
             self._emit(
                 emit,
@@ -276,6 +297,8 @@ class UsersV2MigrationMixin:
                 continue
 
             existing = target_by_email.get(email)
+            if existing:
+                summary["meta"]["existing_on_target_count"] += 1
 
             if existing and action == "skip":
                 self.logger.info("Skipping '%s' — already exists on target.", email)
@@ -289,6 +312,7 @@ class UsersV2MigrationMixin:
                 reason = f"No matching target role found for source role '{role_name}'."
                 self.logger.warning("Skipping user '%s' — %s", email, reason)
                 summary["failed"].append({"email": email, "reason": reason})
+                summary["meta"]["missing_role_mappings_count"] += 1
                 continue
 
             self._emit(emit, {"type": "progress", "step": "migrate_user", "message": f"Queuing '{email}' for migration.", "action": action})
@@ -298,8 +322,13 @@ class UsersV2MigrationMixin:
                 del_result = tgt_access.delete_user(email)
                 if isinstance(del_result, dict) and "error" in del_result:
                     self.logger.warning("Could not delete existing user '%s': %s — proceeding with create.", email, del_result["error"])
+                    summary["meta"]["warnings"].append(f"Could not delete existing user '{email}' before recreating it: {del_result['error']}")
 
-            bulk_payload.append(_build_user_payload(user, role_id, group_name_to_id))
+            missing_groups: list[str] = []
+            bulk_payload.append(_build_user_payload(user, role_id, group_name_to_id, missing_groups))
+            if missing_groups:
+                summary["meta"]["missing_group_mappings_count"] += len(missing_groups)
+                summary["meta"]["warnings"].append(f"User '{email}' was created without group(s) missing on the target: {', '.join(missing_groups)}.")
             pending_emails.append(email)
 
         if not bulk_payload:
@@ -387,7 +416,10 @@ class UsersV2MigrationMixin:
         Returns
         -------
         dict[str, Any]
-            Same structure as ``migrate_users_v2``.
+            Same structure as ``migrate_users_v2``. ``meta`` also carries
+            ``source_total_count`` (every user on the source),
+            ``eligible_count``, ``excluded_count`` (users without an email),
+            ``skipped_super_count`` and ``skipped_multi_tenant_count``.
 
         Notes
         -----
@@ -409,13 +441,14 @@ class UsersV2MigrationMixin:
             return {**_empty_summary(), "error": raw_error}
 
         all_source_users: list[dict[str, Any]] = source_result
+        meta: dict[str, Any] = {"source_total_count": len(all_source_users), "eligible_count": 0, "excluded_count": 0, "skipped_super_count": 0, "skipped_multi_tenant_count": 0, "warnings": []}
         self.logger.info("Found %s user(s) on source.", len(all_source_users))
         self._emit(emit, {"type": "progress", "step": "fetch_source_users", "message": "Fetched users from source.", "count": len(all_source_users)})
 
         if not all_source_users:
             self.logger.info("No users found on source. Nothing to migrate.")
             self._emit(emit, {"type": "completed", "step": "done", "message": "No users found on source.", "status": "noop"})
-            return _empty_summary(ok=True, status="noop")
+            return {**_empty_summary(ok=True, status="noop"), "meta": {**_empty_summary()["meta"], **meta}}
 
         # Resolve the system tenant, when available, so multi-tenant users are excluded.
         self._emit(emit, {"type": "progress", "step": "fetch_system_tenant", "message": "Resolving system tenant on the source environment."})
@@ -426,15 +459,30 @@ class UsersV2MigrationMixin:
                 if isinstance(tenant, dict) and tenant.get("name") == "system":
                     system_tenant_id = tenant.get("_id")
                     break
+        else:
+            meta["warnings"].append("Could not read tenants on the source; users were not filtered by tenant.")
         self._emit(emit, {"type": "progress", "step": "fetch_system_tenant", "message": "Resolved system tenant.", "system_tenant_id": system_tenant_id})
 
-        eligible_emails = [
-            u["email"] for u in all_source_users if u.get("email") and (u.get("role") or {}).get("name") != "super" and (system_tenant_id is None or u.get("tenantId") == system_tenant_id)
-        ]
+        eligible_emails: list[str] = []
+        for user in all_source_users:
+            if not user.get("email"):
+                meta["excluded_count"] += 1
+            elif (user.get("role") or {}).get("name") == "super":
+                meta["skipped_super_count"] += 1
+            elif system_tenant_id is not None and user.get("tenantId") != system_tenant_id:
+                meta["skipped_multi_tenant_count"] += 1
+            else:
+                eligible_emails.append(user["email"])
+        meta["eligible_count"] = len(eligible_emails)
 
         if not eligible_emails:
             self.logger.info("No eligible users found for migration after filtering.")
             self._emit(emit, {"type": "completed", "step": "done", "message": "No eligible users to migrate.", "status": "noop"})
-            return _empty_summary(ok=True, status="noop")
+            return {**_empty_summary(ok=True, status="noop"), "meta": {**_empty_summary()["meta"], **meta}}
 
-        return self.migrate_users_v2(user_emails=eligible_emails, action=action, ignore_custom_roles=ignore_custom_roles, emit=emit)
+        result = self.migrate_users_v2(user_emails=eligible_emails, action=action, ignore_custom_roles=ignore_custom_roles, emit=emit)
+        result_meta = result.setdefault("meta", _empty_summary()["meta"])
+        warnings = meta.pop("warnings") + result_meta.get("warnings", [])
+        result_meta.update(meta)
+        result_meta["warnings"] = warnings
+        return result

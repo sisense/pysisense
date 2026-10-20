@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import threading
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -23,7 +24,37 @@ def _empty_summary(ok: bool = False, status: str = "failed") -> dict[str, Any]:
         "succeeded_count": 0,
         "skipped_count": 0,
         "failed_count": 0,
+        "meta": {
+            "export_requested": 0,
+            "export_succeeded": 0,
+            "export_failed": 0,
+            "import_succeeded": 0,
+            "import_failed": 0,
+            "owner_change_success_count": 0,
+            "owner_change_fail_count": 0,
+            "share_success_count": 0,
+            "share_fail_count": 0,
+            "folder_move_success_count": 0,
+            "folder_move_fail_count": 0,
+            "folder_not_found_count": 0,
+            "warnings": [],
+        },
     }
+
+
+# Dashboards can migrate in parallel threads; counters and warnings share one lock.
+_META_LOCK = threading.Lock()
+
+
+def _count(summary: dict[str, Any], key: str, warning: str | None = None) -> None:
+    with _META_LOCK:
+        summary["meta"][key] += 1
+        if warning:
+            summary["meta"]["warnings"].append(warning)
+
+
+def _failed(result: Any) -> bool:
+    return isinstance(result, dict) and "error" in result
 
 
 def _update_datasource_references(obj: Any) -> int:
@@ -103,19 +134,23 @@ def _migrate_one_dashboard(
 
     progress({"type": "progress", "step": "migrate_dashboard", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
 
+    _count(summary, "export_requested")
     exported = src_dashboard.export_dashboard(source_oid)
     if "error" in exported:
+        _count(summary, "export_failed")
         reason = exported["error"]
         logger.error("Failed to export dashboard '%s': %s", title, reason)
         summary["failed"].append({"title": title, "source_oid": source_oid, "reason": f"Export failed: {reason}"})
         progress({"type": "error", "step": "migrate_dashboard", "message": f"Export failed for '{title}'.", "reason": reason})
         return
 
+    _count(summary, "export_succeeded")
     updates_made = _update_datasource_references(exported)
     logger.debug("Dashboard '%s': updated %s datasource reference(s).", title, updates_made)
 
     import_response = tgt_dashboard.import_dashboards_bulk([exported], action=action, republish=republish)
     if "error" in import_response:
+        _count(summary, "import_failed")
         reason = import_response["error"]
         logger.error("Failed to import dashboard '%s': %s", title, reason)
         summary["failed"].append({"title": title, "source_oid": source_oid, "reason": f"Import failed: {reason}"})
@@ -124,6 +159,7 @@ def _migrate_one_dashboard(
 
     succeeded_entries = import_response.get("succeded") or import_response.get("succeeded") or []
     if not succeeded_entries:
+        _count(summary, "import_failed")
         reason = "Import did not report success."
         logger.error("Failed to import dashboard '%s': %s", title, reason)
         summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
@@ -131,21 +167,31 @@ def _migrate_one_dashboard(
         return
 
     new_oid = succeeded_entries[0].get("oid", source_oid)
+    _count(summary, "import_succeeded")
 
     # Owner remap
     if change_ownership:
         owner_email = user_id_to_email.get(exported.get("owner"))
         target_owner_id = email_to_target_id.get(owner_email) if owner_email else None
         if target_owner_id:
-            tgt_dashboard.change_dashboard_owner(new_oid, target_owner_id)
+            owner_result = tgt_dashboard.change_dashboard_owner(new_oid, target_owner_id)
+            if _failed(owner_result):
+                _count(summary, "owner_change_fail_count", f"Could not change the owner of dashboard '{title}': {owner_result['error']}")
+            else:
+                _count(summary, "owner_change_success_count")
         elif exported.get("owner"):
             logger.warning("Could not resolve target owner for dashboard '%s' — leaving owner unchanged.", title)
+            _count(summary, "owner_change_fail_count", f"Owner of dashboard '{title}' was not found on the target; the owner was left unchanged.")
 
     # Share remap
     if migrate_share:
         resolved_shares = _resolve_share_entries(exported.get("shares") or [], user_id_to_email, group_id_to_name)
         if resolved_shares:
-            tgt_dashboard.add_dashboard_shares(new_oid, resolved_shares)
+            share_result = tgt_dashboard.add_dashboard_shares(new_oid, resolved_shares)
+            if _failed(share_result):
+                _count(summary, "share_fail_count", f"Could not add shares to dashboard '{title}': {share_result['error']}")
+            else:
+                _count(summary, "share_success_count")
 
     # Folder placement
     parent_folder_oid = exported.get("parentFolder")
@@ -153,9 +199,14 @@ def _migrate_one_dashboard(
         folder_path = src_path_map.get(parent_folder_oid)
         target_folder_oid = tgt_path_to_oid.get(folder_path) if folder_path else None
         if target_folder_oid:
-            tgt_dashboard.move_dashboard_to_folder(new_oid, target_folder_oid)
+            move_result = tgt_dashboard.move_dashboard_to_folder(new_oid, target_folder_oid)
+            if _failed(move_result):
+                _count(summary, "folder_move_fail_count", f"Could not move dashboard '{title}' into its folder: {move_result['error']}")
+            else:
+                _count(summary, "folder_move_success_count")
         else:
             logger.warning("Target folder for dashboard '%s' not found — leaving it at the root. Migrate folders first.", title)
+            _count(summary, "folder_not_found_count", f"Folder of dashboard '{title}' was not found on the target; it was left at the root.")
 
     logger.info("Successfully migrated dashboard '%s'.", title)
     summary["succeeded"].append({"title": title, "oid": new_oid, "source_oid": source_oid})
@@ -241,6 +292,16 @@ class DashboardsV2MigrationMixin:
             - ``succeeded_count`` : int
             - ``skipped_count`` : int
             - ``failed_count`` : int
+            - ``error`` : str — only when the run could not start
+            - ``meta`` : dict — counters for each step:
+              ``export_requested``/``export_succeeded``/``export_failed``,
+              ``import_succeeded``/``import_failed``,
+              ``owner_change_success_count``/``owner_change_fail_count``,
+              ``share_success_count``/``share_fail_count``,
+              ``folder_move_success_count``/``folder_move_fail_count``/
+              ``folder_not_found_count``, and ``warnings`` (list[str]) for
+              owner, share and folder problems that did not fail the
+              dashboard
 
         Raises
         ------

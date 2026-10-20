@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -25,7 +26,31 @@ def _empty_summary(ok: bool = False, status: str = "failed") -> dict[str, Any]:
         "succeeded_count": 0,
         "skipped_count": 0,
         "failed_count": 0,
+        "meta": {
+            "dependencies": [],
+            "api_dependencies": [],
+            "shares_requested": False,
+            "export_requested": 0,
+            "export_succeeded": 0,
+            "export_failed": 0,
+            "import_succeeded": 0,
+            "import_failed": 0,
+            "share_success_count": 0,
+            "share_fail_count": 0,
+            "warnings": [],
+        },
     }
+
+
+# Data models can migrate in parallel threads; counters and warnings share one lock.
+_META_LOCK = threading.Lock()
+
+
+def _count(summary: dict[str, Any], key: str, warning: str | None = None) -> None:
+    with _META_LOCK:
+        summary["meta"][key] += 1
+        if warning:
+            summary["meta"]["warnings"].append(warning)
 
 
 def _resolve_api_dependencies(dependencies: list[str] | str | None) -> list[str]:
@@ -162,6 +187,14 @@ class DatamodelsV2MigrationMixin:
             - ``succeeded_count`` : int
             - ``skipped_count`` : int
             - ``failed_count`` : int
+            - ``error`` : str — only when the run could not start
+            - ``meta`` : dict — ``dependencies``/``api_dependencies`` (what
+              was exported), ``shares_requested``,
+              ``export_requested``/``export_succeeded``/``export_failed``,
+              ``import_succeeded``/``import_failed``,
+              ``share_success_count``/``share_fail_count`` (one per data
+              model), and ``warnings`` (list[str]) for share problems that
+              did not fail the data model
 
         Raises
         ------
@@ -190,6 +223,9 @@ class DatamodelsV2MigrationMixin:
 
         summary = _empty_summary()
         api_dependencies = _resolve_api_dependencies(dependencies)
+        summary["meta"]["dependencies"] = list(_DEPENDENCY_MAPPING) if dependencies is None or dependencies == "all" else ([dependencies] if isinstance(dependencies, str) else list(dependencies))
+        summary["meta"]["api_dependencies"] = sorted(api_dependencies)
+        summary["meta"]["shares_requested"] = shares
 
         src_datamodel = DataModel(api_client=self.source_client)
         tgt_datamodel = DataModel(api_client=self.target_client)
@@ -363,20 +399,24 @@ class DatamodelsV2MigrationMixin:
         self._emit(emit, {"type": "progress", "step": "migrate_datamodel", "message": f"Migrating '{title}'.", "source_oid": source_oid, "action": action})
 
         # Export schema from source
+        _count(summary, "export_requested")
         data_model_json = src_datamodel.export_datamodel_schema(source_oid, dependencies=api_dependencies)
         if "error" in data_model_json:
+            _count(summary, "export_failed")
             reason = f"Export failed: {data_model_json['error']}"
             self.logger.error("Failed to export datamodel '%s': %s", title, reason)
             summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
             self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Export failed for '{title}'.", "reason": reason})
             return
 
+        _count(summary, "export_succeeded")
         _apply_connection_map(data_model_json, provider_connection_map)
 
         # Import schema into target
         import_result = tgt_datamodel.import_datamodel_schema(data_model_json, action=action, target_datamodel_id=existing_target_oid, new_title=new_title)
 
         if "error" not in import_result:
+            _count(summary, "import_succeeded")
             target_id = import_result.get("datamodel_id")
             self.logger.info("Successfully migrated datamodel '%s'.", title)
             summary["succeeded"].append({"title": title, "source_oid": source_oid, "target_id": target_id})
@@ -395,13 +435,16 @@ class DatamodelsV2MigrationMixin:
                     group_id_to_name=group_id_to_name,
                     group_name_to_target_id=group_name_to_target_id,
                     emit=emit,
+                    summary=summary,
                 )
         elif import_result.get("already_exists"):
+            _count(summary, "import_failed")
             reason = f"Datamodel '{title}' already exists on the target with a different ID. Use action='duplicate', or delete the existing model manually."
             self.logger.error(reason)
             summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
             self._emit(emit, {"type": "error", "step": "migrate_datamodel", "message": f"Import failed for '{title}'.", "reason": reason})
         else:
+            _count(summary, "import_failed")
             reason = f"Import failed: {import_result['error']}"
             self.logger.error("Failed to import datamodel '%s': %s", title, reason)
             summary["failed"].append({"title": title, "source_oid": source_oid, "reason": reason})
@@ -421,19 +464,27 @@ class DatamodelsV2MigrationMixin:
         group_id_to_name: dict[str, str],
         group_name_to_target_id: dict[str, str],
         emit: Callable[[dict[str, Any]], None] | None,
+        summary: dict[str, Any] | None = None,
     ) -> None:
         """Best-effort share migration for a single, already-imported datamodel."""
+
+        def share_failed(message: str) -> None:
+            if summary is not None:
+                _count(summary, "share_fail_count", message)
+
         if dm_type == "extract":
             source_shares_result = src_datamodel.get_datamodel_permissions_extract(title)
         elif dm_type == "live":
             source_shares_result = src_datamodel.get_datamodel_permissions_live(source_oid)
         else:
             self.logger.warning("Unknown datamodel type '%s' for '%s' — skipping shares.", dm_type, title)
+            share_failed(f"Shares of data model '{title}' were not migrated: unknown type '{dm_type}'.")
             return
 
         if isinstance(source_shares_result, dict) and "error" in source_shares_result:
             self.logger.error("Failed to fetch shares for datamodel '%s': %s", title, source_shares_result["error"])
             self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Failed to fetch shares for '{title}'."})
+            share_failed(f"Could not read the shares of data model '{title}' on the source: {source_shares_result['error']}")
             return
 
         source_shares: list[dict[str, Any]] = source_shares_result if isinstance(source_shares_result, list) else []
@@ -449,6 +500,7 @@ class DatamodelsV2MigrationMixin:
             if not target_id:
                 self.logger.error("Cannot migrate shares for live datamodel '%s' — target id could not be resolved.", title)
                 self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Unresolved target id for '{title}'."})
+                share_failed(f"Shares of live data model '{title}' were not migrated: its target ID could not be resolved.")
                 return
 
             self.logger.info("Publishing datamodel '%s' to update shares.", title)
@@ -456,6 +508,7 @@ class DatamodelsV2MigrationMixin:
             if isinstance(publish_result, dict) and "error" in publish_result:
                 self.logger.error("Failed to publish datamodel '%s' before updating shares: %s", title, publish_result["error"])
                 self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Failed to publish '{title}' before updating shares."})
+                share_failed(f"Shares of live data model '{title}' were not migrated: publishing it failed: {publish_result['error']}")
                 return
 
             write_result = tgt_datamodel.update_datamodel_permissions_live(target_id, new_shares)
@@ -463,9 +516,12 @@ class DatamodelsV2MigrationMixin:
         if not (isinstance(write_result, dict) and "error" in write_result):
             self.logger.info("Migrated %s share(s) for datamodel '%s'.", len(new_shares), title)
             self._emit(emit, {"type": "progress", "step": "migrate_shares", "message": f"Migrated shares for '{title}'.", "count": len(new_shares)})
+            if summary is not None:
+                _count(summary, "share_success_count")
         else:
             self.logger.error("Failed to migrate shares for datamodel '%s': %s", title, write_result["error"])
             self._emit(emit, {"type": "warning", "step": "migrate_shares", "message": f"Failed to migrate shares for '{title}'."})
+            share_failed(f"Could not write the shares of data model '{title}' on the target: {write_result['error']}")
 
     def migrate_all_datamodels_v2(
         self,

@@ -24,6 +24,7 @@ def _empty_summary(ok: bool = False, status: str = "failed") -> dict[str, Any]:
         "succeeded_count": 0,
         "skipped_count": 0,
         "failed_count": 0,
+        "meta": {"existing_on_target_count": 0, "warnings": []},
     }
 
 
@@ -70,6 +71,11 @@ class GroupsV2MigrationMixin:
             - ``succeeded_count`` : int
             - ``skipped_count`` : int
             - ``failed_count`` : int
+            - ``error`` : str — only when the run could not start
+            - ``meta`` : dict — ``existing_on_target_count`` (selected
+              groups that already exist on the target) and ``warnings``
+              (list[str]: unreadable target groups, failed deletes on
+              overwrite, existing groups sent with ``"duplicate"``)
         """
         self._emit(emit, {"type": "started", "step": "init", "message": "Starting group migration from source to target."})
         self.logger.info("Starting group migration from source to target.")
@@ -118,6 +124,8 @@ class GroupsV2MigrationMixin:
         self._emit(emit, {"type": "progress", "step": "fetch_target_groups", "message": "Fetching groups from the target environment."})
         target_result = tgt_access.get_groups()
         target_groups: list[dict[str, Any]] = [] if isinstance(target_result, dict) and "error" in target_result else target_result
+        if isinstance(target_result, dict) and "error" in target_result:
+            summary["meta"]["warnings"].append(f"Could not read groups on the target ({target_result['error']}); every group was treated as new.")
         target_by_name: dict[str, dict[str, Any]] = {g["name"]: g for g in target_groups if g.get("name")}
         self.logger.debug("Found %s group(s) on target.", len(target_groups))
         self._emit(emit, {"type": "progress", "step": "fetch_target_groups", "message": "Fetched target groups.", "count": len(target_groups)})
@@ -135,6 +143,8 @@ class GroupsV2MigrationMixin:
                 continue
 
             existing = target_by_name.get(name)
+            if existing:
+                summary["meta"]["existing_on_target_count"] += 1
 
             if existing and action == "skip":
                 self.logger.info("Skipping '%s' — already exists on target.", name)
@@ -151,6 +161,7 @@ class GroupsV2MigrationMixin:
                     del_result = tgt_access.delete_group(existing_id)
                     if isinstance(del_result, dict) and "error" in del_result:
                         self.logger.warning("Could not delete existing group '%s': %s — proceeding with create.", name, del_result["error"])
+                        summary["meta"]["warnings"].append(f"Could not delete existing group '{name}' before recreating it: {del_result['error']}")
 
             bulk_payload.append(_build_group_payload(group))
             pending_names.append(name)
@@ -163,6 +174,9 @@ class GroupsV2MigrationMixin:
             summary["status"] = "success" if ok else "failed"
             self._emit(emit, {"type": "completed", "step": "done", "message": "Finished group migration.", "status": summary["status"]})
             return summary
+
+        if action == "duplicate" and summary["meta"]["existing_on_target_count"]:
+            summary["meta"]["warnings"].append(f"{summary['meta']['existing_on_target_count']} groups already exist in the target environment.")
 
         # Step 5: Bulk-create the eligible groups on target
         self.logger.info("Sending bulk migration request for %s group(s).", len(bulk_payload))
@@ -235,7 +249,10 @@ class GroupsV2MigrationMixin:
         Returns
         -------
         dict[str, Any]
-            Same structure as ``migrate_groups_v2``.
+            Same structure as ``migrate_groups_v2``. ``meta`` also carries
+            ``source_total_count`` (every group on the source),
+            ``eligible_count``, ``excluded_count`` (built-in groups and
+            groups without a name) and ``skipped_multi_tenant_count``.
 
         Notes
         -----
@@ -257,13 +274,14 @@ class GroupsV2MigrationMixin:
             return {**_empty_summary(), "error": raw_error}
 
         all_source_groups: list[dict[str, Any]] = source_result
+        meta: dict[str, Any] = {"source_total_count": len(all_source_groups), "eligible_count": 0, "excluded_count": 0, "skipped_multi_tenant_count": 0, "warnings": []}
         self.logger.info("Found %s group(s) on source.", len(all_source_groups))
         self._emit(emit, {"type": "progress", "step": "fetch_source_groups", "message": "Fetched groups from source.", "count": len(all_source_groups)})
 
         if not all_source_groups:
             self.logger.info("No groups found on source. Nothing to migrate.")
             self._emit(emit, {"type": "completed", "step": "done", "message": "No groups found on source.", "status": "noop"})
-            return _empty_summary(ok=True, status="noop")
+            return {**_empty_summary(ok=True, status="noop"), "meta": {**_empty_summary()["meta"], **meta}}
 
         # Resolve the system tenant, when available, so multi-tenant groups are excluded.
         self._emit(emit, {"type": "progress", "step": "fetch_system_tenant", "message": "Resolving system tenant on the source environment."})
@@ -274,13 +292,29 @@ class GroupsV2MigrationMixin:
                 if isinstance(tenant, dict) and tenant.get("name") == "system":
                     system_tenant_id = tenant.get("_id")
                     break
+        else:
+            meta["warnings"].append("Could not read tenants on the source; groups were not filtered by tenant.")
         self._emit(emit, {"type": "progress", "step": "fetch_system_tenant", "message": "Resolved system tenant.", "system_tenant_id": system_tenant_id})
 
-        eligible_names = [g["name"] for g in all_source_groups if g.get("name") and g["name"] not in _EXCLUDED_ALL_GROUPS_NAMES and (system_tenant_id is None or g.get("tenantId") == system_tenant_id)]
+        eligible_names: list[str] = []
+        for group in all_source_groups:
+            name = group.get("name")
+            if not name or name in _EXCLUDED_ALL_GROUPS_NAMES:
+                meta["excluded_count"] += 1
+            elif system_tenant_id is not None and group.get("tenantId") != system_tenant_id:
+                meta["skipped_multi_tenant_count"] += 1
+            else:
+                eligible_names.append(name)
+        meta["eligible_count"] = len(eligible_names)
 
         if not eligible_names:
             self.logger.info("No eligible groups found for migration after filtering.")
             self._emit(emit, {"type": "completed", "step": "done", "message": "No eligible groups to migrate.", "status": "noop"})
-            return _empty_summary(ok=True, status="noop")
+            return {**_empty_summary(ok=True, status="noop"), "meta": {**_empty_summary()["meta"], **meta}}
 
-        return self.migrate_groups_v2(group_names=eligible_names, action=action, emit=emit)
+        result = self.migrate_groups_v2(group_names=eligible_names, action=action, emit=emit)
+        result_meta = result.setdefault("meta", _empty_summary()["meta"])
+        warnings = meta.pop("warnings") + result_meta.get("warnings", [])
+        result_meta.update(meta)
+        result_meta["warnings"] = warnings
+        return result
