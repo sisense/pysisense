@@ -44,6 +44,15 @@ All notable changes to `pysisense` are documented here. The format follows
   `Migration.migrate_groups_v2`, `migrate_folders` → `Migration.migrate_folders`, …). `MergeTool`
   is removed in the next major release.
 
+  `MergeTool` results gain two keys: `meta` (per-step counters and `warnings`) on every result, and
+  `error` when a run cannot start. Each `MergeTool` method now runs through a `Migration` built on
+  the same clients, so overriding `_emit` on a `MergeTool` instance no longer receives progress
+  events: pass the `emit` callback instead. Subclasses that override `MergeTool`'s methods or
+  private helpers no longer change what the `migrate_all_*` methods do.
+- **Silencing the warnings.** Test suites that turn warnings into errors (`python -W error`, or
+  `filterwarnings = ["error"]` in pytest) now fail on these calls. Until you switch, filter them:
+  `warnings.filterwarnings("ignore", message=r"use (Migration\.)?migrate_", category=DeprecationWarning)`.
+
 **Downstream generators:**
 
 - Methods deprecated (old → new): `Migration.<name>` → `Migration.<name>_v2` for the eight names
@@ -57,6 +66,8 @@ All notable changes to `pysisense` are documented here. The format follows
 - New methods on `Migration`: the twelve and the eight `*_v2` above. Params with `Literal` enums:
   `action: Literal["skip", "overwrite", "duplicate"]` on every new method. No new TypedDict contracts.
 - `Dashboard.import_dashboards_bulk` gained `republish: bool = False`.
+- Return values gained keys: every `MergeTool` result now carries `meta`, plus `error` when a run
+  cannot start. **Consumers matching exact key sets must widen.** No keys were removed.
 
 ## [2.3.3] — 2026-10-02
 
