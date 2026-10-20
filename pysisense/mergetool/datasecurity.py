@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from ..migration.datasecurity import DatasecurityMigrationMixin
+from .base import _deprecated_migration_alias
 
 
-# Thin subclass kept for MergeTool; the implementation lives in pysisense/migration/datasecurity.py.
+# Deprecated: the implementation lives in pysisense/migration/datasecurity.py and Migration
+# exposes the same methods. These aliases only add the deprecation marker.
 class DatasecurityMergeMixin(DatasecurityMigrationMixin):
-    pass
+    migrate_datasecurity = _deprecated_migration_alias(DatasecurityMigrationMixin.migrate_datasecurity)
+    migrate_all_datasecurity = _deprecated_migration_alias(DatasecurityMigrationMixin.migrate_all_datasecurity)

@@ -40,6 +40,12 @@ class MergeTool(
     operate on a single instance — use CustomCode, Folder, Blox,
     AccessManagement, DataModel, or Metadata for single-environment changes.
 
+    Deprecated: every method warns and points at the Migration method that
+    runs the same code. Group, user, data model, and dashboard methods map to
+    Migration's ``*_v2`` methods (for example ``migrate_groups`` to
+    ``migrate_groups_v2``); the other methods keep their names. MergeTool is
+    removed in the next major release.
+
     Modules
     -------
     custom_code :

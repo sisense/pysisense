@@ -4,8 +4,11 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from typing_extensions import deprecated
+
 
 class DatamodelsMigrationMixin:
+    @deprecated("use migrate_datamodels_v2")
     def migrate_datamodels(
         self,
         datamodel_ids: list[str] | None = None,
@@ -19,6 +22,10 @@ class DatamodelsMigrationMixin:
     ) -> dict[str, Any]:
         """
         Migrates specific data models from the source environment to the target environment.
+
+        Deprecated: use ``migrate_datamodels_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         Parameters
         ----------
@@ -903,6 +910,7 @@ class DatamodelsMigrationMixin:
         )
         return result
 
+    @deprecated("use migrate_all_datamodels_v2")
     def migrate_all_datamodels(
         self,
         dependencies: list[str] | str | None = None,
@@ -914,6 +922,10 @@ class DatamodelsMigrationMixin:
     ) -> dict[str, Any]:
         """
         Migrates all data models from the source environment to the target environment in batches.
+
+        Deprecated: use ``migrate_all_datamodels_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         Parameters
         ----------

@@ -3,10 +3,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from typing_extensions import deprecated
+
 
 class UsersMigrationMixin:
+    @deprecated("use migrate_users_v2")
     def migrate_users(self, user_name_list: list[str]) -> dict[str, Any] | list[dict[str, Any]]:
         """Migrate specific users from the source environment to the target environment.
+
+        Deprecated: use ``migrate_users_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         Fetches users from the source environment, maps their role and group
         names to target environment IDs, and creates them in the target.
@@ -137,12 +144,17 @@ class UsersMigrationMixin:
         # Step 8: Return structured result
         return {"results": migration_results, "total_count": len(bulk_user_data), "raw_error": raw_error}
 
+    @deprecated("use migrate_all_users_v2")
     def migrate_all_users(
         self,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """
         Migrate all eligible users from the source environment to the target environment using the bulk endpoint.
+
+        Deprecated: use ``migrate_all_users_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         This method supports streaming progress by optionally emitting structured
         progress events via the ``emit`` callback. It remains synchronous, but callers can run it

@@ -75,8 +75,12 @@ _FREE_FORM_OR_GRANDFATHERED = {
     "Encryption.encrypt.payload",
     "MergeTool.migrate_all_datamodels.provider_connection_map",
     "MergeTool.migrate_datamodels.provider_connection_map",
+    "MergeTool.migrate_all_datamodels_v2.provider_connection_map",
+    "MergeTool.migrate_datamodels_v2.provider_connection_map",
     "Metadata.post_metadata_query.query_payload",
+    "Migration.migrate_all_datamodels_v2.provider_connection_map",
     "Migration.migrate_datamodels.provider_connection_map",
+    "Migration.migrate_datamodels_v2.provider_connection_map",
     "Queries.elasticube_run_jaql_query.jaql_payload",
     "Queries.elasticubes_run_jaql_csv.jaql_payload",
     "ReportManager.create_report.report",
@@ -125,12 +129,18 @@ class TestDeprecatedAliases:
     def test_every_deprecated_alias_names_a_live_counterpart(self):
         deprecated = self._deprecated_methods()
         assert deprecated, "expected at least one deprecated alias (e.g. get_group)"
+        facades_by_name = {facade.__name__: facade for facade in FACADES}
         for cls, name, message in deprecated:
-            match = re.search(r"use (\w+)", message)
-            assert match, f"{cls.__name__}.{name} deprecation message must say 'use <new_name>', got: {message!r}"
-            counterpart = getattr(cls, match.group(1), None)
-            assert counterpart is not None, f"{cls.__name__}.{name} points at missing counterpart {match.group(1)!r}"
-            assert getattr(counterpart, "__deprecated__", None) is None, f"counterpart {match.group(1)!r} is itself deprecated"
+            # "use <new_name>" points at the same class; "use <Facade>.<new_name>"
+            # points at a method on another facade (e.g. MergeTool -> Migration).
+            match = re.search(r"use (?:(\w+)\.)?(\w+)", message)
+            assert match, f"{cls.__name__}.{name} deprecation message must say 'use <new_name>' or 'use <Facade>.<new_name>', got: {message!r}"
+            target_name, new_name = match.group(1), match.group(2)
+            target_cls = facades_by_name.get(target_name) if target_name else cls
+            assert target_cls is not None, f"{cls.__name__}.{name} points at unknown facade {target_name!r}"
+            counterpart = getattr(target_cls, new_name, None)
+            assert counterpart is not None, f"{cls.__name__}.{name} points at missing counterpart {target_cls.__name__}.{new_name}"
+            assert getattr(counterpart, "__deprecated__", None) is None, f"counterpart {target_cls.__name__}.{new_name} is itself deprecated"
 
     def test_a_deprecated_alias_is_machine_readable(self):
         from pysisense import AccessManagement

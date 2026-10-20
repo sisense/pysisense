@@ -3,10 +3,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from typing_extensions import deprecated
+
 
 class GroupsMigrationMixin:
+    @deprecated("use migrate_groups_v2")
     def migrate_groups(self, group_name_list: list[str]) -> dict[str, Any] | list[dict[str, Any]]:
         """Migrate specific groups from the source environment to the target environment.
+
+        Deprecated: use ``migrate_groups_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         Fetches groups from the source environment, filters to the requested
         names, and submits them to the target environment's bulk endpoint.
@@ -104,12 +111,17 @@ class GroupsMigrationMixin:
         # Return results and raw error if any
         return {"results": migration_results, "total_count": len(bulk_group_data), "raw_error": raw_error}
 
+    @deprecated("use migrate_all_groups_v2")
     def migrate_all_groups(
         self,
         emit: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, Any]:
         """
         Migrate groups from the source environment to the target environment using the bulk endpoint.
+
+        Deprecated: use ``migrate_all_groups_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         This method supports optional progress emission via the ``emit`` callback. If provided,
         the method will publish structured progress events at key milestones so a caller can

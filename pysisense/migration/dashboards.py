@@ -4,6 +4,8 @@ import time
 from collections.abc import Callable
 from typing import Any, Literal
 
+from typing_extensions import deprecated
+
 
 class DashboardsMigrationMixin:
     def migrate_dashboard_shares(
@@ -310,6 +312,7 @@ class DashboardsMigrationMixin:
             "dashboard_results": dashboard_results,
         }
 
+    @deprecated("use migrate_dashboards_v2")
     def migrate_dashboards(
         self,
         dashboard_ids: list[str] | None = None,
@@ -322,6 +325,10 @@ class DashboardsMigrationMixin:
     ) -> dict[str, Any]:
         """
         Migrate dashboards from the source to the target environment using Sisense bulk import.
+
+        Deprecated: use ``migrate_dashboards_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         This method exports dashboards from the source and imports them into the target in a single
         bulk request. It then parses the bulk import response to determine which dashboards were
@@ -1023,6 +1030,7 @@ class DashboardsMigrationMixin:
 
         return summary
 
+    @deprecated("use migrate_all_dashboards_v2")
     def migrate_all_dashboards(
         self,
         action: str | None = None,
@@ -1035,6 +1043,10 @@ class DashboardsMigrationMixin:
     ) -> dict[str, Any]:
         """
         Migrates all dashboards from the source to the target environment in batches.
+
+        Deprecated: use ``migrate_all_dashboards_v2``, which takes different parameters
+        and returns the standard migration result. This method is
+        removed in the next major release.
 
         Parameters
         ----------

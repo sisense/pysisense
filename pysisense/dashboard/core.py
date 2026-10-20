@@ -583,7 +583,7 @@ class DashboardCoreMixin:
         self.logger.info(f"Successfully checked can_be_owned for dashboard {dashboard_id}.")
         return result
 
-    def import_dashboards_bulk(self, dashboards: list[dict[str, Any]], action: str = "skip") -> dict[str, Any]:
+    def import_dashboards_bulk(self, dashboards: list[dict[str, Any]], action: str = "skip", republish: bool = False) -> dict[str, Any]:
         """Import one or more dashboards via the bulk import endpoint.
 
         Sends ``POST /api/v1/dashboards/import/bulk`` with ``action`` as a
@@ -602,6 +602,10 @@ class DashboardCoreMixin:
             Conflict behavior for dashboards whose ``oid`` already exists.
             One of ``"skip"``, ``"overwrite"``, or ``"duplicate"``. Default
             is ``"skip"``.
+        republish : bool, optional
+            When ``True``, also sends ``republish=true`` so the imported
+            dashboards are republished to the users they are shared with.
+            Default is ``False``, which leaves the parameter out.
 
         Returns
         -------
@@ -611,7 +615,9 @@ class DashboardCoreMixin:
             ``{"error": "..."}`` on failure.
         """
         endpoint = f"/api/v1/dashboards/import/bulk?action={action}"
-        self.logger.debug(f"Importing {len(dashboards)} dashboard(s) with action={action}")
+        if republish:
+            endpoint += "&republish=true"
+        self.logger.debug(f"Importing {len(dashboards)} dashboard(s) with action={action}, republish={republish}")
         response = self.api_client.post(endpoint, data=dashboards)
 
         if response is None:
