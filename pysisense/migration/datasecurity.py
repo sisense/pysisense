@@ -103,7 +103,7 @@ class DatasecurityMigrationMixin:
         ids (matched by email for users and by name for groups), and writes
         the resolved rules onto the already-existing target data model.
         Requires the target data model to already exist — run
-        ``migrate_datamodels``/``migrate_all_datamodels`` first.
+        ``migrate_datamodels_v2``/``migrate_all_datamodels_v2`` first.
 
         Parameters
         ----------
@@ -318,7 +318,7 @@ class DatasecurityMigrationMixin:
 
         Fetches every data model from the source environment and delegates
         to ``migrate_datasecurity``. Data models not yet present on the
-        target are skipped — run ``migrate_all_datamodels`` first.
+        target are skipped — run ``migrate_all_datamodels_v2`` first.
 
         Parameters
         ----------

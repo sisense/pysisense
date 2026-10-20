@@ -445,12 +445,18 @@ api_client.export_to_csv(results, "chart_widgets.csv")
 
 ## Example 22: Import Dashboards in Bulk
 
-Import a previously exported dashboard payload — typically obtained from `export_dashboard` on another environment. Used internally by `MergeTool.migrate_dashboards`; see `mergetool_example.md` for full cross-environment dashboard migration.
+Import a previously exported dashboard payload — typically obtained from `export_dashboard` on another environment. Used internally by `Migration.migrate_dashboards_v2`; see `migration_example.md` for full cross-environment dashboard migration.
 
 ```python
 exported = dashboard.export_dashboard("65d62c9wregfhg0e33bc64e8")
 result = dashboard.import_dashboards_bulk([exported], action="skip")  # Options: "skip", "overwrite", "duplicate"
 print(json.dumps(result, indent=4))
+```
+
+Republish the imported dashboards to the users they are shared with:
+
+```python
+result = dashboard.import_dashboards_bulk([exported], action="overwrite", republish=True)
 ```
 
 ---

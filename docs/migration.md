@@ -53,6 +53,8 @@ Group and User Migration
 
 ### `migrate_groups(self, group_name_list)`
 
+**Deprecated:** use `migrate_groups_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
+
 Migrates specific groups from the source to the target environment.
 
 #### Parameters:
@@ -66,6 +68,8 @@ Migrates specific groups from the source to the target environment.
 * * * * *
 
 ### `migrate_all_groups(self, emit=None)`
+
+**Deprecated:** use `migrate_all_groups_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
 
 Migrates all groups from the source to the target environment.
 
@@ -81,6 +85,8 @@ Migrates all groups from the source to the target environment.
 
 ### `migrate_users(self, user_name_list)`
 
+**Deprecated:** use `migrate_users_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
+
 Migrates specific users from the source to the target environment.
 
 #### Parameters:
@@ -94,6 +100,8 @@ Migrates specific users from the source to the target environment.
 * * * * *
 
 ### `migrate_all_users(self, emit=None)`
+
+**Deprecated:** use `migrate_all_users_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
 
 Migrates all users from the source to the target environment.
 
@@ -130,6 +138,8 @@ Migrates dashboard shares from the source to the target environment.
 
 ### `migrate_dashboards(self, dashboard_ids=None, dashboard_names=None, action=None, republish=False, migrate_share=False, change_ownership=False, emit=None)`
 
+**Deprecated:** use `migrate_dashboards_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
+
 Migrates specific dashboards with optional republishing, ownership transfer, and share migration.
 
 #### Parameters:
@@ -162,6 +172,8 @@ Migrates specific dashboards with optional republishing, ownership transfer, and
 
 ### `migrate_all_dashboards(self, action=None, republish=False, migrate_share=False, change_ownership=False, batch_size=10, sleep_time=10, emit=None)`
 
+**Deprecated:** use `migrate_all_dashboards_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
+
 Migrates all dashboards from the source to the target environment in batches.
 
 #### Parameters:
@@ -190,6 +202,8 @@ Data Model Migration
 --------------------
 
 ### `migrate_datamodels(self, datamodel_ids=None, datamodel_names=None, provider_connection_map=None, dependencies=None, shares=False, action=None, new_title=None, emit=None)`
+
+**Deprecated:** use `migrate_datamodels_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
 
 Migrates specific data models with support for dependencies and shares.
 
@@ -232,6 +246,8 @@ Migrates specific data models with support for dependencies and shares.
 * * * * *
 
 ### `migrate_all_datamodels(self, dependencies=None, shares=False, batch_size=10, sleep_time=5, emit=None)`
+
+**Deprecated:** use `migrate_all_datamodels_v2`, which takes different parameters and returns the standard result. Removed in the next major release.
 
 Migrates all data models from the source to the target environment in batches.
 
@@ -423,7 +439,7 @@ Data Security Migration
 
 ### `migrate_datasecurity(self, datamodel_ids=None, datamodel_names=None, emit=None)`
 
-Migrates row-level datasecurity rules for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each rule's raw datasecurity payload is fetched from the source, its `shares` are remapped to target user/group ids (matched by email for users and by name for groups), and the resolved rules are written onto the target data model via `update_datasecurity` (EXTRACT) or `set_live_datasecurity_add_many` (LIVE).
+Migrates row-level datasecurity rules for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels_v2`/`migrate_all_datamodels_v2` first. Each rule's raw datasecurity payload is fetched from the source, its `shares` are remapped to target user/group ids (matched by email for users and by name for groups), and the resolved rules are written onto the target data model via `update_datasecurity` (EXTRACT) or `set_live_datasecurity_add_many` (LIVE).
 
 #### Parameters:
 
@@ -470,7 +486,7 @@ Saved Formula Migration
 
 ### `migrate_saved_formulas(self, datamodel_ids=None, datamodel_names=None, action="skip", emit=None)`
 
-Migrates saved formula measures for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each formula is fetched from the source via the metadata measures endpoint and created on the target. Conflict detection is based on the formula's `title`.
+Migrates saved formula measures for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels_v2`/`migrate_all_datamodels_v2` first. Each formula is fetched from the source via the metadata measures endpoint and created on the target. Conflict detection is based on the formula's `title`.
 
 #### Parameters:
 
@@ -523,7 +539,7 @@ Saved Filter Migration
 
 ### `migrate_saved_filters(self, datamodel_ids=None, datamodel_names=None, action="skip", emit=None)`
 
-Migrates saved filter dimensions for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels`/`migrate_all_datamodels` first. Each data model's dimensions are fetched from the source, filtered down to the ones carrying a saved filter definition (a truthy `filter` key), and recreated on the target via a raw metadata query. Conflict detection is based on the filter's `title`.
+Migrates saved filter dimensions for specific data models from the source to the target environment. Requires the target data model to already exist — run `migrate_datamodels_v2`/`migrate_all_datamodels_v2` first. Each data model's dimensions are fetched from the source, filtered down to the ones carrying a saved filter definition (a truthy `filter` key), and recreated on the target via a raw metadata query. Conflict detection is based on the filter's `title`.
 
 #### Parameters:
 
@@ -568,3 +584,264 @@ Migrates saved filter dimensions for all data models from the source to the targ
 #### Returns:
 
 -   `dict`: Same structure as `migrate_saved_filters`.
+
+* * * * *
+
+Migration methods (v2)
+======================
+
+The `*_v2` methods replace `migrate_groups`, `migrate_users`, `migrate_dashboards`, `migrate_datamodels` and their `migrate_all_*` versions. They check the target before writing (`action="skip"` by default), handle each item on its own, and return the standard migration result: `ok`, `status`, `succeeded`, `skipped`, `failed` and the counts. In the next major release the old methods are removed and the `*_v2` methods take the plain names.
+
+Migrate in this order: groups, users, folders, data models, then dashboards.
+
+Group Migration (v2)
+--------------------
+
+### `migrate_groups_v2(self, group_names=None, action="skip", emit=None)`
+
+Migrates specific groups from the source to the target environment via the bulk group endpoint. Conflict detection is based on the group's `name` field.
+
+#### Parameters:
+
+-   `group_names` (list, optional): Group names to migrate. If omitted, every group on the source is migrated.
+
+-   `action` (str, optional): Conflict strategy for groups that already exist on the target:
+
+    -   `"skip"` — leave the existing group unchanged (default).
+
+    -   `"overwrite"` — delete the existing group on the target, then recreate from source. **Warning:** this can disrupt user/group associations still referencing the deleted group on the target.
+
+    -   `"duplicate"` — always create, regardless of existing groups.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{name}`)
+    -   `skipped` (list of `{name, reason}`)
+    -   `failed` (list of `{name, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+    -   `error` (str): only when the run could not start
+
+* * * * *
+
+### `migrate_all_groups_v2(self, action="skip", emit=None)`
+
+Migrates all eligible groups from the source to the target environment. Excludes the built-in `Admins`, `All users in system`, and `Everyone` groups, and — when the source environment exposes tenant information — restricts migration to groups belonging to the system tenant. If `/api/v1/tenants` is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every group (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_groups_v2`.
+
+* * * * *
+
+User Migration (v2)
+-------------------
+
+### `migrate_users_v2(self, user_emails=None, action="skip", ignore_custom_roles=False, emit=None)`
+
+Migrates specific users from the source to the target environment via the bulk user endpoint. Resolves each user's role and group assignments to target environment IDs before creating them. Conflict detection is based on the user's `email` field.
+
+Role names are adapted to the target before matching: when the target environment is multi-tenant (its role list includes `tenantAdmin`), source `super`/`admin` roles are mapped to `tenantAdmin`; when the target is a Windows deployment, source `tenantAdmin` is mapped back to `admin`.
+
+#### Parameters:
+
+-   `user_emails` (list, optional): Email addresses of the users to migrate. If omitted, every user on the source is migrated.
+
+-   `action` (str, optional): Conflict strategy for users that already exist on the target:
+
+    -   `"skip"` — leave the existing user unchanged (default).
+
+    -   `"overwrite"` — delete the existing user on the target, then recreate from source.
+
+    -   `"duplicate"` — always create, regardless of existing users.
+
+-   `ignore_custom_roles` (bool, optional): When `True`, strips a `custom_` prefix from source role names before matching them against target roles (and matches target roles with the same prefix stripped). Default is `False`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{email}`)
+    -   `skipped` (list of `{email, reason}`)
+    -   `failed` (list of `{email, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+    -   `error` (str): only when the run could not start
+
+* * * * *
+
+### `migrate_all_users_v2(self, action="skip", ignore_custom_roles=False, emit=None)`
+
+Migrates all eligible users from the source to the target environment. Excludes users with the built-in `super` role (the source and target super admin accounts are expected to already exist independently on each environment), and — when the source environment exposes tenant information — restricts migration to users belonging to the system tenant. If tenant information is unavailable (single-tenant on-premises deployments), tenant-based filtering is skipped.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every user (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `ignore_custom_roles` (bool, optional): Same as in `migrate_users_v2`. Default is `False`.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_users_v2`.
+
+**Note:** Migrate groups before users — user payloads reference target group IDs, and groups not yet present on the target will be silently omitted from the user's group list.
+
+* * * * *
+
+Data Model Migration (v2)
+-------------------------
+
+### `migrate_datamodels_v2(self, datamodel_ids=None, datamodel_names=None, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None, new_title=None)`
+
+Migrates specific data models from the source to the target environment. Each data model's schema is exported from the source and imported into the target via the schema import endpoint. Conflict detection is based on the data model's `title`. Embedded connection credentials are repointed via `provider_connection_map` when a matching provider entry is supplied, and stripped otherwise — they must be re-entered (or reconnected) on the target after migration.
+
+#### Parameters:
+
+-   `datamodel_ids` (list, optional): Data model OIDs to migrate. Provide either this or `datamodel_names`.
+
+-   `datamodel_names` (list, optional): Data model titles to migrate. Provide either this or `datamodel_ids`.
+
+-   `action` (str, optional): Conflict strategy for data models whose `title` already exists on the target:
+
+    -   `"skip"` — leave the existing data model unchanged (default).
+
+    -   `"overwrite"` — replace the existing data model's schema with the source version, matched by the target model's own OID.
+
+    -   `"duplicate"` — always create a new data model titled `"<title> (Duplicate)"`, regardless of existing data models.
+
+-   `dependencies` (list or str, optional): One or more of `"dataSecurity"`, `"formulas"`, `"hierarchies"`, `"perspectives"` to include in the export. Defaults to all of them when omitted or `"all"`. Windows: has no effect when the source is a Windows deployment, its export endpoint accepts no dependencies parameter.
+
+-   `provider_connection_map` (dict, optional): Maps a connection provider name (for example `"Athena"`) to a target-environment connection OID.
+
+-   `shares` (bool, optional): Whether to also migrate each data model's shares after a successful import, remapping users and groups by email/name. Default is `False`.
+
+-   `concurrency` (int, optional): Maximum number of data models to migrate concurrently, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Data models are independent of each other, so any value is safe. Default is `1` (sequential). If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+-   `new_title` (str, optional): Title for the new data model when `action="duplicate"`, instead of `"<title> (Duplicate)"`. Ignored for other actions. Every selected model gets this title, so use it with one model.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, source_oid, target_id}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+    -   `error` (str): only when the run could not start
+
+#### Raises:
+
+-   `ValueError`: If both `datamodel_ids` and `datamodel_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_datamodels_v2(self, action="skip", dependencies=None, provider_connection_map=None, shares=False, concurrency=1, emit=None)`
+
+Migrates all data models from the source to the target environment.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every data model (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `dependencies` (list or str, optional): Same as in `migrate_datamodels_v2`.
+
+-   `provider_connection_map` (dict, optional): Same as in `migrate_datamodels_v2`.
+
+-   `shares` (bool, optional): Same as in `migrate_datamodels_v2`.
+
+-   `concurrency` (int, optional): Same as in `migrate_datamodels_v2`. Default is `1` (sequential).
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_datamodels_v2`.
+
+**Note:** Migrate data models before dashboards — dashboards reference the underlying data model's local Elasticube.
+
+* * * * *
+
+Dashboard Migration (v2)
+------------------------
+
+### `migrate_dashboards_v2(self, dashboard_ids=None, dashboard_names=None, action="skip", concurrency=1, emit=None, republish=False, migrate_share=True, change_ownership=True)`
+
+Migrates specific dashboards from the source to the target environment. Each dashboard is exported from the source, has its embedded datasource references repointed to the target's local Elasticube, and is imported into the target via the bulk import endpoint, which matches dashboards by `oid` and applies `action` natively. After a successful import, the dashboard's owner and shares are remapped to target users/groups (matched by email/name), and the dashboard is moved into the target folder whose path matches its source parent folder — if that folder has already been migrated with `migrate_folders`.
+
+#### Parameters:
+
+-   `dashboard_ids` (list, optional): Dashboard OIDs to migrate. Provide either this or `dashboard_names`.
+
+-   `dashboard_names` (list, optional): Dashboard titles to migrate. Provide either this or `dashboard_ids`.
+
+-   `action` (str, optional): Conflict strategy for dashboards whose `oid` already exists on the target:
+
+    -   `"skip"` — leave the existing dashboard unchanged (default).
+
+    -   `"overwrite"` — replace the existing dashboard with the source version.
+
+    -   `"duplicate"` — always create, regardless of existing dashboards.
+
+-   `concurrency` (int, optional): Maximum number of dashboards to migrate concurrently, run via a background thread pool (`asyncio.to_thread`) since the underlying HTTP client is synchronous. Dashboards are independent of each other, so any value is safe. Default is `1` (sequential). If called from code that's already running an asyncio event loop, values `> 1` fall back to sequential processing.
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+-   `republish` (bool, optional): Republish each imported dashboard to the users it is shared with (`republish=true` on the bulk import request). Default is `False`.
+
+-   `migrate_share` (bool, optional): Recreate the dashboard's shares on the target, matching users by email and groups by name. `False` leaves the imported dashboard unshared. Default is `True`.
+
+-   `change_ownership` (bool, optional): Give the target dashboard the same owner as on the source, matched by email. `False` leaves the token user as owner. Default is `True`.
+
+#### Returns:
+
+-   `dict`: Summary with:
+    -   `ok` (bool)
+    -   `status` (`"success"` | `"failed"` | `"noop"`)
+    -   `succeeded` (list of `{title, oid, source_oid}`)
+    -   `skipped` (list of `{title, source_oid, reason}`)
+    -   `failed` (list of `{title, source_oid, reason}`)
+    -   `source_count`, `succeeded_count`, `skipped_count`, `failed_count` (int)
+    -   `error` (str): only when the run could not start
+
+#### Raises:
+
+-   `ValueError`: If both `dashboard_ids` and `dashboard_names` are provided, or if neither is provided.
+
+* * * * *
+
+### `migrate_all_dashboards_v2(self, action="skip", concurrency=1, emit=None, republish=False, migrate_share=True, change_ownership=True)`
+
+Migrates all dashboards from the source to the target environment.
+
+#### Parameters:
+
+-   `action` (str, optional): Conflict strategy applied to every dashboard (`"skip"`, `"overwrite"`, `"duplicate"`). Default is `"skip"`.
+
+-   `concurrency` (int, optional): Same as in `migrate_dashboards_v2`. Default is `1` (sequential).
+
+-   `emit` (callable, optional): Optional callback invoked with structured progress events.
+
+-   `republish`, `migrate_share`, `change_ownership` (bool, optional): Same as in `migrate_dashboards_v2`.
+
+#### Returns:
+
+-   `dict`: Same structure as `migrate_dashboards_v2`.
+
+**Note:** Migrate groups, users, and folders before dashboards — dashboard owner/share remapping and folder placement depend on all three having already been migrated.

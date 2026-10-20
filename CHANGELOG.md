@@ -6,7 +6,45 @@ All notable changes to `pysisense` are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`Migration` migrates custom-code notebooks, folders, Blox actions, data security, saved
+  formulas, and saved filters.** `migrate_notebooks`, `migrate_all_notebooks`, `migrate_folders`, `migrate_all_folders`, `migrate_blox_actions`, `migrate_all_blox_actions`, `migrate_datasecurity`, `migrate_all_datasecurity`, `migrate_saved_formulas`, `migrate_all_saved_formulas`, `migrate_saved_filters`, `migrate_all_saved_filters`: the methods
+  that used to exist only on `MergeTool`, with the same parameters and results.
+- **`Migration` gains `*_v2` methods for groups, users, data models, and dashboards:**
+  `migrate_groups_v2`, `migrate_all_groups_v2`, `migrate_users_v2`, `migrate_all_users_v2`, `migrate_dashboards_v2`, `migrate_all_dashboards_v2`, `migrate_datamodels_v2`, `migrate_all_datamodels_v2`. They check the target before
+  writing (`action="skip"` by default), handle each item on its own, and return the standard
+  migration result (`ok`, `status`, `succeeded`, `skipped`, `failed`, the counts, and `error` when
+  the run could not start). They also carry the options only the old methods had:
+  `republish`, `migrate_share`, and `change_ownership` on dashboards, `new_title` on data models.
+- **`Dashboard.import_dashboards_bulk`** takes an optional `republish` flag, which adds
+  `republish=true` to the import request. The default leaves the request unchanged.
+
+### Deprecated
+
+- **`Migration.migrate_groups`, `migrate_all_groups`, `migrate_users`, `migrate_all_users`,
+  `migrate_dashboards`, `migrate_all_dashboards`, `migrate_datamodels`, `migrate_all_datamodels`**
+  emit a `DeprecationWarning` pointing at their `*_v2` replacement. They still work and return
+  exactly what they did before. **The replacements take different parameters and return a
+  different result shape**: see `docs/upgrading.md` before switching. They are removed in the next
+  major release, when the `*_v2` methods take the plain names.
+- **Every `MergeTool` method** emits a `DeprecationWarning` pointing at the `Migration` method that
+  runs the same code, with the same parameters and result (`migrate_groups` →
+  `Migration.migrate_groups_v2`, `migrate_folders` → `Migration.migrate_folders`, …). `MergeTool`
+  is removed in the next major release.
+
+**Downstream generators:**
+
+- Methods deprecated (old → new): `Migration.<name>` → `Migration.<name>_v2` for the eight names
+  above (**different signatures**; do not map calls across automatically). `MergeTool.<name>` →
+  `Migration.<name>_v2` for the same eight, and `MergeTool.<name>` → `Migration.<name>` for the
+  other twelve (identical signatures). `MergeTool` also exposes the `*_v2` names, deprecated.
+- **New `__deprecated__` message form:** `MergeTool`'s markers read `"use Migration.<method>"`,
+  naming the facade that holds the replacement. Until now every marker was `"use <method>"` on the
+  same class. Tooling that resolves the replacement from the message must accept the dotted form.
+- New methods on `Migration`: the twelve and the eight `*_v2` above. Params with `Literal` enums:
+  `action: Literal["skip", "overwrite", "duplicate"]` on every new method. No new TypedDict contracts.
+- `Dashboard.import_dashboards_bulk` gained `republish: bool = False`.
 
 ## [2.3.3] — 2026-10-02
 

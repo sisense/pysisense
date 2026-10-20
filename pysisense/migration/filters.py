@@ -42,7 +42,7 @@ class FiltersMigrationMixin:
         and recreates them on the target via a raw metadata query. Conflict
         detection is based on a filter's ``title``. Requires the target data
         model to already exist — run
-        ``migrate_datamodels``/``migrate_all_datamodels`` first.
+        ``migrate_datamodels_v2``/``migrate_all_datamodels_v2`` first.
 
         Parameters
         ----------
@@ -256,7 +256,7 @@ class FiltersMigrationMixin:
 
         Fetches every data model from the source environment and delegates
         to ``migrate_saved_filters``. Data models not yet present on the
-        target are skipped — run ``migrate_all_datamodels`` first.
+        target are skipped — run ``migrate_all_datamodels_v2`` first.
 
         Parameters
         ----------

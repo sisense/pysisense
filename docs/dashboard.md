@@ -308,7 +308,7 @@ Checks whether the dashboard can be owned by the current user via ``GET /api/v1/
 
 * * * * *
 
-### `import_dashboards_bulk(dashboards, action="skip")`
+### `import_dashboards_bulk(dashboards, action="skip", republish=False)`
 
 Imports one or more dashboards via `POST /api/v1/dashboards/import/bulk`. Dashboards are typically the payloads returned by `export_dashboard`. The server matches dashboards by `oid`: when a dashboard with the same `oid` already exists, `action` controls whether it is left unchanged, replaced, or a new copy is created.
 
@@ -316,6 +316,7 @@ Imports one or more dashboards via `POST /api/v1/dashboards/import/bulk`. Dashbo
 
 - `dashboards` (list): Dashboard objects to import.
 - `action` (str, optional): Conflict behavior — `"skip"`, `"overwrite"`, or `"duplicate"`. Default is `"skip"`.
+- `republish` (bool, optional): When `True`, also sends `republish=true` so the imported dashboards are republished to the users they are shared with. Default is `False`.
 
 **Returns:**
 
