@@ -270,6 +270,10 @@ else:
 
     # Write formatted script to disk
     script_obj.to_file("results/dashboard_script.js")
+
+    # Dict with the raw script
+    # {"title": "...", "url": "/app/main/dashboards/...", "type": None, "script": "..."}
+    print(script_obj.to_dict())
 ```
 
 ---

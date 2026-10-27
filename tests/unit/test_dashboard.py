@@ -1,5 +1,7 @@
 """Unit tests for pysisense.dashboard.Dashboard."""
 
+import json
+
 import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
 
@@ -839,6 +841,35 @@ class TestScriptRendering:
         assert output.exists()
         content = output.read_text()
         assert "console.log('x');" in content
+
+    def test_to_dict_returns_raw_script_and_metadata(self):
+        """``to_dict`` returns the raw script, unchanged."""
+        raw = "/* see the online documentation at x */\nwidget.on('ready',function(){return 1;});"
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123/widgets/w1",
+            title="Revenue",
+            type="indicator",
+            script=raw,
+            template=r"/\*.*?see the online documentation at.*?\*/",
+            footer="// Widget Title: {title}",
+        )
+
+        result = script.to_dict()
+
+        assert result == {"title": "Revenue", "url": "/app/main/dashboards/dash123/widgets/w1", "type": "indicator", "script": raw}
+        assert json.loads(json.dumps(result)) == result
+
+    def test_to_dict_dashboard_script_has_none_type(self):
+        script = SisenseScript(
+            url="/app/main/dashboards/dash123",
+            title="Sales Report",
+            type=None,
+            script="console.log('x');",
+            template=r"/\*unused\*/",
+            footer="// Dashboard Title: {title}",
+        )
+
+        assert script.to_dict()["type"] is None
 
 
 # ---------------------------------------------------------------------------
