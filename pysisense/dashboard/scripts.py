@@ -369,3 +369,15 @@ class SisenseScript:
             Markdown content containing the script title and JavaScript code block.
         """
         return f"# {self.title}\n\n```js\n{self.to_text()}\n```\n"
+
+    def to_dict(self) -> dict[str, str | None]:
+        """Return the script and its metadata as a dict.
+
+        ``script`` is the raw script, unchanged.
+
+        Returns
+        -------
+        dict[str, str | None]
+            ``title``, ``url``, ``type`` (``None`` for dashboard scripts) and ``script``.
+        """
+        return {"title": self.title, "url": self.url, "type": self.type, "script": self.script}

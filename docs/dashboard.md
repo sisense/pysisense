@@ -339,6 +339,7 @@ Instances of **`SisenseScript`** are returned by `get_dashboard_script` and `get
 -   `to_text() -> str`: Full formatted JavaScript string (empty string if nothing remains after stripping).
 -   `to_md() -> str`: Markdown with an `#` title and a fenced `js` code block built from `to_text()`.
 -   `to_file(path: str) -> None`: Writes `to_text()` to the given path.
+-   `to_dict() -> dict`: `title`, `url`, `type` (`None` for dashboard scripts) and `script`. `script` is the raw script, unchanged.
 
 * * * * *
 
