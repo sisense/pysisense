@@ -762,6 +762,20 @@ class TestFindScripts:
         assert [e["dashboard_id"] for e in result["errors"]] == ["d1", "d2"]
         assert "403" in result["errors"][0]["error"] or "forbidden" in result["errors"][0]["error"]
 
+    def test_unreadable_widget_is_reported_not_dropped(self):
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/export": FakeResponse(200, [_EXPORT_WITH_SCRIPTS[0]]),
+                "/api/v1/dashboards/d1/widgets/w3": FakeResponse(403, {"error": "forbidden"}),
+                "/api/v1/dashboards": FakeResponse(200, [{"oid": "d1", "title": "Sales"}]),
+            }
+        )
+        result = dash.find_scripts()
+        assert [r["widget_id"] for r in result["results"]] == [None, "w1"]
+        assert len(result["errors"]) == 1
+        assert result["errors"][0]["dashboard_id"] == "d1"
+        assert "w3" in result["errors"][0]["error"]
+
     def test_listing_failure_is_the_error_dict(self):
         dash = _make_dash()
         result = dash.find_scripts()
