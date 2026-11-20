@@ -38,7 +38,8 @@ class Dashboard(DashboardCoreMixin, SharesMixin, ColumnsMixin, ScriptsMixin, Das
         drill chains), drill history, widget query metadata and table headers.
     scripts :
         Dashboard and widget scripts — read and write JavaScript attached
-        to a dashboard or to a specific widget within it.
+        to a dashboard or to a specific widget within it, and find every
+        script across dashboards.
     widgets :
         Widget operations — fetch a single widget by ID, write widget data
         back to Sisense, and search for widgets by type across dashboards.

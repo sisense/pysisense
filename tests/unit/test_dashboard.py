@@ -675,6 +675,99 @@ class TestResolveDashboardReference:
 # ---------------------------------------------------------------------------
 
 
+_EXPORT_WITH_SCRIPTS = [
+    {
+        "oid": "d1",
+        "title": "Sales",
+        "script": "dashboard.on('initialized', f);\ng();",
+        "widgets": [
+            {"oid": "w1", "title": "Revenue", "type": "indicator", "script": "widget.on('ready', f);"},
+            {"oid": "w2", "title": "Empty", "type": "pivot2", "script": ""},
+            {"oid": "w3", "title": "", "type": "chart/pie"},  # export omits the script
+        ],
+    },
+    {"oid": "d2", "title": "Plain", "widgets": [{"oid": "w4", "type": "pivot2", "script": "  "}]},
+]
+
+
+def _recording(dash, method="get"):
+    calls = []
+    original = getattr(dash.api_client, method)
+
+    def record(url, **kw):
+        calls.append((url, kw.get("params")))
+        return original(url, **kw)
+
+    setattr(dash.api_client, method, record)
+    return calls
+
+
+class TestFindScripts:
+    def _dash(self, export=None, export_status=200, listing=None):
+        listing = listing if listing is not None else [{"oid": "d1", "title": "Sales"}, {"oid": "d2", "title": "Plain"}, {"oid": "d1", "title": "Sales"}]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/export": FakeResponse(export_status, export if export is not None else _EXPORT_WITH_SCRIPTS),
+                "/api/v1/dashboards/d1/widgets/w3": FakeResponse(200, {"oid": "w3", "type": "chart/pie", "script": "a();\nb();\nc();"}),
+                "/api/v1/dashboards": FakeResponse(200, listing),
+            }
+        )
+        return dash
+
+    def test_reports_one_row_per_script(self):
+        result = self._dash().find_scripts()
+        assert result["errors"] == []
+        assert result["dashboards_checked"] == 2  # the repeated listing entry is checked once
+        assert result["results"] == [
+            {"dashboard_id": "d1", "dashboard_title": "Sales", "level": "dashboard", "widget_id": None, "widget_title": None, "widget_type": None, "line_count": 2},
+            {"dashboard_id": "d1", "dashboard_title": "Sales", "level": "widget", "widget_id": "w1", "widget_title": "Revenue", "widget_type": "indicator", "line_count": 1},
+            {"dashboard_id": "d1", "dashboard_title": "Sales", "level": "widget", "widget_id": "w3", "widget_title": None, "widget_type": "chart/pie", "line_count": 3},
+        ]
+
+    def test_include_script_adds_the_text(self):
+        rows = self._dash().find_scripts(include_script=True)["results"]
+        assert rows[1]["script"] == "widget.on('ready', f);"
+
+    def test_no_scripts_is_an_empty_results_list(self):
+        result = self._dash(export=[_EXPORT_WITH_SCRIPTS[1]], listing=[{"oid": "d2", "title": "Plain"}]).find_scripts()
+        assert result == {"results": [], "errors": [], "dashboards_checked": 1}
+
+    def test_admin_listing_uses_the_admin_endpoint(self):
+        dash = self._dash()
+        dash.get_all_dashboards = lambda: [{"oid": "d2", "title": "Plain"}]
+        dash.get_dashboards = lambda: (_ for _ in ()).throw(AssertionError("visible listing must not be read"))
+        assert dash.find_scripts(listing="admin")["dashboards_checked"] == 1
+
+    def test_named_dashboards_are_resolved_and_unknown_ones_reported(self):
+        dash = self._dash(export=[_EXPORT_WITH_SCRIPTS[1]])
+        dash.resolve_dashboard_reference = lambda ref: {"success": True, "dashboard_id": "d2", "dashboard_title": "Plain"} if ref == "Plain" else {"success": False, "error": f"'{ref}' not found"}
+        result = dash.find_scripts(["Plain", "Nope"])
+        assert result["dashboards_checked"] == 1
+        assert result["errors"] == [{"dashboard_id": None, "dashboard_title": "Nope", "error": "'Nope' not found"}]
+
+    def test_exports_in_batches_of_20(self):
+        listing = [{"oid": f"d{i}", "title": f"D{i}"} for i in range(45)]
+        dash = self._dash(export=[], listing=listing)
+        calls = _recording(dash)
+        result = dash.find_scripts()
+        batches = [p["dashboardIds"].split(",") for u, p in calls if u == "/api/v1/dashboards/export"]
+        assert [len(b) for b in batches] == [20, 20, 5]
+        assert all(p["adminAccess"] == "true" for u, p in calls if u == "/api/v1/dashboards/export")
+        assert len(result["errors"]) == 45  # none came back in the (empty) export
+        assert result["errors"][0]["error"] == "Dashboard missing from the export."
+
+    def test_failed_export_is_reported_per_dashboard_and_the_rest_continue(self):
+        result = self._dash(export={"error": "forbidden"}, export_status=403).find_scripts()
+        assert result["results"] == []
+        assert [e["dashboard_id"] for e in result["errors"]] == ["d1", "d2"]
+        assert "403" in result["errors"][0]["error"] or "forbidden" in result["errors"][0]["error"]
+
+    def test_listing_failure_is_the_error_dict(self):
+        dash = _make_dash()
+        result = dash.find_scripts()
+        assert result["ok"] is False
+
+
 class TestGetDashboardScript:
     def test_returns_script_object(self, monkeypatch):
         class DummyScript:

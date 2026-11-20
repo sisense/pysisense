@@ -577,6 +577,24 @@ for widget in report["widgets"]:
 #   Revenue by Brand -> error not found in 'commerce_by_country': [Brand.Brand]
 ```
 
+## Example 29: Find Every Dashboard and Widget Script
+
+```python
+# Every dashboard the token's user can see; listing="admin" checks every dashboard on the instance.
+found = dashboard.find_scripts()
+# {"results": [{"dashboard_id": "...", "dashboard_title": "Sales Overview", "level": "dashboard",
+#               "widget_id": None, "widget_title": None, "widget_type": None, "line_count": 12},
+#              {"dashboard_id": "...", "dashboard_title": "Sales Overview", "level": "widget",
+#               "widget_id": "...", "widget_title": "Revenue", "widget_type": "indicator", "line_count": 4}],
+#  "errors": [], "dashboards_checked": 6}
+for row in found["results"]:
+    where = "dashboard" if row["level"] == "dashboard" else f"widget {row['widget_title'] or row['widget_id']}"
+    print(f"{row['dashboard_title']}: {where} ({row['line_count']} lines)")
+
+# Only some dashboards, with the script text included
+found = dashboard.find_scripts(["Sales Overview"], include_script=True)
+```
+
 ## Notes
 
 - Adjust parameters as needed for your environment.

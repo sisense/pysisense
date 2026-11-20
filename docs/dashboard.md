@@ -150,6 +150,25 @@ Returns one widget's script in a **`SisenseScript`**, read from the admin export
 
 * * * * *
 
+### `find_scripts(dashboards=None, listing="visible", include_script=False)`
+
+Finds every dashboard script and widget script. Dashboards are read through the admin export (`GET /api/v1/dashboards/export` with `adminAccess=true`), 20 per request; when the export omits a widget's script (some Sisense versions), the widget is read directly via `GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}`. A dashboard that cannot be read is reported in `errors` and the rest are still checked.
+
+**Parameters:**
+
+-   `dashboards` (list[str] | str | None): Dashboard IDs or titles to check. Default `None`: every dashboard in the listing chosen by `listing`.
+-   `listing` (`"visible"` | `"admin"`): Used when `dashboards` is not given. `"visible"` (default) checks the dashboards the token's user can see (`GET /api/v1/dashboards`); `"admin"` checks every dashboard on the instance (`GET /api/v1/dashboards/admin`, administrators only).
+-   `include_script` (bool): Add each script's text to its row. Default `False`.
+
+**Returns:**
+
+-   `dict`: `{"results": [...], "errors": [...], "dashboards_checked": int}`.
+    -   Each result row: `dashboard_id`, `dashboard_title`, `level` (`"dashboard"` or `"widget"`), `widget_id`, `widget_title`, `widget_type` (all `None` for a dashboard script), `line_count`, and `script` when `include_script=True`. An empty `results` list means no checked dashboard has a script.
+    -   Each error row: `dashboard_id` (`None` when a title could not be resolved), `dashboard_title`, `error`.
+    -   The standard error dict `{"ok": False, "error": "..."}` when the dashboard listing itself fails.
+
+* * * * *
+
 ### `add_dashboard_shares(dashboard_id, shares)`
 
 Adds or updates sharing settings for a dashboard.

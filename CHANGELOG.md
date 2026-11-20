@@ -22,6 +22,10 @@ All notable changes to `pysisense` are documented here. The format follows
   counters) and `warnings` for problems that did not fail an item.
 - **`SisenseScript.to_dict()`** returns `title`, `url`, `type` (`None` for dashboard scripts) and
   the raw `script`, unchanged, for the objects `get_dashboard_script` and `get_widget_script` return.
+- **`Dashboard.find_scripts`** finds every dashboard script and widget script, one row per script
+  (`dashboard_id`, `dashboard_title`, `level`, widget id/title/type, `line_count`, optionally the
+  `script`), across the visible dashboards, every dashboard (`listing="admin"`), or named ones.
+  Dashboards are exported 20 per request; one that cannot be read is listed in `errors`.
 - **`Dashboard.import_dashboards_bulk`** takes an optional `republish` flag, which adds
   `republish=true` to the import request. The default leaves the request unchanged.
 
