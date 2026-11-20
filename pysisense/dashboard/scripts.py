@@ -392,13 +392,16 @@ class ScriptsMixin:
                 if doc is None:
                     errors.append({"dashboard_id": oid, "dashboard_title": titles.get(oid), "error": "Dashboard missing from the export."})
                     continue
-                results.extend(self._script_rows(oid, doc.get("title") or titles.get(oid), doc, include_script))
+                results.extend(self._script_rows(oid, doc.get("title") or titles.get(oid), doc, include_script, errors))
 
         self.logger.info(f"Found {len(results)} scripts across {len(oids)} dashboards ({len(errors)} errors)")
         return {"results": results, "errors": errors, "dashboards_checked": len(oids)}
 
-    def _script_rows(self, oid: str, title: str | None, doc: dict[str, Any], include_script: bool) -> list[dict[str, Any]]:
-        """One row per script on an exported dashboard: the dashboard's own, then each widget's."""
+    def _script_rows(self, oid: str, title: str | None, doc: dict[str, Any], include_script: bool, errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """One row per script on an exported dashboard: the dashboard's own, then each widget's.
+
+        A widget whose script is not in the export and cannot be read directly is added to ``errors``.
+        """
 
         def row(level: str, script: str, widget: dict[str, Any] | None) -> dict[str, Any]:
             out = {
@@ -424,6 +427,10 @@ class ScriptsMixin:
                 direct = self.get_widget_by_id(oid, widget["oid"])
                 if isinstance(direct, dict) and direct.get("ok") is not False:
                     widget = {**widget, **direct}
+                else:
+                    reason = direct.get("error") if isinstance(direct, dict) else None
+                    errors.append({"dashboard_id": oid, "dashboard_title": title, "error": reason or f"Widget '{widget['oid']}' could not be read."})
+                    continue
             script = widget.get("script")
             if isinstance(script, str) and script.strip():
                 rows.append(row("widget", script, widget))
