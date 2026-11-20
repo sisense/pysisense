@@ -8,6 +8,23 @@ import jsbeautifier as beautifier
 
 from ..utils import _dashboard_write_access, _finish_ownership, _user_id_for_email, _with_query, _write_dashboard_copies
 
+_SCRIPT_WRAPPER = re.compile(r'^\s*\{\s*"script"\s*:')
+
+
+def _script_payload(script: str | dict[str, Any]) -> dict[str, Any] | None:
+    """Return the request body for a script write, or ``None`` for a malformed ``{"script": ...}`` JSON string.
+
+    A string that parses as a JSON object is sent as-is; any other string is JavaScript and is
+    wrapped as ``{"script": ...}``, including code that starts with ``{``.
+    """
+    if isinstance(script, dict):
+        return script
+    try:
+        parsed = json.loads(script)
+    except json.JSONDecodeError:
+        return None if _SCRIPT_WRAPPER.match(script) else {"script": script}
+    return parsed if isinstance(parsed, dict) else {"script": script}
+
 
 class ScriptsMixin:
     def add_dashboard_script(self, dashboard_id: str, script: str | dict[str, Any], executing_user: str | None = None, act_as_owner: bool = False) -> dict[str, Any]:
@@ -26,8 +43,9 @@ class ScriptsMixin:
         dashboard_id : str
             The ``oid`` of the dashboard.
         script : str | dict[str, Any]
-            The script, as plain JavaScript, as a JSON string ``{"script": "..."}``, or as
-            that dict.
+            The full script, replacing the current one: plain JavaScript, a JSON string
+            ``{"script": "..."}``, or that dict. A string that is not a JSON object is
+            treated as JavaScript, including code that starts with ``{``.
         executing_user : str | None, optional
             Deprecated in favour of ``act_as_owner``: the email of the user to transfer
             ownership to for the change. When given, ownership is borrowed for that user
@@ -45,15 +63,11 @@ class ScriptsMixin:
             borrowed. On failure the standard ``{"ok": False, "error": "...", ...}`` dict, with
             ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
-        try:
-            if isinstance(script, str) and not script.startswith("{"):
-                self.logger.debug("Dashboard Script received as a Python docstring. Converting to JSON format.")
-                script = json.dumps({"script": script}, ensure_ascii=False)
-            script_dict = json.loads(script) if isinstance(script, str) else script
-            self.logger.debug(f"Final dashboard script payload prepared: {list(script_dict) if isinstance(script_dict, dict) else type(script_dict).__name__}")
-        except json.JSONDecodeError:
+        script_dict = _script_payload(script)
+        if script_dict is None:
             self.logger.error("Invalid JSON format for dashboard script.")
             return {"ok": False, "error": "Dashboard Script must be a valid JSON string."}
+        self.logger.debug(f"Final dashboard script payload prepared: {list(script_dict)}")
 
         borrower = None
         if executing_user:
@@ -113,8 +127,9 @@ class ScriptsMixin:
         widget_id : str
             The ``oid`` of the widget.
         script : str | dict[str, Any]
-            The script, as plain JavaScript, as a JSON string ``{"script": "..."}``, or as
-            that dict.
+            The full script, replacing the current one: plain JavaScript, a JSON string
+            ``{"script": "..."}``, or that dict. A string that is not a JSON object is
+            treated as JavaScript, including code that starts with ``{``.
         executing_user : str | None, optional
             Deprecated in favour of ``act_as_owner``: the email of the user to transfer
             ownership to for the change. When given, ownership is borrowed for that user
@@ -131,15 +146,11 @@ class ScriptsMixin:
             borrowed. On failure the standard ``{"ok": False, "error": "...", ...}`` dict, with
             ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
-        try:
-            if isinstance(script, str) and not script.startswith("{"):
-                self.logger.debug("Widget Script received as a Python docstring. Converting to JSON format.")
-                script = json.dumps({"script": script}, ensure_ascii=False)
-            script_dict = json.loads(script) if isinstance(script, str) else script
-            self.logger.debug(f"Final widget script payload prepared: {list(script_dict) if isinstance(script_dict, dict) else type(script_dict).__name__}")
-        except json.JSONDecodeError:
+        script_dict = _script_payload(script)
+        if script_dict is None:
             self.logger.error("Invalid JSON format for widget script.")
             return {"ok": False, "error": "Widget Script must be a valid JSON string."}
+        self.logger.debug(f"Final widget script payload prepared: {list(script_dict)}")
 
         borrower = None
         if executing_user:
@@ -182,23 +193,24 @@ class ScriptsMixin:
         return result
 
     def get_dashboard_script(self, dashboard_id: str) -> SisenseScript | dict[str, str]:
-        """Build a formatted dashboard script helper object.
+        """Return a dashboard's script.
 
-        Retrieves a dashboard export payload and wraps its script content in a
-        :class:`SisenseScript` helper that can render plain text, markdown, or file output.
+        Reads the dashboard through the admin export (``GET /api/v1/dashboards/export``) and
+        returns its script in a :class:`SisenseScript`. ``to_dict()`` gives the raw script
+        with the dashboard title and URL; ``to_text()``, ``to_md()`` and ``to_file()`` give a
+        formatted copy. A dashboard with no script is a normal state, reported as an error dict.
 
         Parameters
         ----------
         dashboard_id : str
-            The dashboard identifier to export.
+            The ``oid`` of the dashboard.
 
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the dashboard is retrieved and
-            has a script. ``{"error": "..."}`` when the export fails (including
-            ``status_code`` for HTTP failures such as missing access) or when the
-            dashboard has no script — a normal state, reported explicitly.
+            A :class:`SisenseScript` when the dashboard has a script. Otherwise the standard
+            ``{"ok": False, "error": "..."}`` dict: the export failed (with ``status_code``) or
+            the dashboard has no script.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
@@ -230,26 +242,27 @@ class ScriptsMixin:
         )
 
     def get_widget_script(self, dashboard_id: str, widget_id: str) -> SisenseScript | dict[str, str]:
-        """Build a formatted widget script helper object.
+        """Return a widget's script.
 
-        Retrieves a dashboard export payload, selects a widget by index/key, and
-        wraps its script content in a :class:`SisenseScript` helper for downstream rendering.
+        Reads the dashboard through the admin export (``GET /api/v1/dashboards/export``),
+        falling back to ``GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}`` when the
+        export omits widget scripts, and returns the script in a :class:`SisenseScript`.
+        ``to_dict()`` gives the raw script with the widget title, URL and type. A widget with
+        no script is a normal state, reported as an error dict.
 
         Parameters
         ----------
         dashboard_id : str
-            The dashboard identifier to export.
+            The ``oid`` of the dashboard that contains the widget.
         widget_id : str
-            The widget identifier or lookup key used in the exported widget mapping.
+            The ``oid`` of the widget.
 
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the widget is found and has a
-            script. ``{"error": "..."}`` when the export fails (including
-            ``status_code`` for HTTP failures such as missing access), the widget
-            is not found, or the widget has no script — a normal state, reported
-            explicitly.
+            A :class:`SisenseScript` when the widget has a script. Otherwise the standard
+            ``{"ok": False, "error": "..."}`` dict: the export failed (with ``status_code``),
+            the widget is not on the dashboard, or the widget has no script.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 

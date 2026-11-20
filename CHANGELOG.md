@@ -20,6 +20,8 @@ All notable changes to `pysisense` are documented here. The format follows
   Each result also carries a `meta` dict with the counters the old methods reported (for example
   `eligible_count`, `skipped_super_count`, `missing_role_mappings_count`, export/import/share
   counters) and `warnings` for problems that did not fail an item.
+- **`SisenseScript.to_dict()`** returns `title`, `url`, `type` (`None` for dashboard scripts) and
+  the raw `script`, unchanged, for the objects `get_dashboard_script` and `get_widget_script` return.
 - **`Dashboard.import_dashboards_bulk`** takes an optional `republish` flag, which adds
   `republish=true` to the import request. The default leaves the request unchanged.
 
@@ -30,6 +32,14 @@ All notable changes to `pysisense` are documented here. The format follows
   what one request returned. A dashboard returned by an earlier page is not repeated. A failure on
   any page returns the error dict, never a partial list. The method sends `limit` and `skip` query
   parameters it did not send before; its signature and return shape are unchanged.
+
+### Fixed
+
+- **`Dashboard.add_dashboard_script` and `add_widget_script` accept JavaScript that starts with
+  `{`.** Any string starting with `{` used to be parsed as JSON, so a script opening with a block
+  was refused as "must be a valid JSON string". Now a string that parses as a JSON object is sent
+  as-is and any other string is wrapped as `{"script": ...}`. Only a string that starts like
+  `{"script": ...` but is not valid JSON is still refused.
 
 ### Deprecated
 

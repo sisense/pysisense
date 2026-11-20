@@ -320,12 +320,38 @@ class TestAddDashboardScript:
         assert "fail" in result["error"]
         assert result["status_code"] == 500
 
-    def test_returns_error_dict_on_invalid_json_script(self):
+    def test_returns_error_dict_on_malformed_json_wrapper(self):
         dash = _make_dash()
-        # Pass something that causes JSONDecodeError on json.loads
-        result = dash.add_dashboard_script("dash123", "{bad json{{")
+        result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"')
         assert result["ok"] is False
         assert "valid JSON" in result["error"]
+
+    def test_javascript_starting_with_brace_is_written(self):
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(200, {})})
+        result = dash.add_dashboard_script("dash123", "{ dashboard.on('initialized', function () {}); }")
+        assert result["success"] is True
+
+
+class TestScriptPayload:
+    @pytest.mark.parametrize(
+        ("script", "expected"),
+        [
+            ("console.log(1);", {"script": "console.log(1);"}),
+            ("{ let x = 1; }", {"script": "{ let x = 1; }"}),
+            ("{bad json{{", {"script": "{bad json{{"}),
+            ('"use strict";', {"script": '"use strict";'}),
+            ("42", {"script": "42"}),
+            ('{"script": "a();"}', {"script": "a();"}),
+            ('  {"script": "a();"}', {"script": "a();"}),
+            ({"script": "a();"}, {"script": "a();"}),
+        ],
+    )
+    def test_builds_request_body(self, script, expected):
+        assert scripts_module._script_payload(script) == expected
+
+    @pytest.mark.parametrize("script", ['{"script": "a();"', '{ "script" : oops }'])
+    def test_malformed_wrapper_returns_none(self, script):
+        assert scripts_module._script_payload(script) is None
 
     def test_returns_ownership_hint_on_404_when_no_executing_user(self):
         # Confirmed correct against a live instance — see
@@ -388,6 +414,12 @@ class TestAddWidgetScript:
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
         result = dash.add_widget_script("dash123", "widget456", script)
         assert "act_as_owner" not in result["error"]
+
+    def test_returns_error_dict_on_malformed_json_wrapper(self):
+        dash = _make_dash()
+        result = dash.add_widget_script("dash123", "widget456", '{"script": "x();"')
+        assert result["ok"] is False
+        assert "valid JSON" in result["error"]
 
 
 # ---------------------------------------------------------------------------

@@ -92,7 +92,7 @@ print(dashboard_df)
 
 Add a custom JavaScript script to a dashboard for UI customization.
 
-The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. Strings that do not start with `{` are automatically wrapped as `{"script": "..."}`. Under Dashboard Co-Authoring the script is written on the shared copy (what viewers see) and on the owner's private copy, then the dashboard is republished. Only the **dashboard owner** can save scripts; a non-owner is refused with the owner named. An administrator can pass **`act_as_owner=True`** to take ownership for the change and hand it back afterwards (`executing_user`, the older email form of the same thing, still works).
+The `script` argument may be a **raw JavaScript string** (as below) or a **JSON string** acceptable to the Sisense API. The script replaces the current one in full. A string that parses as a JSON object is sent as-is; any other string is JavaScript and is wrapped as `{"script": "..."}`, even when it starts with `{`. Under Dashboard Co-Authoring the script is written on the shared copy (what viewers see) and on the owner's private copy, then the dashboard is republished. Only the **dashboard owner** can save scripts; a non-owner is refused with the owner named. An administrator can pass **`act_as_owner=True`** to take ownership for the change and hand it back afterwards (`executing_user`, the older email form of the same thing, still works).
 
 On success this returns `{"success": True, "message": "...", "copies_updated": [...], "published": ...}`; failures return the standard error dict `{"ok": False, "error": "...", "status_code": <int>}`, with `owner` and `co_owners` when the token's user is not the owner.
 
@@ -280,7 +280,7 @@ else:
 
 ## Example 12: Get Widget Script and Save to File
 
-`get_widget_script` uses the same export as Example 10; **`widget_id`** must match a key in the exported dashboard’s **`widgets`** map. The helper strips the standard Sisense widget header comment via regex, beautifies, and appends a widget-specific footer.
+`get_widget_script` uses the same export as Example 10; **`widget_id`** is the widget's `oid`. The helper strips the standard Sisense widget header comment via regex, beautifies, and appends a widget-specific footer.
 
 ```python
 dashboard_id = "67dc928ae72ce30033bc6680"
