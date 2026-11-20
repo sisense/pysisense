@@ -1522,6 +1522,14 @@ class TestCreateScheduleBuild:
         result = am.create_schedule_build("NoSuchModel")
         assert "error" in result
 
+    def test_model_title_is_url_encoded(self):
+        am = _make_am(get_responses={"/api/v2/datamodels/schema": FakeResponse(404, {})})
+        urls = []
+        original = am.api_client.get
+        am.api_client.get = lambda url, **kw: urls.append(url) or original(url, **kw)
+        am.create_schedule_build("Sales #2 & Q1")
+        assert urls[0] == "/api/v2/datamodels/schema?title=Sales%20%232%20%26%20Q1"
+
     def test_returns_error_when_interval_is_zero(self):
         schema = {"oid": "dm123"}
         am = _make_am(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, schema)})

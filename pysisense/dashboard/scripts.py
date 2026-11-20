@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 import jsbeautifier as beautifier
 
-from ..utils import _dashboard_write_access, _finish_ownership, _user_id_for_email, _with_query, _write_dashboard_copies
+from ..utils import _dashboard_write_access, _extract_error_message, _finish_ownership, _user_id_for_email, _with_query, _write_dashboard_copies
+
+_SCRIPT_WRAPPER = re.compile(r'^\s*\{\s*"script"\s*:')
+
+
+def _script_payload(script: str | dict[str, Any]) -> dict[str, Any] | None:
+    """Return the request body for a script write, or ``None`` for a malformed ``{"script": ...}`` JSON string.
+
+    A string that parses as a JSON object is sent as-is; any other string is JavaScript and is
+    wrapped as ``{"script": ...}``, including code that starts with ``{``.
+    """
+    if isinstance(script, dict):
+        return script
+    try:
+        parsed = json.loads(script)
+    except json.JSONDecodeError:
+        return None if _SCRIPT_WRAPPER.match(script) else {"script": script}
+    return parsed if isinstance(parsed, dict) else {"script": script}
 
 
 class ScriptsMixin:
@@ -26,8 +43,9 @@ class ScriptsMixin:
         dashboard_id : str
             The ``oid`` of the dashboard.
         script : str | dict[str, Any]
-            The script, as plain JavaScript, as a JSON string ``{"script": "..."}``, or as
-            that dict.
+            The full script, replacing the current one: plain JavaScript, a JSON string
+            ``{"script": "..."}``, or that dict. A string that is not a JSON object is
+            treated as JavaScript, including code that starts with ``{``.
         executing_user : str | None, optional
             Deprecated in favour of ``act_as_owner``: the email of the user to transfer
             ownership to for the change. When given, ownership is borrowed for that user
@@ -45,15 +63,11 @@ class ScriptsMixin:
             borrowed. On failure the standard ``{"ok": False, "error": "...", ...}`` dict, with
             ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
-        try:
-            if isinstance(script, str) and not script.startswith("{"):
-                self.logger.debug("Dashboard Script received as a Python docstring. Converting to JSON format.")
-                script = json.dumps({"script": script}, ensure_ascii=False)
-            script_dict = json.loads(script) if isinstance(script, str) else script
-            self.logger.debug(f"Final dashboard script payload prepared: {list(script_dict) if isinstance(script_dict, dict) else type(script_dict).__name__}")
-        except json.JSONDecodeError:
+        script_dict = _script_payload(script)
+        if script_dict is None:
             self.logger.error("Invalid JSON format for dashboard script.")
             return {"ok": False, "error": "Dashboard Script must be a valid JSON string."}
+        self.logger.debug(f"Final dashboard script payload prepared: {list(script_dict)}")
 
         borrower = None
         if executing_user:
@@ -113,8 +127,9 @@ class ScriptsMixin:
         widget_id : str
             The ``oid`` of the widget.
         script : str | dict[str, Any]
-            The script, as plain JavaScript, as a JSON string ``{"script": "..."}``, or as
-            that dict.
+            The full script, replacing the current one: plain JavaScript, a JSON string
+            ``{"script": "..."}``, or that dict. A string that is not a JSON object is
+            treated as JavaScript, including code that starts with ``{``.
         executing_user : str | None, optional
             Deprecated in favour of ``act_as_owner``: the email of the user to transfer
             ownership to for the change. When given, ownership is borrowed for that user
@@ -131,15 +146,11 @@ class ScriptsMixin:
             borrowed. On failure the standard ``{"ok": False, "error": "...", ...}`` dict, with
             ``owner`` and ``co_owners`` when the token's user is not the owner.
         """
-        try:
-            if isinstance(script, str) and not script.startswith("{"):
-                self.logger.debug("Widget Script received as a Python docstring. Converting to JSON format.")
-                script = json.dumps({"script": script}, ensure_ascii=False)
-            script_dict = json.loads(script) if isinstance(script, str) else script
-            self.logger.debug(f"Final widget script payload prepared: {list(script_dict) if isinstance(script_dict, dict) else type(script_dict).__name__}")
-        except json.JSONDecodeError:
+        script_dict = _script_payload(script)
+        if script_dict is None:
             self.logger.error("Invalid JSON format for widget script.")
             return {"ok": False, "error": "Widget Script must be a valid JSON string."}
+        self.logger.debug(f"Final widget script payload prepared: {list(script_dict)}")
 
         borrower = None
         if executing_user:
@@ -182,23 +193,24 @@ class ScriptsMixin:
         return result
 
     def get_dashboard_script(self, dashboard_id: str) -> SisenseScript | dict[str, str]:
-        """Build a formatted dashboard script helper object.
+        """Return a dashboard's script.
 
-        Retrieves a dashboard export payload and wraps its script content in a
-        :class:`SisenseScript` helper that can render plain text, markdown, or file output.
+        Reads the dashboard through the admin export (``GET /api/v1/dashboards/export``) and
+        returns its script in a :class:`SisenseScript`. ``to_dict()`` gives the raw script
+        with the dashboard title and URL; ``to_text()``, ``to_md()`` and ``to_file()`` give a
+        formatted copy. A dashboard with no script is a normal state, reported as an error dict.
 
         Parameters
         ----------
         dashboard_id : str
-            The dashboard identifier to export.
+            The ``oid`` of the dashboard.
 
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the dashboard is retrieved and
-            has a script. ``{"error": "..."}`` when the export fails (including
-            ``status_code`` for HTTP failures such as missing access) or when the
-            dashboard has no script — a normal state, reported explicitly.
+            A :class:`SisenseScript` when the dashboard has a script. Otherwise the standard
+            ``{"ok": False, "error": "..."}`` dict: the export failed (with ``status_code``) or
+            the dashboard has no script.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
@@ -230,26 +242,27 @@ class ScriptsMixin:
         )
 
     def get_widget_script(self, dashboard_id: str, widget_id: str) -> SisenseScript | dict[str, str]:
-        """Build a formatted widget script helper object.
+        """Return a widget's script.
 
-        Retrieves a dashboard export payload, selects a widget by index/key, and
-        wraps its script content in a :class:`SisenseScript` helper for downstream rendering.
+        Reads the dashboard through the admin export (``GET /api/v1/dashboards/export``),
+        falling back to ``GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}`` when the
+        export omits widget scripts, and returns the script in a :class:`SisenseScript`.
+        ``to_dict()`` gives the raw script with the widget title, URL and type. A widget with
+        no script is a normal state, reported as an error dict.
 
         Parameters
         ----------
         dashboard_id : str
-            The dashboard identifier to export.
+            The ``oid`` of the dashboard that contains the widget.
         widget_id : str
-            The widget identifier or lookup key used in the exported widget mapping.
+            The ``oid`` of the widget.
 
         Returns
         -------
         SisenseScript | dict[str, str]
-            A :class:`SisenseScript` instance when the widget is found and has a
-            script. ``{"error": "..."}`` when the export fails (including
-            ``status_code`` for HTTP failures such as missing access), the widget
-            is not found, or the widget has no script — a normal state, reported
-            explicitly.
+            A :class:`SisenseScript` when the widget has a script. Otherwise the standard
+            ``{"ok": False, "error": "..."}`` dict: the export failed (with ``status_code``),
+            the widget is not on the dashboard, or the widget has no script.
         """
         dashboard_data = self.export_dashboard(dashboard_id)
 
@@ -289,6 +302,132 @@ class ScriptsMixin:
             template=WIDGET_TEMPLATE_REGEX,
             footer=footer,
         )
+
+    def find_scripts(
+        self,
+        dashboards: list[str] | str | None = None,
+        listing: Literal["visible", "admin"] = "visible",
+        include_script: bool = False,
+    ) -> dict[str, Any]:
+        """Find every dashboard script and widget script.
+
+        Reads dashboards through the admin export (``GET /api/v1/dashboards/export`` with
+        ``adminAccess=true``, 20 dashboards per request) and reports one row per script
+        found. When the export omits a widget's script (some Sisense versions), the widget
+        is read directly via ``GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}``.
+        A dashboard that cannot be read is reported in ``errors`` and the rest are still
+        checked.
+
+        Parameters
+        ----------
+        dashboards : list[str] | str | None, optional
+            Dashboard IDs or titles to check. Default ``None``: every dashboard in the
+            listing chosen by ``listing``.
+        listing : Literal["visible", "admin"], optional
+            Which dashboards to check when ``dashboards`` is not given: ``"visible"``
+            (default) lists the dashboards the token's user can see
+            (``GET /api/v1/dashboards``); ``"admin"`` lists every dashboard on the instance
+            (``GET /api/v1/dashboards/admin``, administrators only).
+        include_script : bool, optional
+            Add each script's text to its row. Default ``False``.
+
+        Returns
+        -------
+        dict[str, Any]
+            ``{"results": [...], "errors": [...], "dashboards_checked": int}``. Each result
+            row has ``dashboard_id``, ``dashboard_title``, ``level`` (``"dashboard"`` or
+            ``"widget"``), ``widget_id``, ``widget_title`` and ``widget_type`` (``None`` for
+            dashboard scripts), ``line_count``, and ``script`` when ``include_script`` is
+            true. An empty ``results`` list means no checked dashboard has a script. Each
+            error row has ``dashboard_id``, ``dashboard_title`` and ``error``. The standard
+            ``{"ok": False, "error": "..."}`` dict when the dashboard listing fails.
+        """
+        targets: list[tuple[str, str | None]] = []
+        errors: list[dict[str, Any]] = []
+        if dashboards is None:
+            rows = self.get_all_dashboards() if listing == "admin" else self.get_dashboards()
+            if isinstance(rows, dict):
+                return rows
+            seen: set[str] = set()
+            for row in rows:
+                oid = row.get("oid") if isinstance(row, dict) else None
+                if isinstance(oid, str) and oid not in seen:
+                    seen.add(oid)
+                    targets.append((oid, row.get("title")))
+        else:
+            if isinstance(dashboards, str):
+                dashboards = [dashboards]
+            for ref in dashboards:
+                resolved = self.resolve_dashboard_reference(ref)
+                if resolved.get("success"):
+                    targets.append((resolved["dashboard_id"], resolved.get("dashboard_title")))
+                else:
+                    errors.append({"dashboard_id": None, "dashboard_title": ref, "error": resolved.get("error") or f"Dashboard '{ref}' could not be resolved."})
+        self.logger.debug(f"Checking {len(targets)} dashboards for scripts (listing={listing})")
+
+        results: list[dict[str, Any]] = []
+        titles = dict(targets)
+        oids = list(titles)
+        for start in range(0, len(oids), 20):
+            batch = oids[start : start + 20]
+            response = self.api_client.get("/api/v1/dashboards/export", params={"dashboardIds": ",".join(batch), "adminAccess": "true"})
+            exported = None
+            if response is not None and response.status_code == 200:
+                try:
+                    exported = response.json()
+                except ValueError:
+                    exported = None
+            if not isinstance(exported, list):
+                failure = (
+                    _extract_error_message(response, "Failed to export dashboards", self.api_client)
+                    if response is None or response.status_code != 200
+                    else {"error": "Failed to parse the dashboard export."}
+                )
+                self.logger.error(f"{failure['error']} ({len(batch)} dashboards)")
+                errors.extend({"dashboard_id": oid, "dashboard_title": titles.get(oid), "error": failure["error"]} for oid in batch)
+                continue
+            returned = {d.get("oid"): d for d in exported if isinstance(d, dict)}
+            for oid in batch:
+                doc = returned.get(oid)
+                if doc is None:
+                    errors.append({"dashboard_id": oid, "dashboard_title": titles.get(oid), "error": "Dashboard missing from the export."})
+                    continue
+                results.extend(self._script_rows(oid, doc.get("title") or titles.get(oid), doc, include_script))
+
+        self.logger.info(f"Found {len(results)} scripts across {len(oids)} dashboards ({len(errors)} errors)")
+        return {"results": results, "errors": errors, "dashboards_checked": len(oids)}
+
+    def _script_rows(self, oid: str, title: str | None, doc: dict[str, Any], include_script: bool) -> list[dict[str, Any]]:
+        """One row per script on an exported dashboard: the dashboard's own, then each widget's."""
+
+        def row(level: str, script: str, widget: dict[str, Any] | None) -> dict[str, Any]:
+            out = {
+                "dashboard_id": oid,
+                "dashboard_title": title,
+                "level": level,
+                "widget_id": widget.get("oid") if widget else None,
+                "widget_title": (widget.get("title") or None) if widget else None,
+                "widget_type": widget.get("type") if widget else None,
+                "line_count": len(script.splitlines()),
+            }
+            if include_script:
+                out["script"] = script
+            return out
+
+        rows = []
+        if isinstance(doc.get("script"), str) and doc["script"].strip():
+            rows.append(row("dashboard", doc["script"], None))
+        for widget in doc.get("widgets") or []:
+            if not isinstance(widget, dict):
+                continue
+            if "script" not in widget and widget.get("oid"):
+                direct = self.get_widget_by_id(oid, widget["oid"])
+                if isinstance(direct, dict) and direct.get("ok") is not False:
+                    widget = {**widget, **direct}
+            script = widget.get("script")
+            if isinstance(script, str) and script.strip():
+                rows.append(row("widget", script, widget))
+        return rows
 
 
 class SisenseScript:

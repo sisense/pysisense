@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ..utils import _extract_error_message
 
@@ -186,7 +187,7 @@ class AdminMixin:
             invalid schedule configuration.
         """
         self.logger.debug(f"Fetching DataModel ID for '{datamodel_name}'")
-        schema_url = f"/api/v2/datamodels/schema?title={datamodel_name}"
+        schema_url = f"/api/v2/datamodels/schema?title={quote(datamodel_name, safe='')}"
         response = self.api_client.get(schema_url)
 
         if response is None or response.status_code != 200:

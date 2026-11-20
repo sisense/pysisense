@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import quote
 
 from pysisense.wellcheck import WellCheck
 
@@ -821,7 +822,7 @@ def test_check_datamodel_rls_datatypes_detects_numeric_and_non_numeric() -> None
     }
 
     # RLS payload returned by /api/elasticubes/{server}/{title}/datasecurity
-    rls_endpoint = f"/api/elasticubes/{datamodel_server}/{datamodel_title}/datasecurity"
+    rls_endpoint = f"/api/elasticubes/{quote(datamodel_server, safe='')}/{quote(datamodel_title, safe='')}/datasecurity"
     rls_payload = [
         {
             "table": "Orders",
@@ -1172,6 +1173,21 @@ def test_check_datamodel_m2m_relationships_expands_a_multi_table_relation_pairwi
     assert [(r["left_table"], r["right_table"], r["is_m2m"]) for r in result] == [("A", "B", False), ("A", "C", False), ("B", "C", True)]
 
 
+def test_check_datamodel_m2m_relationships_reads_the_string_error_body() -> None:
+    """The other failure body the SQL endpoint sends: ``{"error": "<message>", "status": ...}``."""
+    logger = FakeLogger()
+    relations = [{"oid": "REL1", "columns": [{"dataset": "DS1", "table": "T1", "column": "C1"}, {"dataset": "DS2", "table": "T2", "column": "C2"}]}]
+    tables = {("DS1", "T1"): {"name": "L", "columns": [{"oid": "C1", "name": "k"}]}, ("DS2", "T2"): {"name": "R", "columns": [{"oid": "C2", "name": "k"}]}}
+    responses = _m2m_schema_responses(relations, tables)
+    responses[(_M2M_SQL, _dup_query("L", "k"))] = FakeResponse(
+        status_code=200, json_data={"error": "Query could not be compiled.\nIdentifier '[k]' is ambiguous.", "status": "NQUERY_COMPILATION_ERROR"}
+    )
+    responses[(_M2M_SQL, _dup_query("R", "k"))] = _sql(3)
+    row = _m2m_harness(responses, _M2M_MAPPING, logger).check_datamodel_m2m_relationships(datamodels=["DM1"])[0]
+    assert row["status"] == "error"
+    assert row["error"] == "SQL query on 'L' failed: Query could not be compiled. Identifier '[k]' is ambiguous."
+
+
 def test_check_datamodel_m2m_relationships_reports_query_failures_instead_of_false() -> None:
     """The SQL endpoint answers HTTP 200 with an error body; the pair is reported as not checked, never as not M2M."""
     logger = FakeLogger()
@@ -1186,7 +1202,7 @@ def test_check_datamodel_m2m_relationships_reports_query_failures_instead_of_fal
     result = wellcheck.check_datamodel_m2m_relationships(datamodels=["DM1"])
     row = result[0]
     assert row["status"] == "error" and row["is_m2m"] is None and row["left_duplicate_keys"] is None and row["right_duplicate_keys"] is None
-    assert row["error"] == "SQL query on 'L' failed: Query could not be compiled.\nColumn 'k' not found in any table"
+    assert row["error"] == "SQL query on 'L' failed: Query could not be compiled. Column 'k' not found in any table"
     assert [q for e, q in wellcheck.api_client.calls if e == _M2M_SQL] == [_dup_query("L", "k")]  # the right side is not queried after the left failed
     assert any(m["level"] == "info" and "Found 0 many-to-many relationships" in m["msg"] for m in logger.messages)
     # no answer at all is an error too

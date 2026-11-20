@@ -266,7 +266,7 @@ class TestDatamodelsV2NewTitle:
         result = Migration(source_client=src, target_client=tgt).migrate_datamodels_v2(datamodel_ids=["dm1"], action="duplicate", new_title="Sample ECommerce Copy")
         assert result["succeeded"][0]["target_id"] == "dm9"
         import_url = next(c[1] for c in tgt.calls if c[1].startswith("/api/v2/datamodel-imports/schema"))
-        assert import_url == "/api/v2/datamodel-imports/schema?newTitle=Sample ECommerce Copy"
+        assert import_url == "/api/v2/datamodel-imports/schema?newTitle=Sample%20ECommerce%20Copy"
 
 
 class TestRunThatCannotStart:
@@ -392,7 +392,7 @@ class TestDatamodelsV2Meta:
         src = FakeApiClient(
             get_responses={
                 "/api/v2/datamodel-exports/schema": FakeResponse(200, {"oid": "dm1", "title": "Sample ECommerce", "datasets": []}),
-                "/api/elasticubes/localhost/Sample ECommerce/permissions": shares_response,
+                "/api/elasticubes/localhost/Sample%20ECommerce/permissions": shares_response,
                 "/api/v1/users": FakeResponse(200, []),
                 "/api/v1/groups": FakeResponse(200, []),
             },

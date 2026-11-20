@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ..utils import _duplicate_key_count, _group_relation_column_pairs, _many_to_many_check, _quote_sql_identifier
 
@@ -473,9 +474,9 @@ class DatamodelChecksMixin:
 
             # Determine RLS endpoint based on datamodel type
             if datamodel_type == "extract":
-                rls_endpoint = f"/api/elasticubes/{datamodel_server}/{datamodel_title}/datasecurity"
+                rls_endpoint = f"/api/elasticubes/{quote(datamodel_server, safe='')}/{quote(datamodel_title, safe='')}/datasecurity"
             elif datamodel_type == "live":
-                rls_endpoint = f"/api/v1/elasticubes/live/{datamodel_title}/datasecurity"
+                rls_endpoint = f"/api/v1/elasticubes/live/{quote(datamodel_title, safe='')}/datasecurity"
             else:
                 self.logger.warning(f"Datamodel '{datamodel_title}' has unsupported type '{datamodel_type}' for RLS inspection.")
                 continue

@@ -55,6 +55,15 @@ class _RecordingApiClient(FakeApiClient):
         return super().post(url, data=data, **kwargs)
 
 
+class TestDatasourceTitleInPath:
+    def test_jaql_and_csv_encode_the_title(self):
+        client = _RecordingApiClient(post_responses={"/api/datasources/": FakeResponse(200, {"values": []})}, logger=FakeLogger())
+        queries = Queries(api_client=client)
+        queries.elasticube_run_jaql_query("Sales #2", _JAQL_PAYLOAD)
+        queries.elasticubes_run_jaql_csv("Sales #2", _JAQL_PAYLOAD)
+        assert [url for url, _ in client.post_calls] == ["/api/datasources/Sales%20%232/jaql", "/api/datasources/Sales%20%232/jaql/csv"]
+
+
 class TestElasticubesRunJaqlCsv:
     def test_sends_jaql_as_the_data_form_field_not_a_json_body(self):
         # The CSV endpoint reads its JAQL from a URL-encoded form field named

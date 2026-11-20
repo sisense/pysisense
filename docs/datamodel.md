@@ -577,7 +577,7 @@ Retrieves data from a specific table in a DataModel with optional custom SQL que
 
 #### Returns:
 
-* `list`: List of dictionaries where each dictionary represents a row of data. An empty list always means the query genuinely returned no rows. On failure, returns `{"ok": False, "error": "..."}` (no longer an empty list).
+* `list`: List of dictionaries where each dictionary represents a row of data. An empty list always means the query genuinely returned no rows. On failure, returns `{"ok": False, "error": "..."}` (no longer an empty list). Sisense reports SQL errors (a query that does not compile, an unknown table or data model) with HTTP 200 and an error body; those come back as `{"ok": False, "error": "SQL query on DataModel '<name>' failed: <reason>"}` too.
 
 ---
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ..utils import _extract_error_message
 
@@ -278,7 +279,7 @@ class SharesMixin:
             The raw list of share objects from the API, or
             ``{"error": "..."}`` on failure.
         """
-        endpoint = f"/api/elasticubes/localhost/{datamodel_title}/permissions"
+        endpoint = f"/api/elasticubes/localhost/{quote(datamodel_title, safe='')}/permissions"
         self.logger.debug(f"GET {endpoint}")
         response = self.api_client.get(endpoint)
 
@@ -368,7 +369,7 @@ class SharesMixin:
             self.logger.error("update_datamodel_permissions_extract requires shares to be a list.")
             return {"ok": False, "error": "shares must be a list of share objects."}
 
-        endpoint = f"/api/elasticubes/localhost/{datamodel_title}/permissions"
+        endpoint = f"/api/elasticubes/localhost/{quote(datamodel_title, safe='')}/permissions"
         self.logger.debug(f"PUT {endpoint} — {len(shares)} share(s)")
         response = self.api_client.put(endpoint, data=shares)
 

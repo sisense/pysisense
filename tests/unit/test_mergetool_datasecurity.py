@@ -149,14 +149,14 @@ class TestMigrateDatasecurityFiltering:
 
 class TestMigrateDatasecurityNoRules:
     def test_empty_rules_on_source_is_skipped(self):
-        src_get, src_post = _basic_source([_SALES_EXTRACT], datasecurity_by_url={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, [])})
+        src_get, src_post = _basic_source([_SALES_EXTRACT], datasecurity_by_url={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, [])})
         tgt_get, tgt_post, tgt_put = _basic_target(existing_datamodels=[_SALES_EXTRACT])
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put)
         result = merge.migrate_datasecurity(datamodel_ids=["dm1"])
         assert result["skipped"] == [{"title": "Sales Cube", "source_oid": "dm1", "reason": "No datasecurity rules found on source."}]
 
     def test_fetch_failure_marks_datamodel_failed(self):
-        src_get, src_post = _basic_source([_SALES_EXTRACT], datasecurity_by_url={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(500, {"error": "boom"})})
+        src_get, src_post = _basic_source([_SALES_EXTRACT], datasecurity_by_url={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(500, {"error": "boom"})})
         tgt_get, tgt_post, tgt_put = _basic_target(existing_datamodels=[_SALES_EXTRACT])
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put)
         result = merge.migrate_datasecurity(datamodel_ids=["dm1"])
@@ -174,20 +174,20 @@ class TestMigrateDatasecurityExtract:
         src_get, src_post = _basic_source(
             [_SALES_EXTRACT],
             users=[{"_id": "src_user_1", "email": "alice@example.com"}],
-            datasecurity_by_url={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
+            datasecurity_by_url={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
         )
         tgt_get, tgt_post, tgt_put = _basic_target(
             existing_datamodels=[_SALES_EXTRACT],
             users=[{"_id": "tgt_user_1", "email": "alice@example.com"}],
             schema_by_title=FakeResponse(200, {"title": "Sales Cube", "type": "extract"}),
-            tgt_post_extra={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, {})},
+            tgt_post_extra={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, {})},
         )
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put, capture_target=True)
 
         result = merge.migrate_datasecurity(datamodel_ids=["dm1"])
 
         assert result["succeeded"] == [{"title": "Sales Cube", "source_oid": "dm1", "rule_count": 1}]
-        put_call = next(c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/elasticubes/localhost/Sales Cube/datasecurity")
+        put_call = next(c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/elasticubes/localhost/Sales%20Cube/datasecurity")
         written_rule = put_call[2][0]
         assert written_rule["shares"] == [{"type": "user", "party": "tgt_user_1"}, {"type": "default"}]
         assert written_rule["table"] == "Customers"
@@ -197,30 +197,30 @@ class TestMigrateDatasecurityExtract:
         src_get, src_post = _basic_source(
             [_SALES_EXTRACT],
             users=[{"_id": "src_user_1", "email": "alice@example.com"}],
-            datasecurity_by_url={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
+            datasecurity_by_url={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
         )
         tgt_get, tgt_post, tgt_put = _basic_target(
             existing_datamodels=[_SALES_EXTRACT],
             users=[],
             schema_by_title=FakeResponse(200, {"title": "Sales Cube", "type": "extract"}),
-            tgt_post_extra={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, {})},
+            tgt_post_extra={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, {})},
         )
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put, capture_target=True)
 
         merge.migrate_datasecurity(datamodel_ids=["dm1"])
 
-        put_call = next(c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/elasticubes/localhost/Sales Cube/datasecurity")
+        put_call = next(c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/elasticubes/localhost/Sales%20Cube/datasecurity")
         assert put_call[2][0]["shares"] == [{"type": "default"}]
 
     def test_write_failure_marks_datamodel_failed(self):
         src_get, src_post = _basic_source(
             [_SALES_EXTRACT],
-            datasecurity_by_url={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
+            datasecurity_by_url={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
         )
         tgt_get, tgt_post, tgt_put = _basic_target(
             existing_datamodels=[_SALES_EXTRACT],
             schema_by_title=FakeResponse(200, {"title": "Sales Cube", "type": "extract"}),
-            tgt_post_extra={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(500, {"error": "boom"})},
+            tgt_post_extra={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(500, {"error": "boom"})},
         )
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put)
         result = merge.migrate_datasecurity(datamodel_ids=["dm1"])
@@ -237,20 +237,20 @@ class TestMigrateDatasecurityLive:
         src_get, src_post = _basic_source(
             [_MARKETING_LIVE],
             groups=[{"_id": "src_group_1", "name": "Sales Team"}],
-            datasecurity_by_url={"/api/v1/elasticubes/live/Marketing Live/datasecurity": FakeResponse(200, [_LIVE_RULE])},
+            datasecurity_by_url={"/api/v1/elasticubes/live/Marketing%20Live/datasecurity": FakeResponse(200, [_LIVE_RULE])},
         )
         tgt_get, tgt_post, tgt_put = _basic_target(
             existing_datamodels=[_MARKETING_LIVE],
             groups=[{"_id": "tgt_group_1", "name": "Sales Team"}],
             schema_by_title=FakeResponse(200, {"title": "Marketing Live", "type": "live"}),
         )
-        tgt_post["/api/v1/elasticubes/live/Marketing Live/datasecurity/addMany"] = FakeResponse(200, {})
+        tgt_post["/api/v1/elasticubes/live/Marketing%20Live/datasecurity/addMany"] = FakeResponse(200, {})
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put, capture_target=True)
 
         result = merge.migrate_datasecurity(datamodel_ids=["dm2"])
 
         assert result["succeeded"] == [{"title": "Marketing Live", "source_oid": "dm2", "rule_count": 1}]
-        add_many_call = next(c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/v1/elasticubes/live/Marketing Live/datasecurity/addMany")
+        add_many_call = next(c for c in merge.target_client.calls if c[0] == "POST" and c[1] == "/api/v1/elasticubes/live/Marketing%20Live/datasecurity/addMany")
         assert add_many_call[2][0]["shares"] == [{"type": "group", "partyId": "tgt_group_1"}]
 
 
@@ -263,12 +263,12 @@ class TestMigrateAllDatasecurity:
     def test_migrates_every_source_datamodel(self):
         src_get, src_post = _basic_source(
             [_SALES_EXTRACT],
-            datasecurity_by_url={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
+            datasecurity_by_url={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, [_EXTRACT_RULE])},
         )
         tgt_get, tgt_post, tgt_put = _basic_target(
             existing_datamodels=[_SALES_EXTRACT],
             schema_by_title=FakeResponse(200, {"title": "Sales Cube", "type": "extract"}),
-            tgt_post_extra={"/api/elasticubes/localhost/Sales Cube/datasecurity": FakeResponse(200, {})},
+            tgt_post_extra={"/api/elasticubes/localhost/Sales%20Cube/datasecurity": FakeResponse(200, {})},
         )
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put)
         result = merge.migrate_all_datasecurity()

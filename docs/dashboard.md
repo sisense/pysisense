@@ -94,8 +94,10 @@ Adds or overwrites the dashboard-level JavaScript script via `PUT /api/dashboard
 
 **Script input**
 
--   A JSON string whose parsed object is sent to the API (for example a payload containing a `script` field), **or**
--   A raw JavaScript string (multi-line). If the string does **not** start with `{`, it is wrapped automatically as `{"script": "<your code>"}` before the request.
+The script replaces the current one in full.
+
+-   A JSON string that parses to an object is sent to the API as-is (for example `{"script": "..."}`), **or**
+-   Any other string is JavaScript and is wrapped as `{"script": "<your code>"}` before the request, including code that starts with `{`. A string that starts like `{"script": ...` but is not valid JSON is refused, so a broken wrapper is never saved as the script.
 
 **Copies.** With Dashboard Co-Authoring on (system setting `dashboardCoAuthoring`), a published dashboard has a shared copy — what viewers see — and a private copy per owner; a write without `sharedMode=true` reaches only the private copy. The script is written on both copies, shared first with `sharedMode=true`, and the dashboard is republished (never with `force=true`, which empties the owner's private copy under co-authoring); the result carries `published` (and `publish_error`). A never-published dashboard, or an instance with the feature off, has a single copy and is written once.
 
@@ -103,7 +105,7 @@ Adds or overwrites the dashboard-level JavaScript script via `PUT /api/dashboard
 
 **Returns:**
 
--   `dict`: `{"success": True, "message": "...", "copies_updated": [...], "published": bool | None}` on success (`published` is `None` when no shared copy exists), plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed; the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure, with `owner` and `co_owners` when the token's user is not the owner. An invalid JSON script returns `{"ok": False, "error": "Dashboard Script must be a valid JSON string."}`.
+-   `dict`: `{"success": True, "message": "...", "copies_updated": [...], "published": bool | None}` on success (`published` is `None` when no shared copy exists), plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed; the standard error dict `{"ok": False, "error": "...", "status_code": <int, when an HTTP status exists>}` on failure, with `owner` and `co_owners` when the token's user is not the owner. A malformed `{"script": ...}` JSON string returns `{"ok": False, "error": "Dashboard Script must be a valid JSON string."}`.
 
 * * * * *
 
@@ -115,13 +117,13 @@ Adds or overwrites the JavaScript script for one widget via `PUT /api/dashboards
 
 **Returns:**
 
--   `dict`: `{"success": True, "message": "...", "copies_updated": [...], "published": bool}` on success (with `publish_error` when the republish failed), plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed; the standard error dict on failure, with `owner` and `co_owners` when the token's user is not the owner. An invalid JSON script returns `{"ok": False, "error": "Widget Script must be a valid JSON string."}`.
+-   `dict`: `{"success": True, "message": "...", "copies_updated": [...], "published": bool}` on success (with `publish_error` when the republish failed), plus `ownership_transferred_temporarily` / `original_owner` when ownership was borrowed; the standard error dict on failure, with `owner` and `co_owners` when the token's user is not the owner. A malformed `{"script": ...}` JSON string returns `{"ok": False, "error": "Widget Script must be a valid JSON string."}`.
 
 * * * * *
 
 ### `get_dashboard_script(dashboard_id)`
 
-Builds a **`SisenseScript`** helper from an admin export of the dashboard (`export_dashboard` / `/api/v1/dashboards/export`). Use it to read the current dashboard script in a cleaned, formatted form.
+Returns the dashboard's script in a **`SisenseScript`**, read from an admin export of the dashboard (`GET /api/v1/dashboards/export`). `to_dict()` gives the raw script with the title and URL; `to_text()`, `to_md()` and `to_file()` give a cleaned, formatted copy.
 
 **Parameters:**
 
@@ -135,16 +137,35 @@ Builds a **`SisenseScript`** helper from an admin export of the dashboard (`expo
 
 ### `get_widget_script(dashboard_id, widget_id)`
 
-Builds a **`SisenseScript`** helper for one widget in the exported dashboard payload.
+Returns one widget's script in a **`SisenseScript`**, read from the admin export of its dashboard. When the export omits widget scripts (some Sisense versions), the widget is read directly via `GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}`. `to_dict()` gives the raw script with the widget title, URL and type.
 
 **Parameters:**
 
 -   `dashboard_id` (str): Dashboard ID.
--   `widget_id` (str): Widget key in the exported dashboard’s `widgets` map (typically the widget OID / id used in that structure).
+-   `widget_id` (str): The widget's `oid`.
 
 **Returns:**
 
 -   `SisenseScript` or `dict`: A `SisenseScript` instance when the widget exists and has a script, or the standard error dict `{"ok": False, "error": "..."}` on failure — export failure (with `status_code` for HTTP failures), widget not found in the export, or the widget has no script (a normal state, reported as an explicit "has no widget script" message rather than an exception).
+
+* * * * *
+
+### `find_scripts(dashboards=None, listing="visible", include_script=False)`
+
+Finds every dashboard script and widget script. Dashboards are read through the admin export (`GET /api/v1/dashboards/export` with `adminAccess=true`), 20 per request; when the export omits a widget's script (some Sisense versions), the widget is read directly via `GET /api/v1/dashboards/{dashboard_id}/widgets/{widget_id}`. A dashboard that cannot be read is reported in `errors` and the rest are still checked.
+
+**Parameters:**
+
+-   `dashboards` (list[str] | str | None): Dashboard IDs or titles to check. Default `None`: every dashboard in the listing chosen by `listing`.
+-   `listing` (`"visible"` | `"admin"`): Used when `dashboards` is not given. `"visible"` (default) checks the dashboards the token's user can see (`GET /api/v1/dashboards`); `"admin"` checks every dashboard on the instance (`GET /api/v1/dashboards/admin`, administrators only).
+-   `include_script` (bool): Add each script's text to its row. Default `False`.
+
+**Returns:**
+
+-   `dict`: `{"results": [...], "errors": [...], "dashboards_checked": int}`.
+    -   Each result row: `dashboard_id`, `dashboard_title`, `level` (`"dashboard"` or `"widget"`), `widget_id`, `widget_title`, `widget_type` (all `None` for a dashboard script), `line_count`, and `script` when `include_script=True`. An empty `results` list means no checked dashboard has a script.
+    -   Each error row: `dashboard_id` (`None` when a title could not be resolved), `dashboard_title`, `error`.
+    -   The standard error dict `{"ok": False, "error": "..."}` when the dashboard listing itself fails.
 
 * * * * *
 

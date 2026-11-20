@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from urllib.parse import quote
 
 from ..payloads import (
     AthenaConnectionParams,
@@ -33,7 +34,7 @@ class ConnectionsMixin:
         """
         self.logger.debug(f"Attempting to retrieve connections with name: '{connection_name}'")
 
-        endpoint = f"/api/v2/connections?name={connection_name}"
+        endpoint = f"/api/v2/connections?name={quote(connection_name, safe='')}"
         response = self.api_client.get(endpoint)
 
         if response is None:

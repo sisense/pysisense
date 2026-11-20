@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ..utils import _extract_error_message
 
@@ -14,9 +15,9 @@ class SecurityMixin:
         """Build the datasecurity endpoint for a resolved data model name/type, or ``None`` if unsupported."""
         normalized_type = (datamodel_type or "").upper()
         if normalized_type == "EXTRACT":
-            return f"/api/elasticubes/localhost/{resolved_name}/datasecurity"
+            return f"/api/elasticubes/localhost/{quote(resolved_name, safe='')}/datasecurity"
         if normalized_type == "LIVE":
-            return f"/api/v1/elasticubes/live/{resolved_name}/datasecurity"
+            return f"/api/v1/elasticubes/live/{quote(resolved_name, safe='')}/datasecurity"
         return None
 
     def _fetch_datasecurity_rows(self, url: str) -> tuple[list[dict[str, Any]] | None, str | None]:
@@ -333,7 +334,7 @@ class SecurityMixin:
         # Strip server-managed fields so read-back rules can be re-submitted.
         payload = [{k: v for k, v in rule.items() if k not in _DATASECURITY_SERVER_FIELDS} for rule in datasecurity]
 
-        endpoint = f"/api/elasticubes/localhost/{title}/datasecurity"
+        endpoint = f"/api/elasticubes/localhost/{quote(title, safe='')}/datasecurity"
         self.logger.debug(f"Adding datasecurity rules to EXTRACT datamodel '{title}' — {len(payload)} rule(s)")
         response = self.api_client.post(endpoint, data=payload)
 
@@ -406,7 +407,7 @@ class SecurityMixin:
             cleaned.setdefault("fullname", f"live:{title}")
             payload.append(cleaned)
 
-        endpoint = f"/api/v1/elasticubes/live/{title}/datasecurity/addMany"
+        endpoint = f"/api/v1/elasticubes/live/{quote(title, safe='')}/datasecurity/addMany"
         self.logger.debug(f"Adding datasecurity rules to LIVE datamodel '{title}' — {len(payload)} rule(s)")
         response = self.api_client.post(endpoint, data=payload)
 
@@ -461,7 +462,7 @@ class SecurityMixin:
             self.logger.error(msg)
             return {"ok": False, "error": msg}
 
-        endpoint = f"{base_url}/{table}/{column}"
+        endpoint = f"{base_url}/{quote(table, safe='')}/{quote(column, safe='')}"
         self.logger.debug(f"Deleting datasecurity rules for '{title}' — {table}.{column}")
         response = self.api_client.delete(endpoint)
 

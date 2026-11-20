@@ -1,6 +1,7 @@
 """Unit tests for pysisense.dashboard.Dashboard."""
 
 import json
+from urllib.parse import unquote
 
 import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
@@ -193,6 +194,14 @@ class TestGetDashboardByName:
         result = dash.get_dashboard_by_name("Sales Report")
         assert "error" in result
 
+    def test_name_is_url_encoded(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
+        urls = []
+        original_get = dash.api_client.get
+        dash.api_client.get = lambda url, **kw: urls.append(url) or original_get(url, **kw)
+        dash.get_dashboard_by_name("Sales #2 & Q1+Q2?")
+        assert urls == ["/api/v1/dashboards/admin?dashboardType=owner&name=Sales%20%232%20%26%20Q1%2BQ2%3F"]
+
 
 # ---------------------------------------------------------------------------
 # get_dashboard_widgets
@@ -320,12 +329,38 @@ class TestAddDashboardScript:
         assert "fail" in result["error"]
         assert result["status_code"] == 500
 
-    def test_returns_error_dict_on_invalid_json_script(self):
+    def test_returns_error_dict_on_malformed_json_wrapper(self):
         dash = _make_dash()
-        # Pass something that causes JSONDecodeError on json.loads
-        result = dash.add_dashboard_script("dash123", "{bad json{{")
+        result = dash.add_dashboard_script("dash123", '{"script": "console.log(1);"')
         assert result["ok"] is False
         assert "valid JSON" in result["error"]
+
+    def test_javascript_starting_with_brace_is_written(self):
+        dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(200, {})})
+        result = dash.add_dashboard_script("dash123", "{ dashboard.on('initialized', function () {}); }")
+        assert result["success"] is True
+
+
+class TestScriptPayload:
+    @pytest.mark.parametrize(
+        ("script", "expected"),
+        [
+            ("console.log(1);", {"script": "console.log(1);"}),
+            ("{ let x = 1; }", {"script": "{ let x = 1; }"}),
+            ("{bad json{{", {"script": "{bad json{{"}),
+            ('"use strict";', {"script": '"use strict";'}),
+            ("42", {"script": "42"}),
+            ('{"script": "a();"}', {"script": "a();"}),
+            ('  {"script": "a();"}', {"script": "a();"}),
+            ({"script": "a();"}, {"script": "a();"}),
+        ],
+    )
+    def test_builds_request_body(self, script, expected):
+        assert scripts_module._script_payload(script) == expected
+
+    @pytest.mark.parametrize("script", ['{"script": "a();"', '{ "script" : oops }'])
+    def test_malformed_wrapper_returns_none(self, script):
+        assert scripts_module._script_payload(script) is None
 
     def test_returns_ownership_hint_on_404_when_no_executing_user(self):
         # Confirmed correct against a live instance — see
@@ -388,6 +423,12 @@ class TestAddWidgetScript:
         dash = _make_dash(put_responses={"/api/dashboards/dash123": FakeResponse(404, {"error": "not found"})})
         result = dash.add_widget_script("dash123", "widget456", script)
         assert "act_as_owner" not in result["error"]
+
+    def test_returns_error_dict_on_malformed_json_wrapper(self):
+        dash = _make_dash()
+        result = dash.add_widget_script("dash123", "widget456", '{"script": "x();"')
+        assert result["ok"] is False
+        assert "valid JSON" in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +673,99 @@ class TestResolveDashboardReference:
 # ---------------------------------------------------------------------------
 # script retrieval + rendering
 # ---------------------------------------------------------------------------
+
+
+_EXPORT_WITH_SCRIPTS = [
+    {
+        "oid": "d1",
+        "title": "Sales",
+        "script": "dashboard.on('initialized', f);\ng();",
+        "widgets": [
+            {"oid": "w1", "title": "Revenue", "type": "indicator", "script": "widget.on('ready', f);"},
+            {"oid": "w2", "title": "Empty", "type": "pivot2", "script": ""},
+            {"oid": "w3", "title": "", "type": "chart/pie"},  # export omits the script
+        ],
+    },
+    {"oid": "d2", "title": "Plain", "widgets": [{"oid": "w4", "type": "pivot2", "script": "  "}]},
+]
+
+
+def _recording(dash, method="get"):
+    calls = []
+    original = getattr(dash.api_client, method)
+
+    def record(url, **kw):
+        calls.append((url, kw.get("params")))
+        return original(url, **kw)
+
+    setattr(dash.api_client, method, record)
+    return calls
+
+
+class TestFindScripts:
+    def _dash(self, export=None, export_status=200, listing=None):
+        listing = listing if listing is not None else [{"oid": "d1", "title": "Sales"}, {"oid": "d2", "title": "Plain"}, {"oid": "d1", "title": "Sales"}]
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/export": FakeResponse(export_status, export if export is not None else _EXPORT_WITH_SCRIPTS),
+                "/api/v1/dashboards/d1/widgets/w3": FakeResponse(200, {"oid": "w3", "type": "chart/pie", "script": "a();\nb();\nc();"}),
+                "/api/v1/dashboards": FakeResponse(200, listing),
+            }
+        )
+        return dash
+
+    def test_reports_one_row_per_script(self):
+        result = self._dash().find_scripts()
+        assert result["errors"] == []
+        assert result["dashboards_checked"] == 2  # the repeated listing entry is checked once
+        assert result["results"] == [
+            {"dashboard_id": "d1", "dashboard_title": "Sales", "level": "dashboard", "widget_id": None, "widget_title": None, "widget_type": None, "line_count": 2},
+            {"dashboard_id": "d1", "dashboard_title": "Sales", "level": "widget", "widget_id": "w1", "widget_title": "Revenue", "widget_type": "indicator", "line_count": 1},
+            {"dashboard_id": "d1", "dashboard_title": "Sales", "level": "widget", "widget_id": "w3", "widget_title": None, "widget_type": "chart/pie", "line_count": 3},
+        ]
+
+    def test_include_script_adds_the_text(self):
+        rows = self._dash().find_scripts(include_script=True)["results"]
+        assert rows[1]["script"] == "widget.on('ready', f);"
+
+    def test_no_scripts_is_an_empty_results_list(self):
+        result = self._dash(export=[_EXPORT_WITH_SCRIPTS[1]], listing=[{"oid": "d2", "title": "Plain"}]).find_scripts()
+        assert result == {"results": [], "errors": [], "dashboards_checked": 1}
+
+    def test_admin_listing_uses_the_admin_endpoint(self):
+        dash = self._dash()
+        dash.get_all_dashboards = lambda: [{"oid": "d2", "title": "Plain"}]
+        dash.get_dashboards = lambda: (_ for _ in ()).throw(AssertionError("visible listing must not be read"))
+        assert dash.find_scripts(listing="admin")["dashboards_checked"] == 1
+
+    def test_named_dashboards_are_resolved_and_unknown_ones_reported(self):
+        dash = self._dash(export=[_EXPORT_WITH_SCRIPTS[1]])
+        dash.resolve_dashboard_reference = lambda ref: {"success": True, "dashboard_id": "d2", "dashboard_title": "Plain"} if ref == "Plain" else {"success": False, "error": f"'{ref}' not found"}
+        result = dash.find_scripts(["Plain", "Nope"])
+        assert result["dashboards_checked"] == 1
+        assert result["errors"] == [{"dashboard_id": None, "dashboard_title": "Nope", "error": "'Nope' not found"}]
+
+    def test_exports_in_batches_of_20(self):
+        listing = [{"oid": f"d{i}", "title": f"D{i}"} for i in range(45)]
+        dash = self._dash(export=[], listing=listing)
+        calls = _recording(dash)
+        result = dash.find_scripts()
+        batches = [p["dashboardIds"].split(",") for u, p in calls if u == "/api/v1/dashboards/export"]
+        assert [len(b) for b in batches] == [20, 20, 5]
+        assert all(p["adminAccess"] == "true" for u, p in calls if u == "/api/v1/dashboards/export")
+        assert len(result["errors"]) == 45  # none came back in the (empty) export
+        assert result["errors"][0]["error"] == "Dashboard missing from the export."
+
+    def test_failed_export_is_reported_per_dashboard_and_the_rest_continue(self):
+        result = self._dash(export={"error": "forbidden"}, export_status=403).find_scripts()
+        assert result["results"] == []
+        assert [e["dashboard_id"] for e in result["errors"]] == ["d1", "d2"]
+        assert "403" in result["errors"][0]["error"] or "forbidden" in result["errors"][0]["error"]
+
+    def test_listing_failure_is_the_error_dict(self):
+        dash = _make_dash()
+        result = dash.find_scripts()
+        assert result["ok"] is False
 
 
 class TestGetDashboardScript:
@@ -2007,7 +2141,7 @@ class _JaqlRecordingClient(_RecordingDashClient):
     def post(self, url, data=None, **kwargs):
         if "/jaql" in url:
             self.posted.append((url, data))
-            name = url.split("/api/datasources/")[1].split("/jaql")[0]
+            name = unquote(url.split("/api/datasources/")[1].split("/jaql")[0])
             answer = self.plan.get(name, FakeResponse(200, {"values": [[]]}))
             if isinstance(answer, list):
                 index = self._sequence.get(name, 0)
@@ -2085,7 +2219,7 @@ class TestValidateDashboardQueries:
         assert by_id["w-empty"]["status"] == "skipped" and "no fields" in by_id["w-empty"]["error"]
         assert by_id["w-plugin"]["status"] == "ok"  # fields taken from query.metadata
         urls = [u for u, _ in client.posted]
-        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/Sample%20ECommerce/jaql") == 1
 
     def test_slot_names_map_to_canonical_panels_and_disabled_items_drop(self):
         dash, client = _make_validator()
@@ -2093,7 +2227,7 @@ class TestValidateDashboardQueries:
         pivot = next(body for url, body in client.posted if any(m["jaql"].get("formula") for m in body["metadata"]))
         panels = [(m["panel"], m["jaql"].get("dim") or m["jaql"].get("formula")) for m in pivot["metadata"]]
         assert panels == [("rows", "[region.r_name]"), ("measures", "SUM([A])"), ("columns", "[region.r_comment]")]  # ignore.all -> no dashboard filters
-        line = next(body for url, body in client.posted if "Sample ECommerce" in url)
+        line = next(body for url, body in client.posted if "Sample%20ECommerce" in url)
         assert [m["panel"] for m in line["metadata"]] == ["rows", "measures", "scope"]  # x-axis -> rows; only the ECommerce filter applies
         assert line["metadata"][2]["jaql"]["dim"] == "[Commerce.Age Range]"
         assert all("value" not in m["panel"] for body in (pivot, line) for m in body["metadata"])
@@ -2121,7 +2255,7 @@ class TestValidateDashboardQueries:
         result = dash.validate_dashboard_queries(_V_ID, datasource="fes_persp")
         assert result["datasource"] == "fes_persp"
         urls = [u for u, _ in client.posted]
-        assert urls.count("/api/datasources/fes_persp/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+        assert urls.count("/api/datasources/fes_persp/jaql") == 3 and urls.count("/api/datasources/Sample%20ECommerce/jaql") == 1
         persp_body = next(body for url, body in client.posted if "fes_persp" in url)
         assert persp_body["datasource"] == {"title": "fes_persp", "id": "live:fes_persp", "fullname": "live:fes_persp", "live": True}
 
