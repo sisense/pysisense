@@ -1,6 +1,7 @@
 """Unit tests for pysisense.dashboard.Dashboard."""
 
 import json
+from urllib.parse import unquote
 
 import pytest
 from helpers import FakeApiClient, FakeLogger, FakeResponse
@@ -192,6 +193,14 @@ class TestGetDashboardByName:
         dash = _make_dash()
         result = dash.get_dashboard_by_name("Sales Report")
         assert "error" in result
+
+    def test_name_is_url_encoded(self):
+        dash = _make_dash(get_responses={"/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD])})
+        urls = []
+        original_get = dash.api_client.get
+        dash.api_client.get = lambda url, **kw: urls.append(url) or original_get(url, **kw)
+        dash.get_dashboard_by_name("Sales #2 & Q1+Q2?")
+        assert urls == ["/api/v1/dashboards/admin?dashboardType=owner&name=Sales%20%232%20%26%20Q1%2BQ2%3F"]
 
 
 # ---------------------------------------------------------------------------
@@ -2039,7 +2048,7 @@ class _JaqlRecordingClient(_RecordingDashClient):
     def post(self, url, data=None, **kwargs):
         if "/jaql" in url:
             self.posted.append((url, data))
-            name = url.split("/api/datasources/")[1].split("/jaql")[0]
+            name = unquote(url.split("/api/datasources/")[1].split("/jaql")[0])
             answer = self.plan.get(name, FakeResponse(200, {"values": [[]]}))
             if isinstance(answer, list):
                 index = self._sequence.get(name, 0)
@@ -2117,7 +2126,7 @@ class TestValidateDashboardQueries:
         assert by_id["w-empty"]["status"] == "skipped" and "no fields" in by_id["w-empty"]["error"]
         assert by_id["w-plugin"]["status"] == "ok"  # fields taken from query.metadata
         urls = [u for u, _ in client.posted]
-        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+        assert urls.count("/api/datasources/fes_assistant/jaql") == 3 and urls.count("/api/datasources/Sample%20ECommerce/jaql") == 1
 
     def test_slot_names_map_to_canonical_panels_and_disabled_items_drop(self):
         dash, client = _make_validator()
@@ -2125,7 +2134,7 @@ class TestValidateDashboardQueries:
         pivot = next(body for url, body in client.posted if any(m["jaql"].get("formula") for m in body["metadata"]))
         panels = [(m["panel"], m["jaql"].get("dim") or m["jaql"].get("formula")) for m in pivot["metadata"]]
         assert panels == [("rows", "[region.r_name]"), ("measures", "SUM([A])"), ("columns", "[region.r_comment]")]  # ignore.all -> no dashboard filters
-        line = next(body for url, body in client.posted if "Sample ECommerce" in url)
+        line = next(body for url, body in client.posted if "Sample%20ECommerce" in url)
         assert [m["panel"] for m in line["metadata"]] == ["rows", "measures", "scope"]  # x-axis -> rows; only the ECommerce filter applies
         assert line["metadata"][2]["jaql"]["dim"] == "[Commerce.Age Range]"
         assert all("value" not in m["panel"] for body in (pivot, line) for m in body["metadata"])
@@ -2153,7 +2162,7 @@ class TestValidateDashboardQueries:
         result = dash.validate_dashboard_queries(_V_ID, datasource="fes_persp")
         assert result["datasource"] == "fes_persp"
         urls = [u for u, _ in client.posted]
-        assert urls.count("/api/datasources/fes_persp/jaql") == 3 and urls.count("/api/datasources/Sample ECommerce/jaql") == 1
+        assert urls.count("/api/datasources/fes_persp/jaql") == 3 and urls.count("/api/datasources/Sample%20ECommerce/jaql") == 1
         persp_body = next(body for url, body in client.posted if "fes_persp" in url)
         assert persp_body["datasource"] == {"title": "fes_persp", "id": "live:fes_persp", "fullname": "live:fes_persp", "live": True}
 

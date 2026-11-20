@@ -40,6 +40,28 @@ All notable changes to `pysisense` are documented here. The format follows
   was refused as "must be a valid JSON string". Now a string that parses as a JSON object is sent
   as-is and any other string is wrapped as `{"script": ...}`. Only a string that starts like
   `{"script": ...` but is not valid JSON is still refused.
+- **Names and titles sent in a URL are now URL-encoded.** A name containing `#`, `&`, `+` or `?`
+  broke the request: `#` cut off the rest of the URL, and the others split or changed the query.
+  Affected: `Dashboard.get_dashboard_by_name` (and the title lookup behind every method that
+  accepts a dashboard title), `DataModel.get_datamodel`, `DataModel.get_connection`,
+  `DataModel.import_datamodel_schema` (`newTitle` on `action="duplicate"`, which
+  `Migration.migrate_datamodels_v2` uses), `AccessManagement.create_schedule_build`, and
+  `DataModel.get_data` (the model name in the path and the SQL in `query`).
+- **Data model titles, table and column names in URL paths are URL-encoded too.** A `#`, `?`, `/`
+  or `%` in a title broke these requests: data security reads and writes (`get_datasecurity*`,
+  `update_datasecurity`, `set_live_datasecurity_add_many`, and `delete_datasecurity`, which also
+  encodes the table and column), `get_datamodel_permissions_extract`,
+  `update_datamodel_permissions_extract`, `Queries.elasticube_run_jaql_query`,
+  `Queries.elasticubes_run_jaql_csv`, the SQL translation in
+  `DataModel.analyze_perspective_requirements`, `WellCheck.check_datamodel_rls_datatypes`, and the
+  title-or-id lookups in `resolve_datamodel_reference` and the dashboard datasource checks.
+  Deprecated methods keep their old behaviour.
+- **`DataModel.get_data` reports SQL errors instead of returning an empty list.** Sisense answers a
+  query that does not compile, or names an unknown table or data model, with HTTP 200 and an error
+  body, which `get_data` read as "no rows". It now returns
+  `{"ok": False, "error": "SQL query on DataModel '<name>' failed: <reason>"}`. The many-to-many
+  check in `WellCheck` reads both error bodies the endpoint sends; one of them used to come out as
+  "unrecognized error body".
 
 ### Deprecated
 

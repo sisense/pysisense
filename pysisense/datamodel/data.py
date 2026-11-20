@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
-from ..utils import _extract_error_message
+from ..utils import _extract_error_message, _sql_error_reason
 
 
 class DataMixin:
@@ -27,7 +28,9 @@ class DataMixin:
         list[dict[str, Any]] | dict[str, Any]
             List of dictionaries where each dict represents a row — an empty
             list means the query genuinely returned no data. On failure,
-            returns the standard ``{"ok": False, "error": "...", ...}`` dict.
+            returns the standard ``{"ok": False, "error": "...", ...}`` dict,
+            including when Sisense reports a query error (for example a SQL
+            compile error or an unknown data model) inside an HTTP 200 answer.
         """
         self.logger.debug(f"[START] Retrieving data from DataModel '{datamodel_name}', Table '{table_name}'")
 
@@ -39,13 +42,27 @@ class DataMixin:
         q = query if query else f"SELECT * FROM [{safe_table_name}]"  # noqa: S608 -- identifier is bracket-escaped above
         self.logger.debug(f"SQL Query: {q}")
 
-        url = f"/api/datasources/{datamodel_name}/sql?query={q}"
+        url = f"/api/datasources/{quote(datamodel_name, safe='')}/sql?query={quote(q, safe='')}"
         self.logger.debug(f"Resolved URL: {url}")
 
         response = self.api_client.get(url)
 
-        if response and response.status_code == 200:
-            raw = response.json()
+        if response is not None and response.status_code == 200:
+            try:
+                raw = response.json()
+            except ValueError:
+                raw = None
+            if not isinstance(raw, dict):
+                msg = f"Failed to retrieve data from DataModel '{datamodel_name}', Table '{table_name}': the SQL endpoint returned an unreadable body."
+                self.logger.error(msg)
+                return {"ok": False, "error": msg}
+
+            sql_error = _sql_error_reason(raw)
+            if sql_error:
+                msg = f"SQL query on DataModel '{datamodel_name}' failed: {sql_error}"
+                self.logger.error(msg)
+                return {"ok": False, "error": msg}
+
             headers = raw.get("headers", [])
             values = raw.get("values", [])
 

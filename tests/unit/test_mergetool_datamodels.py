@@ -153,7 +153,7 @@ class TestMigrateDatamodelsConflictHandling:
         src_get, src_post = _basic_source([_SALES_EXTRACT], export_response=FakeResponse(200, _EXPORTED_SALES))
         _, tgt_post = _basic_target(
             existing_datamodels=[_SALES_EXTRACT],
-            tgt_post_extra={"/api/v2/datamodel-imports/schema?newTitle=Sales Cube (Duplicate)": FakeResponse(201, {"oid": "dm3"})},
+            tgt_post_extra={"/api/v2/datamodel-imports/schema?newTitle=Sales%20Cube%20%28Duplicate%29": FakeResponse(201, {"oid": "dm3"})},
         )
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_post=tgt_post)
         result = merge.migrate_datamodels(datamodel_ids=["dm1"], action="duplicate")
@@ -283,14 +283,14 @@ class TestMigrateDatamodelsShares:
         src_get, src_post = _basic_source([_SALES_EXTRACT], export_response=FakeResponse(200, _EXPORTED_SALES))
         src_get["/api/v1/users"] = FakeResponse(200, [{"_id": "src_user_1", "email": "alice@example.com"}])
         src_get["/api/v1/groups"] = FakeResponse(200, [])
-        src_get["/api/elasticubes/localhost/Sales Cube/permissions"] = FakeResponse(200, {"shares": [{"type": "user", "partyId": "src_user_1", "permission": "a"}]})
+        src_get["/api/elasticubes/localhost/Sales%20Cube/permissions"] = FakeResponse(200, {"shares": [{"type": "user", "partyId": "src_user_1", "permission": "a"}]})
 
         tgt_get = {
             "/api/v1/users": FakeResponse(200, [{"_id": "tgt_user_1", "email": "alice@example.com"}]),
             "/api/v1/groups": FakeResponse(200, []),
         }
         _, tgt_post = _basic_target(tgt_post_extra={"/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "dm1"})})
-        tgt_put = {"/api/elasticubes/localhost/Sales Cube/permissions": FakeResponse(200, {})}
+        tgt_put = {"/api/elasticubes/localhost/Sales%20Cube/permissions": FakeResponse(200, {})}
 
         merge = _make_merge(src_get=src_get, src_post=src_post, tgt_get=tgt_get, tgt_post=tgt_post, tgt_put=tgt_put, capture_target=True)
 
@@ -298,7 +298,7 @@ class TestMigrateDatamodelsShares:
 
         assert result["succeeded_count"] == 1
         calls = merge.target_client.calls
-        put_call = next(c for c in calls if c[0] == "PUT" and c[1] == "/api/elasticubes/localhost/Sales Cube/permissions")
+        put_call = next(c for c in calls if c[0] == "PUT" and c[1] == "/api/elasticubes/localhost/Sales%20Cube/permissions")
         assert put_call[2] == [{"partyId": "tgt_user_1", "type": "user", "permission": "a"}]
 
     def test_live_shares_are_published_then_patched(self):

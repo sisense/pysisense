@@ -1134,6 +1134,27 @@ def _quote_sql_identifier(name: str, live: bool) -> str:
     return "[" + name.replace("]", "]]") + "]"
 
 
+def _sql_error_reason(body: Any) -> str | None:
+    """The failure reason in a ``/api/datasources/{title}/sql`` body, or ``None`` when it reports no failure.
+
+    The endpoint answers query failures with HTTP 200 and one of two bodies:
+    ``{"error": "<message>", "status": "..."}`` or ``{"error": true, "details": "<message>", ...}``.
+    """
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if not error:
+        return None
+    if isinstance(error, str):
+        reason = error
+    elif isinstance(error, dict):
+        reason = error.get("message") or error.get("details")
+    else:
+        reason = body.get("details") or body.get("message")
+    reason = " ".join(str(reason).split()) if reason else ""
+    return reason or "unrecognized error body"
+
+
 def _duplicate_key_count(api_client: Any, datasource_title: str, table: str, columns: list[str], live: bool) -> tuple[int | None, str | None]:
     """Count the values of ``columns`` (taken together) that occur more than once in ``table``: ``(count, error)``.
 
@@ -1153,8 +1174,9 @@ def _duplicate_key_count(api_client: Any, datasource_title: str, table: str, col
     if getattr(response, "status_code", None) != 200:
         detail = (body or {}).get("details") if isinstance(body, dict) else None
         return None, f"SQL query on '{table}' failed (HTTP {response.status_code}): {detail or (getattr(response, 'text', '') or '')[:200] or 'no details'}"
-    if isinstance(body, dict) and body.get("error"):
-        return None, f"SQL query on '{table}' failed: {body.get('details') or body.get('message') or 'unrecognized error body'}"
+    sql_error = _sql_error_reason(body)
+    if sql_error:
+        return None, f"SQL query on '{table}' failed: {sql_error}"
     values = body.get("values") if isinstance(body, dict) else None
     try:
         return int(values[0][0]), None

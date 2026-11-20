@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote
 
 from ..utils import _extract_error_message
 
@@ -25,7 +26,7 @@ class DataModelCoreMixin:
         """
         self.logger.debug(f"Fetching DataModel with title: '{datamodel_name}'")
 
-        endpoint = f"/api/v2/datamodels/schema?title={datamodel_name}"
+        endpoint = f"/api/v2/datamodels/schema?title={quote(datamodel_name, safe='')}"
         response = self.api_client.get(endpoint)
 
         if response is None or not response.ok:
@@ -571,7 +572,7 @@ class DataModelCoreMixin:
         if action == "overwrite" and target_datamodel_id:
             query = f"?datamodelId={target_datamodel_id}"
         elif action == "duplicate":
-            query = f"?newTitle={new_title or f'{title} (Duplicate)'}"
+            query = f"?newTitle={quote(new_title or f'{title} (Duplicate)', safe='')}"
 
         endpoint = f"/api/v2/datamodel-imports/schema{query}"
         self.logger.debug(f"Importing datamodel schema for '{title}' (action={action}) — POST {endpoint}")
@@ -642,7 +643,7 @@ class DataModelCoreMixin:
         # -------------------------
         # 1) Try treating it as an ID
         # -------------------------
-        id_endpoint = f"/api/v2/datamodels/{datamodel_ref}/schema"
+        id_endpoint = f"/api/v2/datamodels/{quote(str(datamodel_ref), safe='')}/schema"
         id_response = self.api_client.get(id_endpoint)
 
         if id_response is not None and id_response.status_code == 200:

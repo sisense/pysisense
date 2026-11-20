@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 from ..payloads import PerspectiveTableSpec
 from ..utils import (
@@ -746,7 +747,7 @@ class PerspectivesMixin:
                 widget_ds = widget.get("datasource") if isinstance(widget.get("datasource"), dict) else dashboard.get("datasource")
                 metadata = _widget_query_metadata(widget, dashboard, widget_ds, sources.get(dashboard_oid, model_title), honour_ignore=False)
                 if any(m["panel"] != "scope" for m in metadata):
-                    response = self.api_client.post(f"/api/datasources/{model_title}/jaql/sql", data={"datasource": model_title, "metadata": metadata, "count": 1})
+                    response = self.api_client.post(f"/api/datasources/{quote(model_title, safe='')}/jaql/sql", data={"datasource": model_title, "metadata": metadata, "count": 1})
                     if response is not None and response.status_code == 200 and isinstance(response.text, str) and response.text.strip():
                         sql = response.text
                     else:

@@ -137,7 +137,7 @@ class DashboardCoreMixin:
         """Retrieve a specific dashboard by its name.
 
         Sends ``GET /api/v1/dashboards/admin?dashboardType=owner&name={dashboard_name}``
-        against the admin endpoint.
+        against the admin endpoint, with the name URL-encoded.
 
         Parameters
         ----------
@@ -150,7 +150,7 @@ class DashboardCoreMixin:
             The matching dashboard objects on success, or ``{"error": "..."}``
             when the request fails or no dashboard is found.
         """
-        endpoint = f"/api/v1/dashboards/admin?dashboardType=owner&name={dashboard_name}"
+        endpoint = f"/api/v1/dashboards/admin?dashboardType=owner&name={quote(dashboard_name, safe='')}"
         self.logger.debug(f"Fetching dashboard with name {dashboard_name} from: {endpoint}")
 
         response = self.api_client.get(endpoint)
@@ -677,7 +677,7 @@ class DashboardCoreMixin:
         ``GET /api/v2/datamodels/{oid}/schema``; anything that does not resolve is
         used as a title as given.
         """
-        response = self.api_client.get(f"/api/v2/datamodels/{datamodel}/schema")
+        response = self.api_client.get(f"/api/v2/datamodels/{quote(str(datamodel), safe='')}/schema")
         if response is not None and response.status_code == 200:
             try:
                 title = response.json().get("title")

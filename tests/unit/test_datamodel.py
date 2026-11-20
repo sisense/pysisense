@@ -61,6 +61,14 @@ class TestDataModelInit:
 # ---------------------------------------------------------------------------
 
 
+def _record_gets(obj):
+    """Record every URL passed to ``obj.api_client.get``."""
+    urls = []
+    original = obj.api_client.get
+    obj.api_client.get = lambda url, **kw: urls.append(url) or original(url, **kw)
+    return urls
+
+
 class TestGetDatamodel:
     def test_returns_datamodel_on_success(self):
         dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
@@ -76,6 +84,12 @@ class TestGetDatamodel:
         dm = _make_dm()
         result = dm.get_datamodel("SalesModel")
         assert "error" in result
+
+    def test_title_is_url_encoded(self):
+        dm = _make_dm(get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _DATAMODEL_EXTRACT)})
+        urls = _record_gets(dm)
+        dm.get_datamodel("Sales #2 & Q1+Q2?")
+        assert urls == ["/api/v2/datamodels/schema?title=Sales%20%232%20%26%20Q1%2BQ2%3F"]
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +127,12 @@ class TestGetConnection:
         dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(200, [])})
         result = dm.get_connection("NoSuchConnection")
         assert "error" in result
+
+    def test_name_is_url_encoded(self):
+        dm = _make_dm(get_responses={"/api/v2/connections": FakeResponse(200, [_CONNECTION])})
+        urls = _record_gets(dm)
+        dm.get_connection("Redshift #1 & prod")
+        assert urls == ["/api/v2/connections?name=Redshift%20%231%20%26%20prod"]
 
     def test_returns_error_on_api_failure(self):
         dm = _make_dm()
@@ -757,6 +777,45 @@ class TestGetData:
         assert result["ok"] is False
         assert "connection failed" in result["error"]
 
+    @pytest.mark.parametrize(
+        ("body", "reason"),
+        [
+            (
+                {"error": "Query could not be compiled.\nIdentifier '[Brand]' is ambiguous.", "status": "NQUERY_COMPILATION_ERROR"},
+                "Query could not be compiled. Identifier '[Brand]' is ambiguous.",
+            ),
+            (
+                {"error": True, "details": "Query could not be compiled.\nObject 'NoSuchTable' not found", "type": "500", "httpStatusCode": 500},
+                "Query could not be compiled. Object 'NoSuchTable' not found",
+            ),
+            (
+                {"error": True, "details": "ElastiCube was not found", "httpStatusCode": 400, "subType": "elasticubeNotFound"},
+                "ElastiCube was not found",
+            ),
+            ({"error": True}, "unrecognized error body"),
+        ],
+    )
+    def test_sql_error_in_a_200_answer_is_an_error_dict(self, body, reason):
+        dm = _make_dm(get_responses={"/api/datasources/": FakeResponse(200, body)})
+        result = dm.get_data("SalesModel", "orders", query="SELECT bad")
+        assert result == {"ok": False, "error": f"SQL query on DataModel 'SalesModel' failed: {reason}"}
+
+    def test_unreadable_200_body_is_an_error_dict(self):
+        dm = _make_dm(get_responses={"/api/datasources/": FakeResponse(200, ["not", "a", "dict"])})
+        result = dm.get_data("SalesModel", "orders")
+        assert result["ok"] is False
+        assert "unreadable body" in result["error"]
+
+    def test_query_with_no_rows_is_still_an_empty_list(self):
+        dm = _make_dm(get_responses={"/api/datasources/": FakeResponse(200, {"headers": ["id"], "values": []})})
+        assert dm.get_data("SalesModel", "orders") == []
+
+    def test_model_name_and_query_are_url_encoded(self):
+        dm = _make_dm(get_responses={"/api/datasources/": FakeResponse(200, {"headers": [], "values": []})})
+        urls = _record_gets(dm)
+        dm.get_data("Sales #2", "orders", query="SELECT * FROM [orders] WHERE code = 'A#1' AND n = 1+1")
+        assert urls == ["/api/datasources/Sales%20%232/sql?query=SELECT%20%2A%20FROM%20%5Borders%5D%20WHERE%20code%20%3D%20%27A%231%27%20AND%20n%20%3D%201%2B1"]
+
 
 # ---------------------------------------------------------------------------
 # get_row_count
@@ -1043,6 +1102,17 @@ class TestSetLiveDatasecurityAddMany:
 
 
 class TestDeleteDatasecurity:
+    def test_table_and_column_are_url_encoded_in_the_path(self):
+        dm = _make_dm(
+            get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
+            delete_responses={"/api/elasticubes/localhost/": FakeResponse(200, {})},
+        )
+        urls = []
+        original = dm.api_client.delete
+        dm.api_client.delete = lambda url, **kw: urls.append(url) or original(url, **kw)
+        dm.delete_datasecurity("SalesCube", "Order Items", "Region #")
+        assert urls == ["/api/elasticubes/localhost/SalesCube/datasecurity/Order%20Items/Region%20%23"]
+
     def test_deletes_extract_rule(self):
         dm = _make_dm(
             get_responses={"/api/v2/datamodels/schema": FakeResponse(200, _EXTRACT_MODEL)},
@@ -1072,6 +1142,14 @@ class TestDeleteDatasecurity:
 # ---------------------------------------------------------------------------
 
 
+class TestPermissionsExtractPath:
+    def test_title_is_url_encoded_in_the_path(self):
+        dm = _make_dm(get_responses={"/api/elasticubes/localhost/": FakeResponse(200, {"shares": []})})
+        urls = _record_gets(dm)
+        dm.get_datamodel_permissions_extract("Sales #2")
+        assert urls == ["/api/elasticubes/localhost/Sales%20%232/permissions"]
+
+
 class TestGetDatasecurityRaw:
     def test_returns_raw_rules_with_explicit_type(self):
         dm = _make_dm(get_responses={"/api/elasticubes/localhost/SalesCube/datasecurity": FakeResponse(200, _DS_RULES)})
@@ -1088,6 +1166,19 @@ class TestGetDatasecurityRaw:
         dm = _make_dm()
         result = dm.get_datasecurity_raw("SalesCube", datamodel_type="bogus")
         assert "error" in result
+
+    @pytest.mark.parametrize(
+        ("model_type", "expected"),
+        [
+            ("extract", "/api/elasticubes/localhost/Sales%20%232%20%2F%20EU/datasecurity"),
+            ("live", "/api/v1/elasticubes/live/Sales%20%232%20%2F%20EU/datasecurity"),
+        ],
+    )
+    def test_title_is_url_encoded_in_the_path(self, model_type, expected):
+        dm = _make_dm(get_responses={"/api/": FakeResponse(200, _DS_RULES)})
+        urls = _record_gets(dm)
+        dm.get_datasecurity_raw("Sales #2 / EU", datamodel_type=model_type)
+        assert urls == [expected]
 
     def test_resolves_by_name_when_type_omitted(self):
         dm = _make_dm(
@@ -1228,9 +1319,17 @@ class TestImportDatamodelSchema:
         assert result == {"datamodel_id": "dm1", "already_exists": False}
 
     def test_duplicate_uses_new_title_query(self):
-        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema?newTitle=SalesCube (Duplicate)": FakeResponse(201, {"oid": "dm2"})})
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema?newTitle=SalesCube%20%28Duplicate%29": FakeResponse(201, {"oid": "dm2"})})
         result = dm.import_datamodel_schema({"title": "SalesCube"}, action="duplicate")
         assert result == {"datamodel_id": "dm2", "already_exists": False}
+
+    def test_duplicate_new_title_is_url_encoded(self):
+        dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema": FakeResponse(201, {"oid": "dm2"})})
+        urls = []
+        original = dm.api_client.post
+        dm.api_client.post = lambda url, **kw: urls.append(url) or original(url, **kw)
+        dm.import_datamodel_schema({"title": "SalesCube"}, action="duplicate", new_title="Sales #2 & Copy")
+        assert urls == ["/api/v2/datamodel-imports/schema?newTitle=Sales%20%232%20%26%20Copy"]
 
     def test_already_exists_conflict_is_flagged(self):
         dm = _make_dm(post_responses={"/api/v2/datamodel-imports/schema": FakeResponse(400, {"title": "ElasticubeAlreadyExists"})})
@@ -1740,7 +1839,7 @@ def _b_export(widgets, filters=()):
 
 def _make_analyzer_b(export, sql=None, sql_status=200, sql_dups=None):
     listing = [{"oid": "db1", "title": "Governance", "owner": "u1", "datasource": _B_DS, "widgetsDatasources": [_B_DS]}]
-    post = {"/api/datasources/Model B/jaql/sql": FakeResponse(sql_status, None, text=sql)} if sql is not None else None
+    post = {"/api/datasources/Model%20B/jaql/sql": FakeResponse(sql_status, None, text=sql)} if sql is not None else None
     return _make_dm(
         get_responses={
             "/api/v2/datamodels/dm-b/schema": FakeResponse(200, _B_SCHEMA),
@@ -2022,7 +2121,7 @@ class TestAnalyzePerspectiveJoins:
         # Every widget is translated now, since the SQL is what says which tables a query really needs,
         # and each is translated once: two widgets, two calls.
         assert len(posts) == 2, posts
-        assert {url for url, _ in posts} == {"/api/datasources/Model B/jaql/sql"}
+        assert {url for url, _ in posts} == {"/api/datasources/Model%20B/jaql/sql"}
         body = next(data for _url, data in posts if data["metadata"][0]["jaql"]["table"] == "dim_datamodels")
         assert body["datasource"] == "Model B"
         # The dashboard filter travels with the widget's own field, as the scope panel.

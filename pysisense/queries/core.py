@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import quote
 
 from ..utils import _extract_error_message
 
@@ -30,7 +31,7 @@ class QueriesCoreMixin:
         dict[str, Any]
             Query result from the API, or ``{"error": "..."}`` on failure.
         """
-        endpoint = f"/api/datasources/{datasource_name}/jaql"
+        endpoint = f"/api/datasources/{quote(datasource_name, safe='')}/jaql"
         context = f"JAQL query on '{datasource_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
         response = self.api_client.post(endpoint, data=jaql_payload)
@@ -75,7 +76,7 @@ class QueriesCoreMixin:
             Parsed JSON if the response is JSON, raw CSV text if the response
             is not JSON, or ``{"error": "..."}`` on failure.
         """
-        endpoint = f"/api/datasources/{datasource_name}/jaql/csv"
+        endpoint = f"/api/datasources/{quote(datasource_name, safe='')}/jaql/csv"
         context = f"JAQL CSV query on '{datasource_name}'"
         self.logger.debug(f"POST {endpoint} — context={context!r}")
         # Sent as a form field, not a JSON body; see the docstring.
