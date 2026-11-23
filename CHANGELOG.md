@@ -79,6 +79,10 @@ All notable changes to `pysisense` are documented here. The format follows
   `adminAccess=true` to `GET /api/v1/dashboards/{id}/widgets`, which rejects it with HTTP 422, so
   every dashboard was skipped and the search always came back empty. It now uses
   `GET /api/dashboards/{id}/widgets?adminAccess=true`.
+- **`Blox.get_blox_widget_style` and `update_blox_widget_style` work with admin access again.** They
+  read the widget from `GET /api/v1/dashboards/{id}/widgets/{widget_id}?adminAccess=true`, which
+  answers HTTP 422, so both always failed. They now read it from
+  `GET /api/dashboards/{id}/widgets/{widget_id}?adminAccess=true`.
 
 ### Deprecated
 

@@ -188,9 +188,8 @@ class BloxWidgetsMixin:
             The full widget object, or ``{"error": "..."}`` on failure or if
             the widget type is not ``"BloX"``.
         """
-        endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets/{widget_id}"
-        if admin_access:
-            endpoint += "?adminAccess=true"
+        # /api/v1/dashboards/{id}/widgets/{wid} rejects adminAccess with 422; the non-v1 route accepts it.
+        endpoint = f"/api/dashboards/{dashboard_id}/widgets/{widget_id}?adminAccess=true" if admin_access else f"/api/v1/dashboards/{dashboard_id}/widgets/{widget_id}"
 
         self.logger.debug(f"Fetching BloX widget {widget_id} on dashboard {dashboard_id}.")
         response = self.api_client.get(endpoint)

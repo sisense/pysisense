@@ -52,8 +52,28 @@ def _make_blox(get_responses=None, post_responses=None, put_responses=None):
 
 
 class TestGetBloxWidgetStyle:
-    def test_returns_card_and_config_on_success(self):
+    def test_admin_read_uses_the_non_v1_route(self):
+        # /api/v1/dashboards/{id}/widgets/{wid} answers 422 to adminAccess
+        class _Recording(FakeApiClient):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.get_urls: list[str] = []
+
+            def get(self, url, **kwargs):
+                self.get_urls.append(url)
+                return super().get(url, **kwargs)
+
+        client = _Recording(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())}, logger=FakeLogger())
+        result = Blox(api_client=client).get_blox_widget_style("dash123", "widget456")
+        assert "currentCard" in result
+        assert client.get_urls == ["/api/dashboards/dash123/widgets/widget456?adminAccess=true"]
+
+    def test_non_admin_read_uses_the_v1_route(self):
         blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())})
+        assert "currentCard" in blox.get_blox_widget_style("dash123", "widget456", admin_access=False)
+
+    def test_returns_card_and_config_on_success(self):
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())})
         result = blox.get_blox_widget_style("dash123", "widget456")
         assert result == {
             "currentCard": {"style": "body { color: red; }", "body": [{"type": "TextBlock", "text": "Hello"}]},
@@ -61,7 +81,7 @@ class TestGetBloxWidgetStyle:
         }
 
     def test_returns_error_for_non_blox_widget_type(self):
-        blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _NON_BLOX_WIDGET)})
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _NON_BLOX_WIDGET)})
         result = blox.get_blox_widget_style("dash123", "widget456")
         assert "error" in result
         assert "BloX" in result["error"]
@@ -72,24 +92,24 @@ class TestGetBloxWidgetStyle:
         assert "error" in result
 
     def test_returns_error_on_403(self):
-        blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(403, {"message": "forbidden"})})
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(403, {"message": "forbidden"})})
         result = blox.get_blox_widget_style("dash123", "widget456")
         assert "error" in result
 
     def test_returns_error_on_404(self):
-        blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(404, {"message": "not found"})})
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(404, {"message": "not found"})})
         result = blox.get_blox_widget_style("dash123", "widget456")
         assert "error" in result
 
     def test_returns_empty_dicts_when_style_block_absent(self):
         widget_no_style = {**_blox_widget(), "style": {}}
-        blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, widget_no_style)})
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, widget_no_style)})
         result = blox.get_blox_widget_style("dash123", "widget456")
         assert result == {"currentCard": {}, "currentConfig": {}}
 
     def test_returns_empty_dicts_when_style_key_missing(self):
         widget_no_style_key = {k: v for k, v in _blox_widget().items() if k != "style"}
-        blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, widget_no_style_key)})
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, widget_no_style_key)})
         result = blox.get_blox_widget_style("dash123", "widget456")
         assert result == {"currentCard": {}, "currentConfig": {}}
 
@@ -102,7 +122,7 @@ class TestGetBloxWidgetStyle:
 class TestUpdateBloxWidgetStyleNoOwnership:
     def test_updates_card_only(self):
         blox = _make_blox(
-            get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
+            get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
             put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, {})},
         )
         new_card = {"style": "body { color: blue; }", "body": []}
@@ -113,7 +133,7 @@ class TestUpdateBloxWidgetStyleNoOwnership:
 
     def test_updates_config_only(self):
         blox = _make_blox(
-            get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
+            get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
             put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, {})},
         )
         new_config = {"fontFamily": "Roboto", "fontSizes": {"default": 14}}
@@ -124,7 +144,7 @@ class TestUpdateBloxWidgetStyleNoOwnership:
 
     def test_updates_both_objects(self):
         blox = _make_blox(
-            get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
+            get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
             put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, {})},
         )
         new_card = {"style": "body { color: green; }"}
@@ -135,7 +155,7 @@ class TestUpdateBloxWidgetStyleNoOwnership:
     def test_read_modify_write_roundtrip(self):
         # The documented flow: get the objects, tweak a field, pass them back
         blox = _make_blox(
-            get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
+            get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
             put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, {})},
         )
         style = blox.get_blox_widget_style("dash123", "widget456")
@@ -147,7 +167,7 @@ class TestUpdateBloxWidgetStyleNoOwnership:
     def test_returns_current_style_when_no_objects_provided(self):
         # No PUT should be made — returns current style immediately
         blox = _make_blox(
-            get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
+            get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
         )
         result = blox.update_blox_widget_style("dash123", "widget456")
         assert result == {
@@ -156,7 +176,7 @@ class TestUpdateBloxWidgetStyleNoOwnership:
         }
 
     def test_returns_error_for_non_blox_widget(self):
-        blox = _make_blox(get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _NON_BLOX_WIDGET)})
+        blox = _make_blox(get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _NON_BLOX_WIDGET)})
         result = blox.update_blox_widget_style("dash123", "widget456", current_card={"style": "body {}"})
         assert "error" in result
         assert "BloX" in result["error"]
@@ -168,7 +188,7 @@ class TestUpdateBloxWidgetStyleNoOwnership:
 
     def test_returns_error_on_put_failure(self):
         blox = _make_blox(
-            get_responses={"/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
+            get_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget())},
             put_responses={"/api/dashboards/dash123/widgets/widget456": FakeResponse(500, {"error": "fail"})},
         )
         result = blox.update_blox_widget_style("dash123", "widget456", current_card={"style": "body {}"})
@@ -199,7 +219,7 @@ def _make_ownership_client(put_response: FakeResponse) -> _TrackingApiClient:
         get_responses={
             "/api/v1/dashboards/admin": FakeResponse(200, [{"owner": "original_owner"}]),
             "/api/shares/dashboard/dash123": FakeResponse(200, {"sharesTo": []}),
-            "/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget()),
+            "/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget()),
         },
         post_responses={
             "/api/v1/dashboards/dash123/change_owner": FakeResponse(200, {}),
@@ -242,7 +262,7 @@ class TestUpdateBloxWidgetStyleOwnership:
         logger = FakeLogger()
         client = _TrackingApiClient(
             get_responses={
-                "/api/v1/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget()),
+                "/api/dashboards/dash123/widgets/widget456": FakeResponse(200, _blox_widget()),
                 # No admin endpoint → None → take_ownership fails
             },
             logger=logger,
