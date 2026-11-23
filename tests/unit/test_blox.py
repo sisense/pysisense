@@ -72,28 +72,27 @@ class TestGetBloxActions:
     def test_returns_error_on_none_response(self):
         b = _make_blox()  # no responses → None
         result = b.get_blox_actions()
-        assert isinstance(result, list)
-        assert "error" in result[0]
+        assert result["ok"] is False
 
     def test_returns_error_on_non_200(self):
         b = _make_blox(get_responses={"/api/v1/blox/getCustomActions": FakeResponse(403, {"message": "forbidden"})})
         result = b.get_blox_actions()
-        assert "error" in result[0]
+        assert result["ok"] is False
 
     def test_returns_error_on_500(self):
         b = _make_blox(get_responses={"/api/v1/blox/getCustomActions": FakeResponse(500, {"error": "server error"})})
         result = b.get_blox_actions()
-        assert "error" in result[0]
+        assert result["ok"] is False
 
     def test_error_message_includes_status_code(self):
         b = _make_blox(get_responses={"/api/v1/blox/getCustomActions": FakeResponse(403, {})})
         result = b.get_blox_actions()
-        assert "403" in result[0]["error"]
+        assert result["status_code"] == 403
 
     def test_returns_error_when_response_is_not_a_list(self):
         b = _make_blox(get_responses={"/api/v1/blox/getCustomActions": FakeResponse(200, {"actions": []})})
         result = b.get_blox_actions()
-        assert "error" in result[0]
+        assert result["ok"] is False
 
 
 # ---------------------------------------------------------------------------

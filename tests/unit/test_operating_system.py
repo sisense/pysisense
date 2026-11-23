@@ -161,10 +161,10 @@ class TestBloxOperatingSystemRouting:
         # Only the Windows endpoint is wired — Linux client should get None
         b = _make_blox_with_os("linux", _WINDOWS_ENDPOINT)
         result = b.get_blox_actions()
-        assert "error" in result[0]
+        assert result["ok"] is False
 
     def test_windows_does_not_hit_linux_endpoint(self):
         # Only the Linux endpoint is wired — Windows client should get None
         b = _make_blox_with_os("windows", _LINUX_ENDPOINT)
         result = b.get_blox_actions()
-        assert "error" in result[0]
+        assert result["ok"] is False

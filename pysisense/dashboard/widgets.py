@@ -135,7 +135,7 @@ class DashboardWidgetsMixin:
         *,
         admin_access: bool = True,
         max_results: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]] | dict[str, Any]:
         """Find all widgets matching a given type across one or more dashboards.
 
         Iterates over the specified dashboards (or all dashboards when
@@ -171,27 +171,33 @@ class DashboardWidgetsMixin:
             - ``widget_title`` (str): The title of the matching widget.
             - ``widget_type`` (str): The type of the matching widget.
 
-            Returns an empty list when no matches are found or all lookups fail.
+            An empty list means no checked dashboard has a widget of that type. A
+            dashboard that cannot be resolved or read is skipped and logged. The standard
+            ``{"ok": False, "error": "...", ...}`` dict when the dashboard listing fails, or
+            when every dashboard to check could not be resolved or read.
         """
         if isinstance(dashboards, str):
             dashboards = [dashboards]
 
         # Build the list of (id, title) pairs to scan
         targets: list[tuple[str, str]] = []
+        unreadable: list[str] = []
 
         if dashboards is None:
             list_endpoint = "/api/v1/dashboards/admin?dashboardType=owner" if admin_access else "/api/v1/dashboards"
             self.logger.debug(f"No dashboards specified — fetching full dashboard list (admin_access={admin_access}).")
             all_dash_response = self.api_client.get(list_endpoint)
             if all_dash_response is None or all_dash_response.status_code != 200:
-                self.logger.error("Failed to retrieve dashboard list for find_widgets_by_type.")
-                return []
+                failure = _extract_error_message(all_dash_response, "Failed to retrieve the dashboard list", self.api_client)
+                self.logger.error(failure["error"])
+                return failure
             targets = [(d["oid"], d.get("title", "")) for d in all_dash_response.json() if "oid" in d]
         else:
             for dashboard_ref in dashboards:
                 ref = self.resolve_dashboard_reference(dashboard_ref)
                 if not ref.get("success"):
                     self.logger.warning(f"Could not resolve dashboard '{dashboard_ref}': {ref.get('error')}")
+                    unreadable.append(str(dashboard_ref))
                     continue
                 targets.append((ref["dashboard_id"], ref.get("dashboard_title") or ""))
 
@@ -203,13 +209,13 @@ class DashboardWidgetsMixin:
             if max_results is not None and len(results) >= max_results:
                 break
 
-            widgets_endpoint = f"/api/v1/dashboards/{dashboard_id}/widgets"
-            if admin_access:
-                widgets_endpoint += "?adminAccess=true"
+            # /api/v1/dashboards/{id}/widgets rejects adminAccess with 422; the non-v1 route accepts it.
+            widgets_endpoint = f"/api/dashboards/{dashboard_id}/widgets?adminAccess=true" if admin_access else f"/api/v1/dashboards/{dashboard_id}/widgets"
 
             widgets_response = self.api_client.get(widgets_endpoint)
             if widgets_response is None or widgets_response.status_code != 200:
                 self.logger.warning(f"Could not fetch widgets for dashboard {dashboard_id}, skipping.")
+                unreadable.append(dashboard_title or dashboard_id)
                 continue
 
             widgets_data = widgets_response.json()
@@ -229,5 +235,10 @@ class DashboardWidgetsMixin:
                     if max_results is not None and len(results) >= max_results:
                         break
 
+        checked = len(targets) + (len(unreadable) if dashboards is not None else 0)
+        if unreadable and len(unreadable) == checked and not results:
+            msg = f"Could not read any of the {checked} dashboard(s) to search: {', '.join(unreadable[:5])}" + (" …" if len(unreadable) > 5 else "")
+            self.logger.error(msg)
+            return {"ok": False, "error": msg}
         self.logger.info(f"Found {len(results)} widget(s) of type '{widget_type}'.")
         return results

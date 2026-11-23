@@ -201,7 +201,7 @@ class TestFindWidgetsByType:
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _BLOX_WIDGET]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _BLOX_WIDGET]),
             }
         )
         results = dash.find_widgets_by_type("BloX")
@@ -213,7 +213,7 @@ class TestFindWidgetsByType:
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _BLOX_WIDGET]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _BLOX_WIDGET]),
             }
         )
         results = dash.find_widgets_by_type("pivot")
@@ -223,7 +223,7 @@ class TestFindWidgetsByType:
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
             }
         )
         results = dash.find_widgets_by_type("chart", dashboards="Sales Report")
@@ -233,7 +233,7 @@ class TestFindWidgetsByType:
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _CHART_WIDGET_2]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _CHART_WIDGET_2]),
             }
         )
         results = dash.find_widgets_by_type("chart", dashboards=["Sales Report"])
@@ -243,7 +243,7 @@ class TestFindWidgetsByType:
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _CHART_WIDGET_2]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET, _CHART_WIDGET_2]),
             }
         )
         results = dash.find_widgets_by_type("chart", max_results=1)
@@ -257,18 +257,28 @@ class TestFindWidgetsByType:
             }
         )
         results = dash.find_widgets_by_type("chart")
-        assert results == []
+        assert results["ok"] is False  # the only dashboard could not be read: not "no widgets"
 
-    def test_returns_empty_when_dashboard_list_fetch_fails(self):
+    def test_partial_widget_fetch_failure_returns_the_matches_found(self):
+        dash = _make_dash(
+            get_responses={
+                "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD, {"oid": "other", "title": "Other"}]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
+            }
+        )
+        results = dash.find_widgets_by_type("chart")
+        assert isinstance(results, list) and len(results) == 1
+
+    def test_returns_error_when_dashboard_list_fetch_fails(self):
         dash = _make_dash()  # No responses → None
         results = dash.find_widgets_by_type("chart")
-        assert results == []
+        assert results["ok"] is False
 
     def test_result_contains_expected_keys(self):
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
             }
         )
         results = dash.find_widgets_by_type("chart")
@@ -279,7 +289,7 @@ class TestFindWidgetsByType:
         dash = _make_dash(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
             }
         )
         results = dash.find_widgets_by_type("chart")
@@ -298,7 +308,8 @@ class TestFindWidgetsByType:
             }
         )
         results = dash.find_widgets_by_type("chart", dashboards=["NonExistentDash"])
-        assert results == []
+        assert results["ok"] is False
+        assert "NonExistentDash" in results["error"]
 
     def test_admin_access_false_uses_non_admin_dashboard_list(self):
         # With admin_access=False the enumeration falls back to the user-visible list
@@ -325,11 +336,13 @@ class TestFindWidgetsByType:
         client = _RecordingClient(
             get_responses={
                 "/api/v1/dashboards/admin": FakeResponse(200, [_DASHBOARD]),
-                "/api/v1/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
+                "/api/dashboards/dash123/widgets": FakeResponse(200, [_CHART_WIDGET]),
             },
             logger=FakeLogger(),
         )
         dash = Dashboard(api_client=client)
         results = dash.find_widgets_by_type("chart")
         assert len(results) == 1
+        # /api/v1/dashboards/{id}/widgets answers 422 to adminAccess; the non-v1 route is used
+        assert "/api/dashboards/dash123/widgets?adminAccess=true" in client.get_urls
         assert client.get_urls[0] == "/api/v1/dashboards/admin?dashboardType=owner"
