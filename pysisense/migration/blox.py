@@ -157,8 +157,8 @@ class BloxMigrationMixin:
         self._emit(emit, {"type": "progress", "step": "fetch_source_actions", "message": "Fetching Blox actions from the source environment."})
         self.logger.debug("Fetching Blox actions from source.")
         src_response = src_blox.get_blox_actions()
-        if src_response and isinstance(src_response[0], dict) and "error" in src_response[0]:
-            raw_error = src_response[0]["error"]
+        if isinstance(src_response, dict):
+            raw_error = src_response.get("error")
             self.logger.error("Failed to fetch Blox actions from source: %s", raw_error)
             self._emit(emit, {"type": "error", "step": "fetch_source_actions", "message": "Failed to fetch Blox actions from source.", "raw_error": raw_error})
             return summary
@@ -190,7 +190,13 @@ class BloxMigrationMixin:
         # Step 3: Fetch target Blox actions for conflict detection
         self._emit(emit, {"type": "progress", "step": "fetch_target_actions", "message": "Fetching Blox actions from the target environment."})
         tgt_response = tgt_blox.get_blox_actions()
-        target_actions: list[dict[str, Any]] = [] if tgt_response and isinstance(tgt_response[0], dict) and "error" in tgt_response[0] else tgt_response
+        if isinstance(tgt_response, dict):
+            # Without the target's actions no conflict can be detected, so nothing is written.
+            raw_error = tgt_response.get("error")
+            self.logger.error("Failed to fetch Blox actions from target: %s", raw_error)
+            self._emit(emit, {"type": "error", "step": "fetch_target_actions", "message": "Failed to fetch Blox actions from target.", "raw_error": raw_error})
+            return summary
+        target_actions: list[dict[str, Any]] = tgt_response
         target_by_type: dict[str, dict[str, Any]] = {a["type"]: a for a in target_actions if a.get("type")}
         self.logger.debug("Found %s Blox action(s) on target.", len(target_actions))
         self._emit(emit, {"type": "progress", "step": "fetch_target_actions", "message": "Fetched target Blox actions.", "count": len(target_actions)})

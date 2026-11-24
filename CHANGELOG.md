@@ -67,6 +67,23 @@ All notable changes to `pysisense` are documented here. The format follows
   check in `WellCheck` reads both error bodies the endpoint sends; one of them used to come out as
   "unrecognized error body".
 
+- **`Blox.get_blox_actions` returns the plain error dict on failure**, not a one-item list
+  (`[{"ok": False, ...}]`). `save_blox_action` and `delete_blox_action` now carry the Sisense reason
+  and `status_code` in their errors, and no longer fail when a successful answer is not JSON.
+- **`Migration.migrate_blox_actions` stops when it cannot list the target's actions.** It used to
+  continue as if the target had none, so existing actions were not seen as conflicts.
+- **`Dashboard.find_widgets_by_type` no longer returns `[]` when it could not search.** A failed
+  dashboard listing, or a search where no dashboard could be resolved or read, returns the standard
+  error dict. A partial failure still returns the matches found.
+- **`Dashboard.find_widgets_by_type` can read widgets with admin access again.** It sent
+  `adminAccess=true` to `GET /api/v1/dashboards/{id}/widgets`, which rejects it with HTTP 422, so
+  every dashboard was skipped and the search always came back empty. It now uses
+  `GET /api/dashboards/{id}/widgets?adminAccess=true`.
+- **`Blox.get_blox_widget_style` and `update_blox_widget_style` work with admin access again.** They
+  read the widget from `GET /api/v1/dashboards/{id}/widgets/{widget_id}?adminAccess=true`, which
+  answers HTTP 422, so both always failed. They now read it from
+  `GET /api/dashboards/{id}/widgets/{widget_id}?adminAccess=true`.
+
 ### Deprecated
 
 - **`Migration.migrate_groups`, `migrate_all_groups`, `migrate_users`, `migrate_all_users`,

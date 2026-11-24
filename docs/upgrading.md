@@ -18,6 +18,8 @@ while as deprecated aliases).
 |---|---|---|
 | `DeprecationWarning: use migrate_groups_v2` (or another `*_v2`) from a `Migration` call | The old method is replaced by its `*_v2` version. | Call the `*_v2` method. Its parameters and result differ: see the second table below. |
 | `DeprecationWarning: use Migration.<method>` from a `MergeTool` call | `MergeTool` is deprecated. | Create a `Migration` instead and call the method the warning names. Same parameters, same result. |
+| `KeyError: 0` or `TypeError` reading `get_blox_actions()[0]["error"]` | A failed `get_blox_actions` now returns the plain error dict, not a one-item list. | Check `result.get("ok") is False` (or `isinstance(result, dict)`). |
+| `find_widgets_by_type` returns a dict where code expected a list | A failed dashboard listing, or a search where no dashboard could be read, now returns the error dict instead of `[]`. | Check `result.get("ok") is False` before iterating. An empty list still means no matching widgets. |
 
 ### From `MergeTool`: same code, switch the class
 

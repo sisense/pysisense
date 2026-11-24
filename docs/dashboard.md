@@ -447,7 +447,8 @@ Searches for all widgets matching a given type across one or more dashboards.
 
 **Returns:**
 
--   `list[dict]`: Match records, each containing `dashboard_id`, `dashboard_title`, `widget_id`, `widget_title`, and `widget_type`. Returns an empty list when no matches are found.
+-   `list[dict]`: Match records, each containing `dashboard_id`, `dashboard_title`, `widget_id`, `widget_title`, and `widget_type`. An empty list means no checked dashboard has a widget of that type; a dashboard that cannot be resolved or read is skipped and logged.
+-   `dict`: The standard error dict `{"ok": False, "error": "..."}` when the dashboard listing fails, or when every dashboard to check could not be resolved or read.
 
 * * * * *
 

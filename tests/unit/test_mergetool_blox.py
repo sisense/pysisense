@@ -55,6 +55,19 @@ class TestMigrateBloxActionsValidation:
         assert result["status"] == "failed"
 
 
+class TestMigrateBloxActionsTargetFailure:
+    def test_target_fetch_failure_writes_nothing(self):
+        merge = _make_merge(
+            src_get={"/api/v1/blox/getCustomActions": FakeResponse(200, [{"type": "OpenDashboard", "title": "Open"}])},
+            tgt_get={"/api/v1/blox/getCustomActions": FakeResponse(500, {"error": "boom"})},
+            capture_target=True,
+        )
+        result = merge.migrate_blox_actions()
+        assert result["ok"] is False
+        assert result["status"] == "failed"
+        assert [c for c in merge.target_client.calls if c[0] == "POST"] == []
+
+
 # ---------------------------------------------------------------------------
 # migrate_blox_actions — type filtering
 # ---------------------------------------------------------------------------
