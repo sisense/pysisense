@@ -11,8 +11,8 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [{ name = "Sisense Ltd." }]
 maintainers = [
-  { name = "Himanshu Negi", email = "himanshu.negi@sisense.com" },
   { name = "Jeremy Friedel", email = "jeremy.friedel@sisense.com" },
+  { name = "Micael Santana", email = "micael.santana@sisense.com" },
 ]
 keywords = ["Sisense", "API", "SDK", "analytics", "BI"]
 dependencies = [
